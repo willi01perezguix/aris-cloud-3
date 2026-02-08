@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
+    branches: [main]
 
 jobs:
   test:
@@ -32,5 +31,63 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: .
+        run: |
+          pytest -q
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres
+      PYTHONPATH: .
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Import check
+        run: |
+          python -c "import app; print('ok')"
+      - name: Wait for Postgres auth
+        run: |
+          python - <<'PY'
+          import time
+          import psycopg2
+
+          database_url = "postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres"
+          for attempt in range(40):
+              try:
+                  with psycopg2.connect(database_url) as conn:
+                      with conn.cursor() as cur:
+                          cur.execute("SELECT 1")
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise RuntimeError("Postgres auth not ready after 40 attempts")
+          PY
+      - name: Alembic sanity
+        run: |
+          alembic heads
+          python -c "import subprocess, sys; output = subprocess.check_output(['alembic','heads']).decode().strip().splitlines(); heads = [line for line in output if line.strip()]; sys.exit(f'Expected 1 alembic head, got {len(heads)}: {heads}') if len(heads) != 1 else None"
+          alembic upgrade head
+      - name: Run tests
         run: |
           pytest -q

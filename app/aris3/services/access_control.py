@@ -5,6 +5,7 @@ from typing import Callable, Iterable
 
 from app.aris3.core.context import RequestContext
 from app.aris3.core.security import TokenData
+from app.aris3.repos.access_control import AccessControlPolicyRepository
 from app.aris3.repos.rbac import RoleTemplateRepository
 
 
@@ -23,6 +24,7 @@ class AccessControlService:
         deny_resolvers: Iterable[Callable[[RequestContext], Iterable[str]]] | None = None,
     ):
         self.repo = RoleTemplateRepository(db)
+        self.policy_repo = AccessControlPolicyRepository(db)
         self.cache = cache if cache is not None else {}
         self.deny_resolvers = list(deny_resolvers or [])
 
@@ -41,12 +43,22 @@ class AccessControlService:
         if not role_name:
             return PermissionDecision(key=normalized_key, allowed=False, source="default_deny")
 
+        base_allowed = self._get_allowed_permissions(role_name, tenant_id)
+        tenant_allow, tenant_deny = self._get_tenant_role_policy(tenant_id, role_name)
+        user_allow, user_deny = self._get_user_overrides(tenant_id, context.user_id)
         deny_permissions = self._get_denied_permissions(context, token_data)
         if normalized_key in deny_permissions:
             return PermissionDecision(key=normalized_key, allowed=False, source="explicit_deny")
 
-        allowed_permissions = self._get_allowed_permissions(role_name, tenant_id)
-        if normalized_key in allowed_permissions:
+        if normalized_key in user_deny:
+            return PermissionDecision(key=normalized_key, allowed=False, source="user_override_deny")
+        if normalized_key in user_allow:
+            return PermissionDecision(key=normalized_key, allowed=True, source="user_override_allow")
+        if normalized_key in tenant_deny:
+            return PermissionDecision(key=normalized_key, allowed=False, source="tenant_policy_deny")
+        if normalized_key in tenant_allow:
+            return PermissionDecision(key=normalized_key, allowed=True, source="tenant_policy_allow")
+        if normalized_key in base_allowed:
             return PermissionDecision(key=normalized_key, allowed=True, source="role_template")
 
         return PermissionDecision(key=normalized_key, allowed=False, source="default_deny")
@@ -59,16 +71,32 @@ class AccessControlService:
         role_name, tenant_id = self._resolve_role_scope(context, token_data)
         catalog = sorted(self._get_catalog_permissions())
         deny_permissions = self._get_denied_permissions(context, token_data)
-        allowed_permissions = self._get_allowed_permissions(role_name, tenant_id) if role_name else set()
+        base_allowed = self._get_allowed_permissions(role_name, tenant_id) if role_name else set()
+        tenant_allow, tenant_deny = self._get_tenant_role_policy(tenant_id, role_name) if role_name else (set(), set())
+        user_allow, user_deny = self._get_user_overrides(tenant_id, context.user_id)
 
         decisions: list[PermissionDecision] = []
         for key in catalog:
+            # Evaluation order (deterministic): template -> tenant policy -> user override, with DENY precedence.
             if key in deny_permissions:
                 decisions.append(PermissionDecision(key=key, allowed=False, source="explicit_deny"))
-            elif key in allowed_permissions:
+                continue
+            if key in user_deny:
+                decisions.append(PermissionDecision(key=key, allowed=False, source="user_override_deny"))
+                continue
+            if key in user_allow:
+                decisions.append(PermissionDecision(key=key, allowed=True, source="user_override_allow"))
+                continue
+            if key in tenant_deny:
+                decisions.append(PermissionDecision(key=key, allowed=False, source="tenant_policy_deny"))
+                continue
+            if key in tenant_allow:
+                decisions.append(PermissionDecision(key=key, allowed=True, source="tenant_policy_allow"))
+                continue
+            if key in base_allowed:
                 decisions.append(PermissionDecision(key=key, allowed=True, source="role_template"))
-            else:
-                decisions.append(PermissionDecision(key=key, allowed=False, source="default_deny"))
+                continue
+            decisions.append(PermissionDecision(key=key, allowed=False, source="default_deny"))
         return decisions
 
     def _get_catalog_permissions(self) -> set[str]:
@@ -102,6 +130,42 @@ class AccessControlService:
         for resolver in self.deny_resolvers:
             denied.update(resolver(context))
         return denied
+
+    def _get_tenant_role_policy(self, tenant_id: str | None, role_name: str | None) -> tuple[set[str], set[str]]:
+        if not role_name:
+            return set(), set()
+        cache_key = f"tenant_policy:{tenant_id}:{role_name}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        entries = self.policy_repo.list_tenant_role_policies(tenant_id=tenant_id, role_name=role_name)
+        allow: set[str] = set()
+        deny: set[str] = set()
+        for entry in entries:
+            effect = (entry.effect or "").lower()
+            if effect == "deny":
+                deny.add(entry.permission_code)
+            else:
+                allow.add(entry.permission_code)
+        self.cache[cache_key] = (allow, deny)
+        return allow, deny
+
+    def _get_user_overrides(self, tenant_id: str | None, user_id: str | None) -> tuple[set[str], set[str]]:
+        if not tenant_id or not user_id:
+            return set(), set()
+        cache_key = f"user_overrides:{tenant_id}:{user_id}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        entries = self.policy_repo.list_user_overrides(tenant_id=tenant_id, user_id=user_id)
+        allow: set[str] = set()
+        deny: set[str] = set()
+        for entry in entries:
+            effect = (entry.effect or "").lower()
+            if effect == "deny":
+                deny.add(entry.permission_code)
+            else:
+                allow.add(entry.permission_code)
+        self.cache[cache_key] = (allow, deny)
+        return allow, deny
 
     @staticmethod
     def _resolve_role_scope(

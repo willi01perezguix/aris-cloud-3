@@ -101,6 +101,46 @@ class RoleTemplatePermission(Base):
     )
 
 
+class TenantRolePolicy(Base):
+    __tablename__ = "tenant_role_policies"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=True)
+    role_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    permission_code: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
+    effect: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "role_name",
+            "permission_code",
+            name="uq_tenant_role_policy_permission",
+        ),
+    )
+
+
+class UserPermissionOverride(Base):
+    __tablename__ = "user_permission_overrides"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True, nullable=False)
+    permission_code: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
+    effect: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "user_id",
+            "permission_code",
+            name="uq_user_permission_override",
+        ),
+    )
+
+
 class IdempotencyRecord(Base):
     __tablename__ = "idempotency_records"
 

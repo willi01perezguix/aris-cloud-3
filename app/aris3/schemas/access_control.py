@@ -7,12 +7,34 @@ class PermissionEntry(BaseModel):
     source: str
 
 
+class EffectivePermissionSubject(BaseModel):
+    user_id: str
+    tenant_id: str | None
+    store_id: str | None
+    role: str | None
+
+
+class PermissionSourceTrace(BaseModel):
+    allow: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
+
+
+class EffectivePermissionsTrace(BaseModel):
+    template: PermissionSourceTrace
+    tenant: PermissionSourceTrace
+    store: PermissionSourceTrace
+    user: PermissionSourceTrace
+
+
 class EffectivePermissionsResponse(BaseModel):
     user_id: str
     tenant_id: str | None
     store_id: str | None
     role: str | None
     permissions: list[PermissionEntry]
+    subject: EffectivePermissionSubject
+    denies_applied: list[str] = Field(default_factory=list)
+    sources_trace: EffectivePermissionsTrace
     trace_id: str
 
 

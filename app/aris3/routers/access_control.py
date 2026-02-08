@@ -9,9 +9,12 @@ from app.aris3.db.session import get_db
 from app.aris3.repos.users import UserRepository
 from app.aris3.schemas.access_control import (
     EffectivePermissionsResponse,
+    EffectivePermissionSubject,
+    EffectivePermissionsTrace,
     PermissionCatalogEntry,
     PermissionCatalogResponse,
     PermissionEntry,
+    PermissionSourceTrace,
     RolePolicyRequest,
     RolePolicyResponse,
     StoreRolePolicyResponse,
@@ -39,13 +42,38 @@ async def effective_permissions(
         cache = {}
         request.state.permission_cache = cache
     service = AccessControlService(db, cache=cache)
-    decisions = service.build_effective_permissions(context, token_data)
+    decisions, trace = service.build_effective_permissions_with_trace(context, token_data)
+    denies_applied = sorted(
+        {entry.key for entry in decisions if entry.source in {"explicit_deny", "user_override_deny", "store_policy_deny", "tenant_policy_deny"}}
+    )
     return EffectivePermissionsResponse(
         user_id=context.user_id or token_data.sub,
         tenant_id=context.tenant_id or token_data.tenant_id,
         store_id=context.store_id or token_data.store_id,
         role=(context.role or token_data.role),
         permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        subject=EffectivePermissionSubject(
+            user_id=context.user_id or token_data.sub,
+            tenant_id=context.tenant_id or token_data.tenant_id,
+            store_id=context.store_id or token_data.store_id,
+            role=(context.role or token_data.role),
+        ),
+        denies_applied=denies_applied,
+        sources_trace=EffectivePermissionsTrace(
+            template=PermissionSourceTrace(allow=sorted(trace.template_allow), deny=[]),
+            tenant=PermissionSourceTrace(
+                allow=sorted(trace.tenant_allow),
+                deny=sorted(trace.tenant_deny),
+            ),
+            store=PermissionSourceTrace(
+                allow=sorted(trace.store_allow),
+                deny=sorted(trace.store_deny),
+            ),
+            user=PermissionSourceTrace(
+                allow=sorted(trace.user_allow),
+                deny=sorted(trace.user_deny),
+            ),
+        ),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 
@@ -84,13 +112,38 @@ async def effective_permissions_for_user(
         role=target_user.role,
         trace_id=getattr(request.state, "trace_id", ""),
     )
-    decisions = service.build_effective_permissions(context, None)
+    decisions, trace = service.build_effective_permissions_with_trace(context, None)
+    denies_applied = sorted(
+        {entry.key for entry in decisions if entry.source in {"explicit_deny", "user_override_deny", "store_policy_deny", "tenant_policy_deny"}}
+    )
     return EffectivePermissionsResponse(
         user_id=str(target_user.id),
         tenant_id=str(target_user.tenant_id),
         store_id=str(target_user.store_id) if target_user.store_id else None,
         role=target_user.role,
         permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        subject=EffectivePermissionSubject(
+            user_id=str(target_user.id),
+            tenant_id=str(target_user.tenant_id),
+            store_id=str(target_user.store_id) if target_user.store_id else None,
+            role=target_user.role,
+        ),
+        denies_applied=denies_applied,
+        sources_trace=EffectivePermissionsTrace(
+            template=PermissionSourceTrace(allow=sorted(trace.template_allow), deny=[]),
+            tenant=PermissionSourceTrace(
+                allow=sorted(trace.tenant_allow),
+                deny=sorted(trace.tenant_deny),
+            ),
+            store=PermissionSourceTrace(
+                allow=sorted(trace.store_allow),
+                deny=sorted(trace.store_deny),
+            ),
+            user=PermissionSourceTrace(
+                allow=sorted(trace.user_allow),
+                deny=sorted(trace.user_deny),
+            ),
+        ),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 
@@ -138,13 +191,38 @@ async def effective_permissions_for_store_user(
         role=target_user.role,
         trace_id=getattr(request.state, "trace_id", ""),
     )
-    decisions = service.build_effective_permissions(context, None)
+    decisions, trace = service.build_effective_permissions_with_trace(context, None)
+    denies_applied = sorted(
+        {entry.key for entry in decisions if entry.source in {"explicit_deny", "user_override_deny", "store_policy_deny", "tenant_policy_deny"}}
+    )
     return EffectivePermissionsResponse(
         user_id=str(target_user.id),
         tenant_id=str(target_user.tenant_id),
         store_id=str(target_user.store_id) if target_user.store_id else None,
         role=target_user.role,
         permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        subject=EffectivePermissionSubject(
+            user_id=str(target_user.id),
+            tenant_id=str(target_user.tenant_id),
+            store_id=str(target_user.store_id) if target_user.store_id else None,
+            role=target_user.role,
+        ),
+        denies_applied=denies_applied,
+        sources_trace=EffectivePermissionsTrace(
+            template=PermissionSourceTrace(allow=sorted(trace.template_allow), deny=[]),
+            tenant=PermissionSourceTrace(
+                allow=sorted(trace.tenant_allow),
+                deny=sorted(trace.tenant_deny),
+            ),
+            store=PermissionSourceTrace(
+                allow=sorted(trace.store_allow),
+                deny=sorted(trace.store_deny),
+            ),
+            user=PermissionSourceTrace(
+                allow=sorted(trace.user_allow),
+                deny=sorted(trace.user_deny),
+            ),
+        ),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 

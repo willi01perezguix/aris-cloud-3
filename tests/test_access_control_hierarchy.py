@@ -64,8 +64,8 @@ def test_access_control_hierarchy_precedence_and_deny_wins(client, db_session):
     assert response.status_code == 200
 
     store_policy = {
-        "allow": ["USER_MANAGE", "AUDIT_VIEW"],
-        "deny": [],
+        "allow": ["USER_MANAGE"],
+        "deny": ["AUDIT_VIEW"],
         "transaction_id": "txn-h-2",
     }
     response = client.put(
@@ -91,8 +91,16 @@ def test_access_control_hierarchy_precedence_and_deny_wins(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert effective.status_code == 200
-    permissions = {entry["key"]: entry for entry in effective.json()["permissions"]}
+    payload = effective.json()
+    permissions = {entry["key"]: entry for entry in payload["permissions"]}
     assert permissions["USER_MANAGE"]["allowed"] is False
     assert permissions["USER_MANAGE"]["source"] == "tenant_policy_deny"
-    assert permissions["AUDIT_VIEW"]["allowed"] is True
-    assert permissions["AUDIT_VIEW"]["source"] == "user_override_allow"
+    assert permissions["AUDIT_VIEW"]["allowed"] is False
+    assert permissions["AUDIT_VIEW"]["source"] == "store_policy_deny"
+    assert permissions["STORE_VIEW"]["allowed"] is True
+    assert permissions["STORE_VIEW"]["source"] == "role_template"
+    assert set(payload["denies_applied"]) == {"AUDIT_VIEW", "USER_MANAGE"}
+    assert payload["subject"]["user_id"] == str(user.id)
+    assert "MANAGER" == payload["subject"]["role"]
+    assert payload["sources_trace"]["tenant"]["deny"] == ["USER_MANAGE"]
+    assert payload["sources_trace"]["store"]["deny"] == ["AUDIT_VIEW"]

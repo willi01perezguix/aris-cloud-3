@@ -44,9 +44,12 @@ from app.aris3.schemas.admin import (
 )
 from app.aris3.schemas.access_control import (
     EffectivePermissionsResponse,
+    EffectivePermissionSubject,
+    EffectivePermissionsTrace,
     PermissionCatalogEntry,
     PermissionCatalogResponse,
     PermissionEntry,
+    PermissionSourceTrace,
     RolePolicyRequest,
     RolePolicyResponse,
     RoleTemplateRequest,
@@ -639,13 +642,38 @@ async def admin_effective_permissions(
         role=user.role,
         trace_id=getattr(request.state, "trace_id", ""),
     )
-    decisions = service.build_effective_permissions(context, None)
+    decisions, trace = service.build_effective_permissions_with_trace(context, None)
+    denies_applied = sorted(
+        {entry.key for entry in decisions if entry.source in {"explicit_deny", "user_override_deny", "store_policy_deny", "tenant_policy_deny"}}
+    )
     return EffectivePermissionsResponse(
         user_id=str(user.id),
         tenant_id=str(user.tenant_id),
         store_id=target_store_id,
         role=user.role,
         permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        subject=EffectivePermissionSubject(
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            store_id=target_store_id,
+            role=user.role,
+        ),
+        denies_applied=denies_applied,
+        sources_trace=EffectivePermissionsTrace(
+            template=PermissionSourceTrace(allow=sorted(trace.template_allow), deny=[]),
+            tenant=PermissionSourceTrace(
+                allow=sorted(trace.tenant_allow),
+                deny=sorted(trace.tenant_deny),
+            ),
+            store=PermissionSourceTrace(
+                allow=sorted(trace.store_allow),
+                deny=sorted(trace.store_deny),
+            ),
+            user=PermissionSourceTrace(
+                allow=sorted(trace.user_allow),
+                deny=sorted(trace.user_deny),
+            ),
+        ),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 

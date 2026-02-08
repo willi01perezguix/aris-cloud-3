@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.aris3.db.models import PermissionCatalog, RoleTemplate, RoleTemplatePermission, User
 from app.aris3.db.seed import run_seed
+from tests.db_utils import create_postgres_test_database
 
 
 def _run_migrations(database_url: str):
@@ -18,61 +19,85 @@ def _run_migrations(database_url: str):
 
 
 def test_migrations_apply(tmp_path: Path):
-    db_path = tmp_path / "migrations.db"
-    database_url = f"sqlite+pysqlite:///{db_path}"
-    _run_migrations(database_url)
+    database_url = os.getenv("DATABASE_URL", "")
+    cleanup = None
+
+    if database_url.startswith("postgres"):
+        database_url, cleanup = create_postgres_test_database(database_url)
+    else:
+        db_path = tmp_path / "migrations.db"
+        database_url = f"sqlite+pysqlite:///{db_path}"
 
     engine = create_engine(database_url, future=True)
-    inspector = inspect(engine)
-    tables = set(inspector.get_table_names())
+    try:
+        _run_migrations(database_url)
 
-    assert "tenants" in tables
-    assert "stores" in tables
-    assert "users" in tables
-    assert "permission_catalog" in tables
-    assert "role_templates" in tables
-    assert "role_template_permissions" in tables
-    assert "idempotency_records" in tables
-    assert "audit_events" in tables
-    assert "variant_field_settings" in tables
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
 
-    indexes = [index["name"] for index in inspector.get_indexes("audit_events")]
-    assert indexes.count("ix_audit_events_trace_id") == 1
+        assert "tenants" in tables
+        assert "stores" in tables
+        assert "users" in tables
+        assert "permission_catalog" in tables
+        assert "role_templates" in tables
+        assert "role_template_permissions" in tables
+        assert "idempotency_records" in tables
+        assert "audit_events" in tables
+        assert "variant_field_settings" in tables
+
+        indexes = [index["name"] for index in inspector.get_indexes("audit_events")]
+        assert indexes.count("ix_audit_events_trace_id") == 1
+    finally:
+        engine.dispose()
+        if cleanup:
+            cleanup()
 
 
 def test_seed_is_idempotent(tmp_path: Path):
-    db_path = tmp_path / "seed.db"
-    database_url = f"sqlite+pysqlite:///{db_path}"
-    _run_migrations(database_url)
+    database_url = os.getenv("DATABASE_URL", "")
+    cleanup = None
+
+    if database_url.startswith("postgres"):
+        database_url, cleanup = create_postgres_test_database(database_url)
+    else:
+        db_path = tmp_path / "seed.db"
+        database_url = f"sqlite+pysqlite:///{db_path}"
 
     engine = create_engine(database_url, future=True)
-    SessionLocal = sessionmaker(bind=engine, future=True)
+    try:
+        _run_migrations(database_url)
 
-    with SessionLocal() as db:
-        run_seed(db)
-        permissions_count = db.scalar(select(func.count()).select_from(PermissionCatalog))
-        roles_count = db.scalar(select(func.count()).select_from(RoleTemplate))
-        mapping_count = db.scalar(select(func.count()).select_from(RoleTemplatePermission))
-        users_count = db.scalar(select(func.count()).select_from(User))
+        SessionLocal = sessionmaker(bind=engine, future=True)
 
-        run_seed(db)
-        permissions_count_after = db.scalar(select(func.count()).select_from(PermissionCatalog))
-        roles_count_after = db.scalar(select(func.count()).select_from(RoleTemplate))
-        mapping_count_after = db.scalar(select(func.count()).select_from(RoleTemplatePermission))
-        users_count_after = db.scalar(select(func.count()).select_from(User))
+        with SessionLocal() as db:
+            run_seed(db)
+            permissions_count = db.scalar(select(func.count()).select_from(PermissionCatalog))
+            roles_count = db.scalar(select(func.count()).select_from(RoleTemplate))
+            mapping_count = db.scalar(select(func.count()).select_from(RoleTemplatePermission))
+            users_count = db.scalar(select(func.count()).select_from(User))
 
-        assert permissions_count_after == permissions_count
-        assert roles_count_after == roles_count
-        assert mapping_count_after == mapping_count
-        assert users_count_after == users_count
+            run_seed(db)
+            permissions_count_after = db.scalar(select(func.count()).select_from(PermissionCatalog))
+            roles_count_after = db.scalar(select(func.count()).select_from(RoleTemplate))
+            mapping_count_after = db.scalar(select(func.count()).select_from(RoleTemplatePermission))
+            users_count_after = db.scalar(select(func.count()).select_from(User))
 
-        assert (
-            db.scalar(select(func.count()).select_from(RoleTemplate).where(RoleTemplate.name == "SUPERADMIN"))
-            == 1
-        )
-        assert (
-            db.scalar(
-                select(func.count()).select_from(PermissionCatalog).where(PermissionCatalog.code == "TENANT_VIEW")
+            assert permissions_count_after == permissions_count
+            assert roles_count_after == roles_count
+            assert mapping_count_after == mapping_count
+            assert users_count_after == users_count
+
+            assert (
+                db.scalar(select(func.count()).select_from(RoleTemplate).where(RoleTemplate.name == "SUPERADMIN"))
+                == 1
             )
-            == 1
-        )
+            assert (
+                db.scalar(
+                    select(func.count()).select_from(PermissionCatalog).where(PermissionCatalog.code == "TENANT_VIEW")
+                )
+                == 1
+            )
+    finally:
+        engine.dispose()
+        if cleanup:
+            cleanup()

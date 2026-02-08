@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", GUID(), sa.ForeignKey("tenants.id"), nullable=True, index=True),
         sa.Column("name", sa.String(length=100), nullable=False),
         sa.Column("description", sa.String(length=255), nullable=True),
-        sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.UniqueConstraint("tenant_id", "name", name="uq_role_templates_tenant_name"),
     )

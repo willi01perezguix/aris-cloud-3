@@ -107,6 +107,7 @@ class UserActionRequest(BaseModel):
     status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] | None = None
     role: Literal["USER", "MANAGER", "ADMIN"] | None = None
     temporary_password: str | None = None
+    transaction_id: str | None = Field(None, min_length=1, max_length=255)
 
 
 class UserActionResponse(BaseModel):

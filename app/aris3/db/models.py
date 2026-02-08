@@ -107,13 +107,17 @@ class IdempotencyRecord(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     endpoint: Mapped[str] = mapped_column(String(255), nullable=False)
+    method: Mapped[str] = mapped_column(String(16), nullable=False, default="POST")
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    status_code: Mapped[int] = mapped_column(nullable=False)
-    response_body: Mapped[str] = mapped_column(Text, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="in_progress")
+    status_code: Mapped[int | None] = mapped_column(nullable=True)
+    response_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "endpoint", "idempotency_key", name="uq_idempotency"),
+        UniqueConstraint("tenant_id", "endpoint", "method", "idempotency_key", name="uq_idempotency"),
     )
 
 
@@ -123,13 +127,17 @@ class AuditEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     entity: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(255), nullable=False, default="unknown")
+    entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     before_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     after_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     event_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    result: Mapped[str] = mapped_column(String(50), nullable=False, default="success")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

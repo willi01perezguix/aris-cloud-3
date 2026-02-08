@@ -34,3 +34,47 @@ jobs:
           PYTHONPATH: .
         run: |
           pytest -q
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Import check
+        env:
+          PYTHONPATH: .
+        run: |
+          python -c "import app; print('ok')"
+      - name: Alembic sanity
+        env:
+          DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/postgres
+        run: |
+          alembic heads
+          python -c "import subprocess, sys; output = subprocess.check_output(['alembic','heads']).decode().strip().splitlines(); heads = [line for line in output if line.strip()]; sys.exit(f'Expected 1 alembic head, got {len(heads)}: {heads}') if len(heads) != 1 else None"
+          alembic upgrade head
+      - name: Run tests
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/postgres
+        run: |
+          pytest -q

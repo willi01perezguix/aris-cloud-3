@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from alembic import command
 from alembic.config import Config
 
+from tests.db_utils import create_postgres_test_database
+
 
 def _setup_app(database_url: str):
     os.environ["DATABASE_URL"] = database_url
@@ -32,13 +34,24 @@ def _run_migrations(database_url: str):
 
 @pytest.fixture()
 def client(tmp_path: Path):
-    db_path = tmp_path / "test.db"
-    app, session = _setup_app(f"sqlite+pysqlite:///{db_path}")
+    database_url = os.getenv("DATABASE_URL", "")
+    cleanup = None
 
-    _run_migrations(f"sqlite+pysqlite:///{db_path}")
+    if database_url.startswith("postgres"):
+        database_url, cleanup = create_postgres_test_database(database_url)
+    else:
+        db_path = tmp_path / "test.db"
+        database_url = f"sqlite+pysqlite:///{db_path}"
+
+    _run_migrations(database_url)
+    app, session = _setup_app(database_url)
 
     with TestClient(app) as client:
         yield client
+
+    session.engine.dispose()
+    if cleanup:
+        cleanup()
 
 
 @pytest.fixture()

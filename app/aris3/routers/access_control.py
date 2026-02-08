@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from app.aris3.core.context import build_request_context
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_request_context
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import enforce_tenant_scope, is_superadmin
@@ -43,6 +44,50 @@ async def effective_permissions(
         tenant_id=context.tenant_id or token_data.tenant_id,
         store_id=context.store_id or token_data.store_id,
         role=(context.role or token_data.role),
+        permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.get("/effective-permissions/users/{user_id}", response_model=EffectivePermissionsResponse)
+async def effective_permissions_for_user(
+    request: Request,
+    user_id: str,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    role = (token_data.role or "").upper()
+    if not is_superadmin(role) and role != "ADMIN":
+        if user_id != token_data.sub:
+            raise AppError(ErrorCatalog.PERMISSION_DENIED)
+
+    target_user = current_user if user_id == str(current_user.id) else UserRepository(db).get_by_id(user_id)
+    if target_user is None:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "User not found"})
+
+    if not is_superadmin(role):
+        if not token_data.tenant_id or str(target_user.tenant_id) != token_data.tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+
+    cache = getattr(request.state, "permission_cache", None)
+    if cache is None:
+        cache = {}
+        request.state.permission_cache = cache
+    service = AccessControlService(db, cache=cache)
+    context = build_request_context(
+        user_id=str(target_user.id),
+        tenant_id=str(target_user.tenant_id),
+        store_id=str(target_user.store_id) if target_user.store_id else None,
+        role=target_user.role,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    decisions = service.build_effective_permissions(context, None)
+    return EffectivePermissionsResponse(
+        user_id=str(target_user.id),
+        tenant_id=str(target_user.tenant_id),
+        store_id=str(target_user.store_id) if target_user.store_id else None,
+        role=target_user.role,
         permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
         trace_id=getattr(request.state, "trace_id", ""),
     )

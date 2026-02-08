@@ -14,17 +14,24 @@ from app.aris3.core.deps import (
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import is_superadmin
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import Store, User, VariantFieldSettings
+from app.aris3.db.models import Store, Tenant, User, VariantFieldSettings
 from app.aris3.db.session import get_db
 from app.aris3.repos.rbac import RoleTemplateRepository
 from app.aris3.repos.settings import VariantFieldSettingsRepository
 from app.aris3.repos.stores import StoreRepository
+from app.aris3.repos.tenants import TenantRepository
 from app.aris3.repos.users import UserRepository
 from app.aris3.schemas.admin import (
     StoreCreateRequest,
     StoreListResponse,
     StoreResponse,
     StoreUpdateRequest,
+    TenantActionRequest,
+    TenantActionResponse,
+    TenantCreateRequest,
+    TenantListResponse,
+    TenantResponse,
+    TenantUpdateRequest,
     UserActionRequest,
     UserActionResponse,
     UserCreateRequest,
@@ -54,6 +61,15 @@ def _store_item(store: Store) -> dict:
         "tenant_id": str(store.tenant_id),
         "name": store.name,
         "created_at": store.created_at,
+    }
+
+
+def _tenant_item(tenant: Tenant) -> dict:
+    return {
+        "id": str(tenant.id),
+        "name": tenant.name,
+        "status": tenant.status,
+        "created_at": tenant.created_at,
     }
 
 
@@ -96,6 +112,11 @@ def _normalize_role(role: str) -> str:
     return role.strip().upper()
 
 
+def _require_superadmin(token_data) -> None:
+    if not is_superadmin(token_data.role):
+        raise AppError(ErrorCatalog.PERMISSION_DENIED)
+
+
 def _ensure_role_assignment_allowed(
     request: Request,
     *,
@@ -128,6 +149,249 @@ def _ensure_role_assignment_allowed(
                 },
             )
     return normalized
+
+
+@router.get("/tenants", response_model=TenantListResponse)
+async def list_tenants(
+    request: Request,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    tenants = TenantRepository(db).list_all()
+    return TenantListResponse(
+        tenants=[_tenant_item(tenant) for tenant in tenants],
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.post("/tenants", response_model=TenantResponse, status_code=201)
+async def create_tenant(
+    request: Request,
+    payload: TenantCreateRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=token_data.tenant_id or "platform",
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    repo = TenantRepository(db)
+    existing = repo.get_by_name(payload.name)
+    if existing:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "Tenant name already exists", "name": payload.name},
+        )
+
+    tenant = repo.create(Tenant(name=payload.name, status="active"))
+    response = TenantResponse(
+        tenant=_tenant_item(tenant),
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=201, response_body=response.model_dump(mode="json"))
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=str(tenant.id),
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="admin.tenant.create",
+            entity_type="tenant",
+            entity_id=str(tenant.id),
+            before=None,
+            after={"name": tenant.name, "status": tenant.status},
+            metadata=None,
+            result="success",
+        )
+    )
+    return response
+
+
+@router.get("/tenants/{tenant_id}", response_model=TenantResponse)
+async def get_tenant(
+    request: Request,
+    tenant_id: str,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    tenant = TenantRepository(db).get_by_id(tenant_id)
+    if tenant is None:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+    return TenantResponse(
+        tenant=_tenant_item(tenant),
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.patch("/tenants/{tenant_id}", response_model=TenantResponse)
+async def update_tenant(
+    request: Request,
+    tenant_id: str,
+    payload: TenantUpdateRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    tenant = TenantRepository(db).get_by_id(tenant_id)
+    if tenant is None:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=str(tenant.id),
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    repo = TenantRepository(db)
+    existing = repo.get_by_name(payload.name)
+    if existing and str(existing.id) != tenant_id:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "Tenant name already exists", "name": payload.name},
+        )
+
+    before = {"name": tenant.name, "status": tenant.status}
+    tenant.name = payload.name
+    repo.update(tenant)
+
+    response = TenantResponse(
+        tenant=_tenant_item(tenant),
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=str(tenant.id),
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="admin.tenant.update",
+            entity_type="tenant",
+            entity_id=str(tenant.id),
+            before=before,
+            after={"name": tenant.name, "status": tenant.status},
+            metadata=None,
+            result="success",
+        )
+    )
+    return response
+
+
+@router.post("/tenants/{tenant_id}/actions", response_model=TenantActionResponse)
+async def tenant_actions(
+    request: Request,
+    tenant_id: str,
+    payload: TenantActionRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    tenant = TenantRepository(db).get_by_id(tenant_id)
+    if tenant is None:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=str(tenant.id),
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    before = {"name": tenant.name, "status": tenant.status}
+    if payload.action == "set_status":
+        if payload.status is None:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "status is required for set_status"},
+            )
+        normalized = payload.status.upper()
+        if normalized == "ACTIVE":
+            tenant.status = "active"
+        elif normalized == "SUSPENDED":
+            tenant.status = "suspended"
+        else:
+            tenant.status = "canceled"
+    else:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "Unsupported action", "action": payload.action},
+        )
+
+    TenantRepository(db).update(tenant)
+
+    response = TenantActionResponse(
+        tenant=_tenant_item(tenant),
+        action=payload.action,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=str(tenant.id),
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="admin.tenant.set_status",
+            entity_type="tenant",
+            entity_id=str(tenant.id),
+            before=before,
+            after={"name": tenant.name, "status": tenant.status},
+            metadata={"action": payload.action},
+            result="success",
+        )
+    )
+    return response
 
 
 @router.get("/stores", response_model=StoreListResponse)

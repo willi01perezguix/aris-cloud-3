@@ -29,6 +29,42 @@ class StoreListResponse(BaseModel):
     trace_id: str
 
 
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class TenantUpdateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class TenantActionRequest(BaseModel):
+    action: Literal["set_status"]
+    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] | None = None
+
+
+class TenantItem(BaseModel):
+    id: str
+    name: str
+    status: str
+    created_at: datetime
+
+
+class TenantResponse(BaseModel):
+    tenant: TenantItem
+    trace_id: str
+
+
+class TenantListResponse(BaseModel):
+    tenants: list[TenantItem]
+    trace_id: str
+
+
+class TenantActionResponse(BaseModel):
+    tenant: TenantItem
+    action: str
+    trace_id: str
+
+
 class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=150)
     email: str = Field(..., min_length=3, max_length=255)

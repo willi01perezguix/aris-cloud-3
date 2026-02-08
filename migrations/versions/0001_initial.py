@@ -75,7 +75,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", GUID(), nullable=False, index=True),
         sa.Column("user_id", GUID(), nullable=False, index=True),
         sa.Column("action", sa.String(length=255), nullable=False),
-        sa.Column("metadata", sa.Text(), nullable=True),
+        sa.Column("metadata", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
 

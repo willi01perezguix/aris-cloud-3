@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator, CHAR
 
@@ -95,7 +95,7 @@ class AuditEvent(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
-    metadata: Mapped[str] = mapped_column(Text, nullable=True)
+    event_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

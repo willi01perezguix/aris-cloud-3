@@ -16,6 +16,17 @@ class PermissionDecision:
     source: str
 
 
+@dataclass(frozen=True)
+class PermissionTrace:
+    template_allow: set[str]
+    tenant_allow: set[str]
+    tenant_deny: set[str]
+    store_allow: set[str]
+    store_deny: set[str]
+    user_allow: set[str]
+    user_deny: set[str]
+
+
 class AccessControlService:
     def __init__(
         self,
@@ -73,6 +84,14 @@ class AccessControlService:
         context: RequestContext,
         token_data: TokenData | None = None,
     ) -> list[PermissionDecision]:
+        decisions, _trace = self.build_effective_permissions_with_trace(context, token_data)
+        return decisions
+
+    def build_effective_permissions_with_trace(
+        self,
+        context: RequestContext,
+        token_data: TokenData | None = None,
+    ) -> tuple[list[PermissionDecision], PermissionTrace]:
         role_name, tenant_id, store_id = self._resolve_role_scope(context, token_data)
         catalog = sorted(self._get_catalog_permissions())
         deny_permissions = self._get_denied_permissions(context, token_data)
@@ -83,6 +102,41 @@ class AccessControlService:
         )
         user_allow, user_deny = self._get_user_overrides(tenant_id, context.user_id)
 
+        decisions = self._build_decisions(
+            catalog=catalog,
+            deny_permissions=deny_permissions,
+            base_allowed=base_allowed,
+            tenant_allow=tenant_allow,
+            tenant_deny=tenant_deny,
+            store_allow=store_allow,
+            store_deny=store_deny,
+            user_allow=user_allow,
+            user_deny=user_deny,
+        )
+        trace = PermissionTrace(
+            template_allow=base_allowed,
+            tenant_allow=tenant_allow,
+            tenant_deny=tenant_deny,
+            store_allow=store_allow,
+            store_deny=store_deny,
+            user_allow=user_allow,
+            user_deny=user_deny,
+        )
+        return decisions, trace
+
+    @staticmethod
+    def _build_decisions(
+        *,
+        catalog: list[str],
+        deny_permissions: set[str],
+        base_allowed: set[str],
+        tenant_allow: set[str],
+        tenant_deny: set[str],
+        store_allow: set[str],
+        store_deny: set[str],
+        user_allow: set[str],
+        user_deny: set[str],
+    ) -> list[PermissionDecision]:
         decisions: list[PermissionDecision] = []
         for key in catalog:
             # Evaluation order (deterministic): template -> tenant policy -> store policy -> user override,

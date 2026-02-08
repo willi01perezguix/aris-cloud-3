@@ -181,13 +181,18 @@ def test_user_override_updates_effective_permissions_and_requires_idempotency(
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert effective.status_code == 200
-    permissions = {entry["key"]: entry for entry in effective.json()["permissions"]}
+    payload = effective.json()
+    permissions = {entry["key"]: entry for entry in payload["permissions"]}
     assert permissions["USER_MANAGE"]["allowed"] is False
     assert permissions["USER_MANAGE"]["source"] == "user_override_deny"
     assert permissions["AUDIT_VIEW"]["allowed"] is True
     assert permissions["AUDIT_VIEW"]["source"] == "user_override_allow"
     assert permissions["STORE_VIEW"]["allowed"] is False
     assert permissions["STORE_VIEW"]["source"] == "tenant_policy_deny"
+    assert payload["subject"]["user_id"] == str(user.id)
+    assert "USER" == payload["subject"]["role"]
+    assert "AUDIT_VIEW" in payload["sources_trace"]["user"]["allow"]
+    assert "STORE_VIEW" in payload["sources_trace"]["tenant"]["deny"]
 
     event = (
         db_session.query(AuditEvent)
@@ -236,6 +241,13 @@ def test_store_role_policy_denies_override_allow_and_targeted_read(client, db_se
     permissions = {entry["key"]: entry for entry in targeted.json()["permissions"]}
     assert permissions["USER_MANAGE"]["allowed"] is False
     assert permissions["USER_MANAGE"]["source"] == "store_policy_deny"
+
+    event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.action == "access_control.store_role_policy.update")
+        .first()
+    )
+    assert event is not None
 
 
 def test_store_role_policy_respects_store_scope(client, db_session):

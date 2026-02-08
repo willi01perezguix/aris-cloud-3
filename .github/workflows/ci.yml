@@ -22,8 +22,7 @@ jobs:
       - name: Import check
         env:
           PYTHONPATH: .
-        run: |
-          python -c "import app; print('ok')"
+        run: python -c "import app; print('ok')"
 
       - name: Alembic sanity (sqlite)
         env:
@@ -36,8 +35,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: .
-        run: |
-          pytest -q
+        run: pytest -q
 
   test-postgres:
     runs-on: ubuntu-latest
@@ -51,15 +49,14 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U aris_ci -d aris_ci"
-          --health-interval 10s
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U aris_ci -d aris_ci"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
 
     env:
       PYTHONPATH: .
       DATABASE_URL: postgresql+psycopg2://aris_ci:aris_ci@127.0.0.1:5432/aris_ci
-      TEST_DATABASE_URL: postgresql+psycopg2://aris_ci:aris_ci@127.0.0.1:5432/aris_ci
 
     steps:
       - uses: actions/checkout@v4
@@ -69,29 +66,21 @@ jobs:
 
       - name: Install deps
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Wait for Postgres
+      - name: Wait for postgres
         run: |
-          python - << 'PY'
-          import time, psycopg2
-          dsn = "dbname=aris_ci user=aris_ci password=aris_ci host=127.0.0.1 port=5432"
-          for i in range(30):
-              try:
-                  conn = psycopg2.connect(dsn)
-                  conn.close()
-                  print("Postgres ready")
-                  break
-              except Exception as e:
-                  if i == 29:
-                      raise
-                  time.sleep(1)
-          PY
+          for i in {1..30}; do
+            pg_isready -h 127.0.0.1 -p 5432 -U aris_ci -d aris_ci && break
+            sleep 1
+          done
+          PGPASSWORD=aris_ci psql -h 127.0.0.1 -U aris_ci -d aris_ci -c "select 1;"
 
       - name: Import check
-        run: |
-          python -c "import app; print('ok')"
+        run: python -c "import app; print('ok')"
 
       - name: Alembic sanity (postgres)
         run: |
@@ -100,5 +89,4 @@ jobs:
           alembic upgrade head
 
       - name: Run tests
-        run: |
-          pytest -q
+        run: pytest -q

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.aris3.core.security import get_current_user
+from app.aris3.core.deps import require_active_user
 from app.aris3.db.session import get_db
 from app.aris3.schemas.auth import ChangePasswordRequest, ChangePasswordResponse, LoginRequest, TokenResponse
 from app.aris3.services.auth import AuthService
@@ -19,7 +19,7 @@ async def login(payload: LoginRequest, db=Depends(get_db)):
 @router.post("/change-password", response_model=ChangePasswordResponse)
 async def change_password(
     payload: ChangePasswordRequest,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_active_user),
     db=Depends(get_db),
 ):
     service = AuthService(db)

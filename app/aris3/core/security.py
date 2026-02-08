@@ -1,15 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from app.aris3.core.config import settings
-from app.aris3.db.session import get_db
-from app.aris3.repos.users import UserRepository
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/aris3/auth/login")
@@ -62,26 +59,12 @@ def create_user_access_token(user, expires_delta: Optional[timedelta] = None) ->
     )
 
 
-def get_current_token_data(token: str = Depends(oauth2_scheme)) -> TokenData:
-    try:
-        payload = decode_token(token)
-        return TokenData(**payload)
-    except (JWTError, ValidationError) as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
-
-
-def get_current_user(token_data: TokenData = Depends(get_current_token_data), db=Depends(get_db)):
-    try:
-        user_id = token_data.sub
-        if user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    except AttributeError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
-
-    repo = UserRepository(db)
-    user = repo.get_by_id(user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    if not user.is_active or user.status != "active":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive or suspended")
-    return user
+__all__ = [
+    "TokenData",
+    "oauth2_scheme",
+    "verify_password",
+    "get_password_hash",
+    "create_access_token",
+    "create_user_access_token",
+    "decode_token",
+]

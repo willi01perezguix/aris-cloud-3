@@ -1,18 +1,21 @@
 from fastapi import APIRouter, Depends
 
-from app.aris3.core.security import get_current_user
+from app.aris3.core.security import get_current_token_data
 from app.aris3.schemas.auth import UserResponse
 
 router = APIRouter()
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(current_user=Depends(get_current_user)):
+async def me(token_data=Depends(get_current_token_data)):
     return UserResponse(
-        id=str(current_user.id),
-        username=current_user.username,
-        email=current_user.email,
-        tenant_id=str(current_user.tenant_id),
-        role=current_user.role,
-        must_change_password=current_user.must_change_password,
+        id=token_data.sub,
+        username=token_data.username,
+        email=token_data.email,
+        tenant_id=token_data.tenant_id,
+        store_id=token_data.store_id,
+        role=token_data.role,
+        status=token_data.status,
+        is_active=token_data.is_active,
+        must_change_password=token_data.must_change_password,
     )

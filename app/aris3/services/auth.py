@@ -9,12 +9,26 @@ class AuthService:
         self.repo = UserRepository(db)
 
     def login(self, identifier: str, password: str):
-        user = self.repo.get_by_username_or_email(identifier)
-        if user is None or not verify_password(password, user.hashed_password):
+        candidates = self.repo.list_by_username_or_email(identifier)
+        if not candidates:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        self._ensure_user_active(user)
-        token = create_user_access_token(user)
-        return user, token
+
+        inactive_match = None
+        for user in candidates:
+            if not verify_password(password, user.hashed_password):
+                continue
+            try:
+                self._ensure_user_active(user)
+            except HTTPException:
+                inactive_match = user
+                continue
+            token = create_user_access_token(user)
+            return user, token
+
+        if inactive_match is not None:
+            self._ensure_user_active(inactive_match)
+
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     def change_password(self, user, current_password: str, new_password: str):
         if not verify_password(current_password, user.hashed_password):

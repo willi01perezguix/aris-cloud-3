@@ -14,6 +14,10 @@ class UserRepository:
         stmt = select(User).where((User.username == identifier) | (User.email == identifier))
         return self.db.execute(stmt).scalars().first()
 
+    def list_by_username_or_email(self, identifier: str):
+        stmt = select(User).where((User.username == identifier) | (User.email == identifier))
+        return self.db.execute(stmt).scalars().all()
+
     def update_password(self, user: User, hashed_password: str):
         user.hashed_password = hashed_password
         user.must_change_password = False

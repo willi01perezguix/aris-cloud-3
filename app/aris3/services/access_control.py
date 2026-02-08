@@ -84,13 +84,9 @@ class AccessControlService:
         if cache_key in self.cache:
             return self.cache[cache_key]
 
-        role_template = self.repo.get_role_template(role_name, tenant_id)
-        if role_template is None and tenant_id is not None:
-            role_template = self.repo.get_role_template(role_name, None)
-        if role_template is None:
-            permissions: set[str] = set()
-        else:
-            permissions = set(self.repo.list_permissions_for_role_template(role_template.id))
+        permissions = set(self.repo.list_permissions_for_role(role_name, tenant_id))
+        if not permissions and tenant_id is not None:
+            permissions = set(self.repo.list_permissions_for_role(role_name, None))
 
         self.cache[cache_key] = permissions
         return permissions

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 
-from app.aris3.core.deps import get_current_token_data, require_permission, require_request_context
+from app.aris3.core.deps import get_current_token_data, require_active_user, require_request_context
 from app.aris3.db.session import get_db
 from app.aris3.schemas.access_control import EffectivePermissionsResponse, PermissionEntry
 from app.aris3.services.access_control import AccessControlService
@@ -12,9 +12,9 @@ router = APIRouter()
 async def effective_permissions(
     request: Request,
     token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
     context=Depends(require_request_context),
     db=Depends(get_db),
-    _permission_check=Depends(require_permission("STORE_VIEW")),
 ):
     cache = getattr(request.state, "permission_cache", None)
     if cache is None:

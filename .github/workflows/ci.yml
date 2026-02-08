@@ -3,8 +3,6 @@
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 jobs:
   test:
@@ -46,17 +44,23 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
-          - 5432:5432
+          - 5432/tcp
         options: >-
-          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 20
+          --health-retries 30
 
     env:
       PYTHONPATH: .
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${{ job.services.postgres.ports[5432] }}
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
 
     steps:
       - uses: actions/checkout@v4
@@ -77,11 +81,22 @@ jobs:
           python - <<'PY'
           import os, time
           import psycopg2
-          dsn = os.environ["DATABASE_URL"].replace("postgresql+psycopg2://", "postgresql://")
+
+          host = os.environ["DB_HOST"]
+          port = int(os.environ["DB_PORT"])
+          db   = os.environ["DB_NAME"]
+          user = os.environ["DB_USER"]
+          pwd  = os.environ["DB_PASSWORD"]
+
           last = None
           for _ in range(60):
               try:
-                  conn = psycopg2.connect(dsn)
+                  conn = psycopg2.connect(
+                      host=host, port=port, dbname=db, user=user, password=pwd, connect_timeout=2
+                  )
+                  with conn.cursor() as cur:
+                      cur.execute("select current_user, current_database()")
+                      print(cur.fetchone())
                   conn.close()
                   print("postgres ready/auth OK")
                   break

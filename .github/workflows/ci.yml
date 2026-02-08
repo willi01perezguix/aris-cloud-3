@@ -8,12 +8,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      PYTHONPATH: .
-      DATABASE_URL: sqlite+pysqlite:///./ci.db
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -24,41 +20,49 @@ jobs:
           pip install -r requirements.txt
 
       - name: Import check
-        run: python -c "import app; print('ok')"
+        env:
+          PYTHONPATH: .
+        run: |
+          python -c "import app; print('ok')"
 
-      - name: Alembic sanity
+      - name: Alembic sanity (sqlite)
+        env:
+          DATABASE_URL: sqlite+pysqlite:///./ci.db
         run: |
           alembic heads
           python -c "import subprocess, sys; output = subprocess.check_output(['alembic','heads']).decode().strip().splitlines(); heads = [line for line in output if line.strip()]; sys.exit(f'Expected 1 alembic head, got {len(heads)}: {heads}') if len(heads) != 1 else None"
           alembic upgrade head
 
       - name: Run tests
-        run: pytest -q
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q
 
   test-postgres:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:15
         env:
           POSTGRES_USER: aris_ci
-          POSTGRES_PASSWORD: aris_ci_pwd
-          POSTGRES_DB: aris_test
+          POSTGRES_PASSWORD: aris_ci
+          POSTGRES_DB: aris_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U aris_ci -d aris_test"
+          --health-cmd "pg_isready -U aris_ci -d aris_ci"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 12
+          --health-retries 10
 
     env:
       PYTHONPATH: .
-      DATABASE_URL: postgresql+psycopg2://aris_ci:aris_ci_pwd@127.0.0.1:5432/aris_test
+      DATABASE_URL: postgresql+psycopg2://aris_ci:aris_ci@127.0.0.1:5432/aris_ci
+      TEST_DATABASE_URL: postgresql+psycopg2://aris_ci:aris_ci@127.0.0.1:5432/aris_ci
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -68,38 +72,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Import check
-        run: python -c "import app; print('ok')"
-
       - name: Wait for Postgres
         run: |
-          python - <<'PY'
-          import os, time
-          from sqlalchemy import create_engine, text
-
-          url = os.environ["DATABASE_URL"]
-          last_err = None
-
+          python - << 'PY'
+          import time, psycopg2
+          dsn = "dbname=aris_ci user=aris_ci password=aris_ci host=127.0.0.1 port=5432"
           for i in range(30):
               try:
-                  engine = create_engine(url, pool_pre_ping=True)
-                  with engine.connect() as conn:
-                      conn.execute(text("SELECT 1"))
-                  print("Postgres is ready")
+                  conn = psycopg2.connect(dsn)
+                  conn.close()
+                  print("Postgres ready")
                   break
               except Exception as e:
-                  last_err = e
-                  print(f"[{i+1}/30] waiting postgres: {e}")
-                  time.sleep(2)
-          else:
-              raise SystemExit(f"Postgres not ready after retries: {last_err}")
+                  if i == 29:
+                      raise
+                  time.sleep(1)
           PY
 
-      - name: Alembic sanity
+      - name: Import check
+        run: |
+          python -c "import app; print('ok')"
+
+      - name: Alembic sanity (postgres)
         run: |
           alembic heads
           python -c "import subprocess, sys; output = subprocess.check_output(['alembic','heads']).decode().strip().splitlines(); heads = [line for line in output if line.strip()]; sys.exit(f'Expected 1 alembic head, got {len(heads)}: {heads}') if len(heads) != 1 else None"
           alembic upgrade head
 
       - name: Run tests
-        run: pytest -q
+        run: |
+          pytest -q

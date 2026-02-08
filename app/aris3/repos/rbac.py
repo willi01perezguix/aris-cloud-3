@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.aris3.db.models import PermissionCatalog, RoleTemplate, RoleTemplatePermission
 
@@ -39,3 +39,26 @@ class RoleTemplateRepository:
     def list_permission_catalog(self):
         stmt = select(PermissionCatalog).order_by(PermissionCatalog.code)
         return self.db.execute(stmt).scalars().all()
+
+    def replace_role_template_permissions(self, role_template_id, permission_codes: list[str]) -> None:
+        stmt = delete(RoleTemplatePermission).where(
+            RoleTemplatePermission.role_template_id == role_template_id
+        )
+        self.db.execute(stmt)
+        if not permission_codes:
+            return
+        permissions = (
+            self.db.execute(
+                select(PermissionCatalog).where(PermissionCatalog.code.in_(permission_codes))
+            )
+            .scalars()
+            .all()
+        )
+        permission_map = {perm.code: perm for perm in permissions}
+        for code in sorted(set(permission_codes)):
+            permission = permission_map.get(code)
+            if not permission:
+                continue
+            self.db.add(
+                RoleTemplatePermission(role_template_id=role_template_id, permission_id=permission.id)
+            )

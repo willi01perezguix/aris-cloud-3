@@ -201,6 +201,7 @@ async def replace_tenant_role_policy(
 ):
     _require_admin(token_data)
     enforce_tenant_scope(token_data, tenant_id, allow_superadmin=True)
+    _require_transaction_id(payload.transaction_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -321,6 +322,7 @@ async def replace_store_role_policy(
     )
     if str(store.tenant_id) != tenant_id:
         raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+    _require_transaction_id(payload.transaction_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -421,6 +423,7 @@ async def replace_user_permission_overrides(
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     _enforce_user_store_scope(token_data, user)
 
+    _require_transaction_id(payload.transaction_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -508,6 +511,7 @@ async def replace_platform_role_policy(
 ):
     if not is_superadmin(token_data.role):
         raise AppError(ErrorCatalog.PERMISSION_DENIED)
+    _require_transaction_id(payload.transaction_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -570,6 +574,14 @@ def _require_admin(token_data) -> None:
     if is_superadmin(role):
         return
     raise AppError(ErrorCatalog.PERMISSION_DENIED)
+
+
+def _require_transaction_id(transaction_id: str | None) -> None:
+    if not transaction_id:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "transaction_id is required"},
+        )
 
 
 def _enforce_user_store_scope(token_data, user) -> None:

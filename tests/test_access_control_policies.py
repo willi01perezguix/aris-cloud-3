@@ -54,7 +54,7 @@ def test_admin_can_manage_role_policy_and_is_audited(client, db_session):
     _create_user(db_session, tenant=tenant, store=store, role="ADMIN", username="admin", password="Pass1234!")
 
     token = _login(client, "admin", "Pass1234!")
-    payload = {"allow": ["AUDIT_VIEW"], "deny": ["STORE_VIEW"]}
+    payload = {"allow": ["AUDIT_VIEW"], "deny": ["STORE_VIEW"], "transaction_id": "txn-role-1"}
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/role-policies/MANAGER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "role-1"},
@@ -85,7 +85,7 @@ def test_admin_cannot_escalate_past_ceiling(client, db_session):
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "role-2"},
-        json={"allow": ["SECRET_VIEW"], "deny": []},
+        json={"allow": ["SECRET_VIEW"], "deny": [], "transaction_id": "txn-role-2"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "PERMISSION_DENIED"
@@ -117,7 +117,7 @@ def test_admin_cannot_bypass_ceiling_with_user_overrides(client, db_session):
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/users/{user.id}/permission-overrides",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "override-ceiling-1"},
-        json={"allow": ["SECRET_OVERRIDE"], "deny": []},
+        json={"allow": ["SECRET_OVERRIDE"], "deny": [], "transaction_id": "txn-override-1"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "PERMISSION_DENIED"
@@ -133,7 +133,7 @@ def test_cross_tenant_role_policy_write_denied(client, db_session):
     response = client.put(
         f"/aris3/access-control/tenants/{tenant_b.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "role-3"},
-        json={"allow": ["STORE_VIEW"], "deny": []},
+        json={"allow": ["STORE_VIEW"], "deny": [], "transaction_id": "txn-role-3"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "CROSS_TENANT_ACCESS_DENIED"
@@ -148,7 +148,11 @@ def test_user_override_updates_effective_permissions_and_requires_idempotency(
     user = _create_user(db_session, tenant=tenant, store=store, role="USER", username="user4", password="Pass1234!")
 
     token = _login(client, "admin4", "Pass1234!")
-    policy_payload = {"allow": ["USER_MANAGE"], "deny": ["STORE_VIEW"]}
+    policy_payload = {
+        "allow": ["USER_MANAGE"],
+        "deny": ["STORE_VIEW"],
+        "transaction_id": "txn-role-4",
+    }
     policy_response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "role-4"},
@@ -159,14 +163,14 @@ def test_user_override_updates_effective_permissions_and_requires_idempotency(
     override_response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/users/{user.id}/permission-overrides",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "override-1"},
-        json={"allow": ["AUDIT_VIEW"], "deny": ["USER_MANAGE"]},
+        json={"allow": ["AUDIT_VIEW"], "deny": ["USER_MANAGE"], "transaction_id": "txn-override-2"},
     )
     assert override_response.status_code == 200
 
     missing_idempotency = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/users/{user.id}/permission-overrides",
         headers={"Authorization": f"Bearer {token}"},
-        json={"allow": ["AUDIT_VIEW"], "deny": ["USER_MANAGE"]},
+        json={"allow": ["AUDIT_VIEW"], "deny": ["USER_MANAGE"], "transaction_id": "txn-override-3"},
     )
     assert missing_idempotency.status_code == 400
     assert missing_idempotency.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
@@ -209,7 +213,7 @@ def test_store_role_policy_denies_override_allow_and_targeted_read(client, db_se
     )
 
     token = _login(client, "admin6", "Pass1234!")
-    store_policy = {"allow": [], "deny": ["USER_MANAGE"]}
+    store_policy = {"allow": [], "deny": ["USER_MANAGE"], "transaction_id": "txn-store-1"}
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/stores/{store_b.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-policy-1"},
@@ -220,7 +224,7 @@ def test_store_role_policy_denies_override_allow_and_targeted_read(client, db_se
     override_response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/users/{user.id}/permission-overrides",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "override-store-1"},
-        json={"allow": ["USER_MANAGE"], "deny": []},
+        json={"allow": ["USER_MANAGE"], "deny": [], "transaction_id": "txn-override-4"},
     )
     assert override_response.status_code == 200
 
@@ -244,7 +248,7 @@ def test_store_role_policy_respects_store_scope(client, db_session):
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/stores/{store_b.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-policy-2"},
-        json={"allow": ["STORE_VIEW"], "deny": []},
+        json={"allow": ["STORE_VIEW"], "deny": [], "transaction_id": "txn-store-2"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "STORE_SCOPE_MISMATCH"
@@ -284,7 +288,7 @@ def test_store_policy_admin_ceiling_applies(client, db_session):
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/stores/{store.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-policy-3"},
-        json={"allow": ["SECRET_STORE"], "deny": []},
+        json={"allow": ["SECRET_STORE"], "deny": [], "transaction_id": "txn-store-3"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "PERMISSION_DENIED"
@@ -299,7 +303,7 @@ def test_role_policy_requires_idempotency_key(client, db_session):
     response = client.put(
         f"/aris3/access-control/tenants/{tenant.id}/role-policies/USER",
         headers={"Authorization": f"Bearer {token}"},
-        json={"allow": ["STORE_VIEW"], "deny": []},
+        json={"allow": ["STORE_VIEW"], "deny": [], "transaction_id": "txn-role-5"},
     )
     assert response.status_code == 400
     assert response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"

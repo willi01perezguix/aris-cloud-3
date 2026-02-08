@@ -29,6 +29,7 @@ class PermissionCatalogResponse(BaseModel):
 class RolePolicyRequest(BaseModel):
     allow: list[str] = Field(default_factory=list)
     deny: list[str] = Field(default_factory=list)
+    transaction_id: str | None = Field(None, min_length=1, max_length=255)
 
 
 class RolePolicyResponse(BaseModel):
@@ -51,6 +52,13 @@ class StoreRolePolicyResponse(BaseModel):
 class UserPermissionOverrideRequest(BaseModel):
     allow: list[str] = Field(default_factory=list)
     deny: list[str] = Field(default_factory=list)
+    transaction_id: str | None = Field(None, min_length=1, max_length=255)
+
+
+class UserPermissionOverridePatchRequest(BaseModel):
+    allow: list[str] | None = None
+    deny: list[str] | None = None
+    transaction_id: str | None = Field(None, min_length=1, max_length=255)
 
 
 class UserPermissionOverrideResponse(BaseModel):
@@ -58,4 +66,15 @@ class UserPermissionOverrideResponse(BaseModel):
     user_id: str
     allow: list[str]
     deny: list[str]
+    trace_id: str
+
+
+class RoleTemplateRequest(BaseModel):
+    permissions: list[str] = Field(default_factory=list)
+    transaction_id: str | None = Field(None, min_length=1, max_length=255)
+
+
+class RoleTemplateResponse(BaseModel):
+    role: str
+    permissions: list[str]
     trace_id: str

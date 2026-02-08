@@ -27,3 +27,15 @@ class RoleTemplateRepository:
         else:
             stmt = stmt.where(RoleTemplate.tenant_id == tenant_id)
         return [row[0] for row in self.db.execute(stmt).all()]
+
+    def list_permissions_for_role_template(self, role_template_id):
+        stmt = (
+            select(PermissionCatalog.code)
+            .join(RoleTemplatePermission, RoleTemplatePermission.permission_id == PermissionCatalog.id)
+            .where(RoleTemplatePermission.role_template_id == role_template_id)
+        )
+        return [row[0] for row in self.db.execute(stmt).all()]
+
+    def list_permission_catalog(self):
+        stmt = select(PermissionCatalog).order_by(PermissionCatalog.code)
+        return self.db.execute(stmt).scalars().all()

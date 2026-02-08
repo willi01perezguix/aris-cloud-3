@@ -7,6 +7,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: sqlite+pysqlite:///./ci.db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,24 +22,16 @@ jobs:
           pip install -r requirements.txt
 
       - name: Import check
-        env:
-          PYTHONPATH: .
-        run: |
-          python -c "import app; print('ok')"
+        run: python -c "import app; print('ok')"
 
-      - name: Alembic sanity (sqlite)
-        env:
-          DATABASE_URL: sqlite+pysqlite:///./ci.db
+      - name: Alembic sanity
         run: |
           alembic heads
           python -c "import subprocess, sys; output = subprocess.check_output(['alembic','heads']).decode().strip().splitlines(); heads = [line for line in output if line.strip()]; sys.exit(f'Expected 1 alembic head, got {len(heads)}: {heads}') if len(heads) != 1 else None"
           alembic upgrade head
 
       - name: Run tests
-        env:
-          PYTHONPATH: .
-        run: |
-          pytest -q
+        run: pytest -q
 
   test-postgres:
     runs-on: ubuntu-latest
@@ -50,14 +45,19 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U aris_ci -d aris_ci"
-          --health-interval 10s
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U aris_ci -d aris_ci"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
 
     env:
       PYTHONPATH: .
       DATABASE_URL: postgresql+psycopg2://aris_ci:aris_ci@127.0.0.1:5432/aris_ci
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_NAME: aris_ci
+      DB_USER: aris_ci
+      DB_PASSWORD: aris_ci
 
     steps:
       - uses: actions/checkout@v4
@@ -70,35 +70,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Wait for Postgres
+      - name: Import check
+        run: python -c "import app; print('ok')"
+
+      - name: Wait DB + auth check
         run: |
           python - <<'PY'
-          import time
+          import os, time
           import psycopg2
-
-          dsn = "postgresql://aris_ci:aris_ci@127.0.0.1:5432/aris_ci"
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+psycopg2://", "postgresql://")
+          last = None
           for i in range(30):
               try:
                   conn = psycopg2.connect(dsn)
                   conn.close()
-                  print("Postgres is ready")
+                  print("postgres ready/auth OK")
                   break
               except Exception as e:
-                  if i == 29:
-                      raise
+                  last = e
                   time.sleep(2)
+          else:
+              raise SystemExit(f"postgres not ready/auth failed: {last}")
           PY
 
-      - name: Import check
-        run: |
-          python -c "import app; print('ok')"
-
-      - name: Alembic sanity (postgres)
+      - name: Alembic sanity
         run: |
           alembic heads
           python -c "import subprocess, sys; output = subprocess.check_output(['alembic','heads']).decode().strip().splitlines(); heads = [line for line in output if line.strip()]; sys.exit(f'Expected 1 alembic head, got {len(heads)}: {heads}') if len(heads) != 1 else None"
           alembic upgrade head
 
       - name: Run tests
-        run: |
-          pytest -q
+        run: pytest -q

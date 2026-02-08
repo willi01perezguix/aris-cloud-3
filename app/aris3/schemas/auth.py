@@ -17,12 +17,14 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     must_change_password: bool
+    trace_id: str
 
 
 class ChangePasswordResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     must_change_password: bool
+    trace_id: str
 
 
 class ChangePasswordRequest(BaseModel):
@@ -40,3 +42,4 @@ class UserResponse(BaseModel):
     status: str
     is_active: bool
     must_change_password: bool
+    trace_id: str

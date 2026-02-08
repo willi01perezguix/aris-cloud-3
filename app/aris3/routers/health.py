@@ -9,8 +9,9 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(request: Request):
+    trace_id = getattr(request.state, "trace_id", "")
+    return {"status": "ok", "trace_id": trace_id}
 
 
 @router.get("/ready")
@@ -26,4 +27,5 @@ async def ready(request: Request, db=Depends(get_db)):
             trace_id=trace_id,
             status_code=ErrorCatalog.DB_UNAVAILABLE.status_code,
         )
-    return {"status": "ready"}
+    trace_id = getattr(request.state, "trace_id", "")
+    return {"status": "ready", "trace_id": trace_id}

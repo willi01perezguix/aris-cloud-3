@@ -22,6 +22,7 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
     repo = UserRepository(db)
     identifier = payload.email or payload.username_or_email
     idempotency_key = extract_idempotency_key(request.headers, required=False)
+    trace_id = getattr(request.state, "trace_id", "")
 
     try:
         user, token = service.login(identifier, payload.password)
@@ -35,7 +36,7 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
                     tenant_id=str(candidate.tenant_id),
                     user_id=str(candidate.id),
                     store_id=str(candidate.store_id) if candidate.store_id else None,
-                    trace_id=getattr(request.state, "trace_id", None),
+                    trace_id=trace_id or None,
                     actor=identifier,
                     action="auth.login.failed",
                     entity_type="user",
@@ -66,7 +67,11 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
             )
         request.state.idempotency = context
 
-    response = TokenResponse(access_token=token, must_change_password=user.must_change_password)
+    response = TokenResponse(
+        access_token=token,
+        must_change_password=user.must_change_password,
+        trace_id=trace_id,
+    )
 
     if idempotency_key:
         context = getattr(request.state, "idempotency", None)
@@ -79,7 +84,7 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
             tenant_id=str(user.tenant_id),
             user_id=str(user.id),
             store_id=str(user.store_id) if user.store_id else None,
-            trace_id=getattr(request.state, "trace_id", None),
+            trace_id=trace_id or None,
             actor=user.username,
             action="auth.login",
             entity_type="user",
@@ -100,6 +105,7 @@ async def change_password(
     current_user=Depends(require_active_user),
     db=Depends(get_db),
 ):
+    trace_id = getattr(request.state, "trace_id", "")
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -128,7 +134,7 @@ async def change_password(
                 tenant_id=str(current_user.tenant_id),
                 user_id=str(current_user.id),
                 store_id=str(current_user.store_id) if current_user.store_id else None,
-                trace_id=getattr(request.state, "trace_id", None),
+                trace_id=trace_id or None,
                 actor=current_user.username,
                 action="auth.change_password.failed",
                 entity_type="user",
@@ -141,7 +147,11 @@ async def change_password(
         )
         raise
 
-    response = ChangePasswordResponse(access_token=token, must_change_password=user.must_change_password)
+    response = ChangePasswordResponse(
+        access_token=token,
+        must_change_password=user.must_change_password,
+        trace_id=trace_id,
+    )
     context.record_success(status_code=200, response_body=response.model_dump())
 
     audit = AuditService(db)
@@ -150,7 +160,7 @@ async def change_password(
             tenant_id=str(user.tenant_id),
             user_id=str(user.id),
             store_id=str(user.store_id) if user.store_id else None,
-            trace_id=getattr(request.state, "trace_id", None),
+            trace_id=trace_id or None,
             actor=user.username,
             action="auth.change_password",
             entity_type="user",

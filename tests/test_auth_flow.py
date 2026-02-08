@@ -36,6 +36,7 @@ def test_login_success(client, db_session):
     assert response.status_code == 200
     assert response.json()["access_token"]
     assert response.json()["must_change_password"] is True
+    assert response.json()["trace_id"]
 
 
 def test_login_with_username_or_email(client, db_session):
@@ -47,6 +48,7 @@ def test_login_with_username_or_email(client, db_session):
     )
     assert response.status_code == 200
     assert response.json()["access_token"]
+    assert response.json()["trace_id"]
 
 
 def test_login_invalid_password(client, db_session):
@@ -101,6 +103,7 @@ def test_must_change_password_flow(client, db_session):
     assert change_response.status_code == 200
     new_token = change_response.json()["access_token"]
     assert change_response.json()["must_change_password"] is False
+    assert change_response.json()["trace_id"]
 
     me_response = client.get("/aris3/me", headers={"Authorization": f"Bearer {new_token}"})
     assert me_response.status_code == 200
@@ -131,3 +134,4 @@ def test_me_authorized(client, db_session):
     assert payload["role"] == "admin"
     assert payload["status"] == "active"
     assert payload["is_active"] is True
+    assert payload["trace_id"]

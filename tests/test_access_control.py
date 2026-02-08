@@ -65,6 +65,7 @@ def test_effective_permissions_for_roles(client, db_session, role_name):
     assert payload["tenant_id"] == str(tenant.id)
     assert payload["store_id"] == str(store.id)
     assert payload["role"] == role_name
+    assert payload["trace_id"]
 
     allowed_expected = set(DEFAULT_ROLE_TEMPLATES[role_name])
     permission_map = {entry["key"]: entry for entry in payload["permissions"]}

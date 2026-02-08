@@ -50,8 +50,8 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=255), nullable=False),
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
         sa.Column("role", sa.String(length=50), nullable=False, server_default="user"),
-        sa.Column("must_change_password", sa.Boolean(), nullable=False, server_default=sa.text("1")),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("must_change_password", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
     op.create_index("ix_users_username", "users", ["username"], unique=True)

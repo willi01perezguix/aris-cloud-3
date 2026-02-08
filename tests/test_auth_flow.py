@@ -38,6 +38,17 @@ def test_login_success(client, db_session):
     assert response.json()["must_change_password"] is True
 
 
+def test_login_with_username_or_email(client, db_session):
+    _create_user(db_session, username="jane-username")
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"username_or_email": "jane-username", "password": "OldPass123"},
+    )
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+
+
 def test_login_invalid_password(client, db_session):
     _create_user(db_session)
 

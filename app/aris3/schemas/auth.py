@@ -1,15 +1,15 @@
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, model_validator
 
 
 class LoginRequest(BaseModel):
     email: EmailStr | None = None
-    username_or_email: str | None = Field(default=None, alias="username_or_email")
+    username_or_email: str | None = None
     password: str
 
     @model_validator(mode="after")
     def ensure_identifier(self):
         if not self.email and not self.username_or_email:
-            raise ValueError("email is required")
+            raise ValueError("email or username_or_email is required")
         return self
 
 

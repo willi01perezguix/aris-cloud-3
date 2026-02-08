@@ -14,7 +14,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/aris3/auth/login")
 
 class TokenData(BaseModel):
     sub: str
-    tenant_id: str
+    tenant_id: str | None = None
     store_id: str | None = None
     role: str
     status: str
@@ -46,7 +46,7 @@ def create_user_access_token(user, expires_delta: Optional[timedelta] = None) ->
     return create_access_token(
         {
             "sub": str(user.id),
-            "tenant_id": str(user.tenant_id),
+            "tenant_id": str(user.tenant_id) if user.tenant_id else None,
             "store_id": str(user.store_id) if user.store_id else None,
             "role": user.role,
             "status": user.status,

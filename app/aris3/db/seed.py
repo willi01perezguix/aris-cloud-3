@@ -124,6 +124,7 @@ def run_seed(db):
     store = _get_or_create_store(db, tenant)
     _get_or_create_permissions(db)
     _get_or_create_role_templates(db)
+    db.flush()
     _assign_role_permissions(db)
     _get_or_create_superadmin(db, tenant, store)
     db.commit()

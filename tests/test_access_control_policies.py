@@ -84,6 +84,38 @@ def test_admin_cannot_escalate_past_ceiling(client, db_session):
     assert response.json()["code"] == "PERMISSION_DENIED"
 
 
+def test_admin_cannot_bypass_ceiling_with_user_overrides(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="OverrideCeiling")
+    _create_user(
+        db_session,
+        tenant=tenant,
+        store=store,
+        role="ADMIN",
+        username="admin-ceiling",
+        password="Pass1234!",
+    )
+    user = _create_user(
+        db_session,
+        tenant=tenant,
+        store=store,
+        role="USER",
+        username="user-ceiling",
+        password="Pass1234!",
+    )
+    db_session.add(PermissionCatalog(code="SECRET_OVERRIDE", description="Hidden"))
+    db_session.commit()
+
+    token = _login(client, "admin-ceiling", "Pass1234!")
+    response = client.put(
+        f"/aris3/access-control/tenants/{tenant.id}/users/{user.id}/permission-overrides",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "override-ceiling-1"},
+        json={"allow": ["SECRET_OVERRIDE"], "deny": []},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "PERMISSION_DENIED"
+
+
 def test_cross_tenant_role_policy_write_denied(client, db_session):
     run_seed(db_session)
     tenant_a, store_a = _create_tenant_store(db_session, name_suffix="A")

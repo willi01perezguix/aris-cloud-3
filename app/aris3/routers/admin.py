@@ -129,23 +129,25 @@ def _ensure_role_assignment_allowed(
     if is_superadmin(normalized):
         raise AppError(ErrorCatalog.PERMISSION_DENIED)
     if normalized == "ADMIN" and not is_superadmin(token_data.role):
+        raise AppError(ErrorCatalog.PERMISSION_DENIED)
+    if not is_superadmin(token_data.role):
         tenant_id = context.tenant_id or token_data.tenant_id
         role_repo = RoleTemplateRepository(db)
-        admin_permissions = set(role_repo.list_permissions_for_role("ADMIN", tenant_id))
-        if not admin_permissions and tenant_id is not None:
-            admin_permissions = set(role_repo.list_permissions_for_role("ADMIN", None))
+        role_permissions = set(role_repo.list_permissions_for_role(normalized, tenant_id))
+        if not role_permissions and tenant_id is not None:
+            role_permissions = set(role_repo.list_permissions_for_role(normalized, None))
         cache = getattr(request.state, "permission_cache", None)
         if cache is None:
             cache = {}
             request.state.permission_cache = cache
         service = AccessControlService(db, cache=cache)
         allowed = {d.key for d in service.build_effective_permissions(context, token_data) if d.allowed}
-        if admin_permissions and not admin_permissions.issubset(allowed):
+        if role_permissions and not role_permissions.issubset(allowed):
             raise AppError(
                 ErrorCatalog.PERMISSION_DENIED,
                 details={
-                    "message": "ADMIN ceiling exceeded",
-                    "missing": sorted(admin_permissions.difference(allowed)),
+                    "message": "Role ceiling exceeded",
+                    "missing": sorted(role_permissions.difference(allowed)),
                 },
             )
     return normalized
@@ -759,10 +761,20 @@ async def user_actions(
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
     user = UserRepository(db).get_by_id(user_id)
-    if user is None or str(user.tenant_id) != tenant_id:
+    if user is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    if not is_superadmin(token_data.role):
+        tenant_id = _tenant_id_or_error(token_data)
+        if str(user.tenant_id) != tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    tenant_id = str(user.tenant_id)
+
+    if not payload.transaction_id:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "transaction_id is required"},
+        )
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -858,7 +870,11 @@ async def user_actions(
                 "role": user.role,
                 "must_change_password": user.must_change_password,
             },
-            metadata={"temporary_password_set": temporary_password is not None},
+            metadata={
+                "temporary_password_set": temporary_password is not None,
+                "target_user_id": str(user.id),
+                "transaction_id": payload.transaction_id,
+            },
             result="success",
         )
     )

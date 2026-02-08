@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from app.aris3.core.context import build_request_context
 from app.aris3.core.deps import (
     get_current_token_data,
     require_active_user,
@@ -12,7 +13,7 @@ from app.aris3.core.deps import (
     require_request_context,
 )
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.core.scope import is_superadmin
+from app.aris3.core.scope import enforce_store_scope, is_superadmin
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import Store, Tenant, User, VariantFieldSettings
 from app.aris3.db.session import get_db
@@ -41,7 +42,21 @@ from app.aris3.schemas.admin import (
     VariantFieldSettingsPatchRequest,
     VariantFieldSettingsResponse,
 )
+from app.aris3.schemas.access_control import (
+    EffectivePermissionsResponse,
+    PermissionCatalogEntry,
+    PermissionCatalogResponse,
+    PermissionEntry,
+    RolePolicyRequest,
+    RolePolicyResponse,
+    RoleTemplateRequest,
+    RoleTemplateResponse,
+    StoreRolePolicyResponse,
+    UserPermissionOverridePatchRequest,
+    UserPermissionOverrideResponse,
+)
 from app.aris3.services.access_control import AccessControlService
+from app.aris3.services.access_control_policies import AccessControlPolicyService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
 
@@ -117,6 +132,32 @@ def _require_superadmin(token_data) -> None:
         raise AppError(ErrorCatalog.PERMISSION_DENIED)
 
 
+def _require_admin(token_data) -> None:
+    role = (token_data.role or "").upper()
+    if role == "ADMIN":
+        return
+    if is_superadmin(role):
+        return
+    raise AppError(ErrorCatalog.PERMISSION_DENIED)
+
+
+def _require_transaction_id(transaction_id: str | None) -> None:
+    if not transaction_id:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "transaction_id is required"},
+        )
+
+
+def _enforce_user_store_scope(token_data, user) -> None:
+    if is_superadmin(token_data.role):
+        return
+    if token_data.store_id:
+        user_store_id = str(user.store_id) if user.store_id else None
+        if user_store_id != token_data.store_id:
+            raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+
+
 def _ensure_role_assignment_allowed(
     request: Request,
     *,
@@ -151,6 +192,462 @@ def _ensure_role_assignment_allowed(
                 },
             )
     return normalized
+
+
+@router.get("/access-control/permission-catalog", response_model=PermissionCatalogResponse)
+async def admin_permission_catalog(
+    request: Request,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    service = AccessControlPolicyService(db)
+    permissions = service.list_permission_catalog()
+    return PermissionCatalogResponse(
+        permissions=[
+            PermissionCatalogEntry(code=perm.code, description=perm.description) for perm in permissions
+        ],
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.get("/access-control/role-templates/{role_name}", response_model=RoleTemplateResponse)
+async def admin_get_role_template(
+    request: Request,
+    role_name: str,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    service = AccessControlPolicyService(db)
+    snapshot = service.get_role_template(tenant_id=None, role_name=role_name.upper())
+    return RoleTemplateResponse(
+        role=role_name.upper(),
+        permissions=snapshot.permissions,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.put("/access-control/role-templates/{role_name}", response_model=RoleTemplateResponse)
+async def admin_replace_role_template(
+    request: Request,
+    role_name: str,
+    payload: RoleTemplateRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    _require_transaction_id(payload.transaction_id)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=token_data.tenant_id or "platform",
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    service = AccessControlPolicyService(db)
+    before, after = service.replace_role_template_permissions(
+        tenant_id=None,
+        role_name=role_name.upper(),
+        permissions=payload.permissions,
+    )
+    response = RoleTemplateResponse(
+        role=role_name.upper(),
+        permissions=after.permissions,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump())
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=token_data.tenant_id or "platform",
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="access_control.role_template.update",
+            entity_type="role_template",
+            entity_id=f"platform:{role_name.upper()}",
+            before={"permissions": before.permissions},
+            after={"permissions": after.permissions},
+            metadata={"role": role_name.upper(), "transaction_id": payload.transaction_id},
+            result="success",
+        )
+    )
+    return response
+
+
+@router.get("/access-control/tenant-role-policies/{role_name}", response_model=RolePolicyResponse)
+async def admin_get_tenant_role_policy(
+    request: Request,
+    role_name: str,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    service = AccessControlPolicyService(db)
+    snapshot = service.get_tenant_role_policy(tenant_id=tenant_id, role_name=role_name.upper())
+    return RolePolicyResponse(
+        tenant_id=tenant_id,
+        role=role_name.upper(),
+        allow=snapshot.allow,
+        deny=snapshot.deny,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.put("/access-control/tenant-role-policies/{role_name}", response_model=RolePolicyResponse)
+async def admin_replace_tenant_role_policy(
+    request: Request,
+    role_name: str,
+    payload: RolePolicyRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    _require_transaction_id(payload.transaction_id)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    service = AccessControlPolicyService(db)
+    before, after = service.replace_tenant_role_policy(
+        tenant_id=tenant_id,
+        role_name=role_name.upper(),
+        allow=payload.allow,
+        deny=payload.deny,
+        enforce_ceiling=not is_superadmin(token_data.role),
+    )
+    response = RolePolicyResponse(
+        tenant_id=tenant_id,
+        role=role_name.upper(),
+        allow=after.allow,
+        deny=after.deny,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump())
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=tenant_id,
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="access_control.tenant_role_policy.update",
+            entity_type="role_policy",
+            entity_id=f"{tenant_id}:{role_name.upper()}",
+            before={"allow": before.allow, "deny": before.deny},
+            after={"allow": after.allow, "deny": after.deny},
+            metadata={"role": role_name.upper(), "transaction_id": payload.transaction_id},
+            result="success",
+        )
+    )
+    return response
+
+
+@router.get(
+    "/access-control/store-role-policies/{store_id}/{role_name}",
+    response_model=StoreRolePolicyResponse,
+)
+async def admin_get_store_role_policy(
+    request: Request,
+    store_id: str,
+    role_name: str,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    store = enforce_store_scope(
+        token_data,
+        store_id,
+        db,
+        allow_superadmin=True,
+        broader_store_roles={"SUPERADMIN"},
+    )
+    if str(store.tenant_id) != tenant_id:
+        raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+    service = AccessControlPolicyService(db)
+    snapshot = service.get_store_role_policy(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        role_name=role_name.upper(),
+    )
+    return StoreRolePolicyResponse(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        role=role_name.upper(),
+        allow=snapshot.allow,
+        deny=snapshot.deny,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.put(
+    "/access-control/store-role-policies/{store_id}/{role_name}",
+    response_model=StoreRolePolicyResponse,
+)
+async def admin_replace_store_role_policy(
+    request: Request,
+    store_id: str,
+    role_name: str,
+    payload: RolePolicyRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    store = enforce_store_scope(
+        token_data,
+        store_id,
+        db,
+        allow_superadmin=True,
+        broader_store_roles={"SUPERADMIN"},
+    )
+    if str(store.tenant_id) != tenant_id:
+        raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+    _require_transaction_id(payload.transaction_id)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    service = AccessControlPolicyService(db)
+    before, after = service.replace_store_role_policy(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        role_name=role_name.upper(),
+        allow=payload.allow,
+        deny=payload.deny,
+        enforce_ceiling=not is_superadmin(token_data.role),
+    )
+    response = StoreRolePolicyResponse(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        role=role_name.upper(),
+        allow=after.allow,
+        deny=after.deny,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump())
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=tenant_id,
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="access_control.store_role_policy.update",
+            entity_type="role_policy",
+            entity_id=f"{tenant_id}:{store_id}:{role_name.upper()}",
+            before={"allow": before.allow, "deny": before.deny},
+            after={"allow": after.allow, "deny": after.deny},
+            metadata={
+                "role": role_name.upper(),
+                "store_id": store_id,
+                "transaction_id": payload.transaction_id,
+            },
+            result="success",
+        )
+    )
+    return response
+
+
+@router.get("/access-control/user-overrides/{user_id}", response_model=UserPermissionOverrideResponse)
+async def admin_get_user_overrides(
+    request: Request,
+    user_id: str,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None or str(user.tenant_id) != tenant_id:
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    _enforce_user_store_scope(token_data, user)
+    service = AccessControlPolicyService(db)
+    snapshot = service.get_user_overrides(tenant_id=tenant_id, user_id=user_id)
+    return UserPermissionOverrideResponse(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        allow=snapshot.allow,
+        deny=snapshot.deny,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.patch("/access-control/user-overrides/{user_id}", response_model=UserPermissionOverrideResponse)
+async def admin_patch_user_overrides(
+    request: Request,
+    user_id: str,
+    payload: UserPermissionOverridePatchRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None or str(user.tenant_id) != tenant_id:
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    _enforce_user_store_scope(token_data, user)
+    _require_transaction_id(payload.transaction_id)
+
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    service = AccessControlPolicyService(db)
+    before = service.get_user_overrides(tenant_id=tenant_id, user_id=user_id)
+    allow = before.allow if payload.allow is None else payload.allow
+    deny = before.deny if payload.deny is None else payload.deny
+    _, after = service.replace_user_overrides(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        allow=allow,
+        deny=deny,
+        enforce_ceiling=not is_superadmin(token_data.role),
+    )
+    response = UserPermissionOverrideResponse(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        allow=after.allow,
+        deny=after.deny,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump())
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=tenant_id,
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="access_control.user_override.update",
+            entity_type="user_override",
+            entity_id=f"{tenant_id}:{user_id}",
+            before={"allow": before.allow, "deny": before.deny},
+            after={"allow": after.allow, "deny": after.deny},
+            metadata={"user_id": user_id, "transaction_id": payload.transaction_id},
+            result="success",
+        )
+    )
+    return response
+
+
+@router.get("/access-control/effective-permissions", response_model=EffectivePermissionsResponse)
+async def admin_effective_permissions(
+    request: Request,
+    user_id: str,
+    store_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_admin(token_data)
+    tenant_id = _tenant_id_or_error(token_data)
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None or str(user.tenant_id) != tenant_id:
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    _enforce_user_store_scope(token_data, user)
+    if store_id and user.store_id and str(user.store_id) != store_id:
+        raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+
+    target_store_id = store_id or (str(user.store_id) if user.store_id else None)
+    if target_store_id:
+        store = enforce_store_scope(
+            token_data,
+            target_store_id,
+            db,
+            allow_superadmin=True,
+            broader_store_roles={"SUPERADMIN"},
+        )
+        if str(store.tenant_id) != tenant_id:
+            raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+
+    cache = getattr(request.state, "permission_cache", None)
+    if cache is None:
+        cache = {}
+        request.state.permission_cache = cache
+    service = AccessControlService(db, cache=cache)
+    context = build_request_context(
+        user_id=str(user.id),
+        tenant_id=str(user.tenant_id),
+        store_id=target_store_id,
+        role=user.role,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    decisions = service.build_effective_permissions(context, None)
+    return EffectivePermissionsResponse(
+        user_id=str(user.id),
+        tenant_id=str(user.tenant_id),
+        store_id=target_store_id,
+        role=user.role,
+        permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
 
 
 @router.get("/tenants", response_model=TenantListResponse)

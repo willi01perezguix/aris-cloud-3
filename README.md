@@ -34,3 +34,10 @@ alembic upgrade head
 ```bash
 pytest -q
 ```
+
+## Access control admin (ARIS3)
+
+Mutaciones en `/aris3/admin/access-control/*` y `/aris3/access-control/*` requieren `Idempotency-Key`
+en headers y `transaction_id` en el payload JSON. Las políticas se evalúan en orden:
+role template global → tenant policy → store policy → user override, con `DENY` ganando
+siempre sobre `ALLOW` (default deny).

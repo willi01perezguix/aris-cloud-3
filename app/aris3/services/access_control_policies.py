@@ -20,6 +20,11 @@ class PolicySnapshot:
     deny: list[str]
 
 
+@dataclass(frozen=True)
+class RoleTemplateSnapshot:
+    permissions: list[str]
+
+
 class AccessControlPolicyService:
     def __init__(self, db):
         self.db = db
@@ -28,6 +33,37 @@ class AccessControlPolicyService:
 
     def list_permission_catalog(self):
         return self.repo.list_permission_catalog()
+
+    def get_role_template(self, *, tenant_id: str | None, role_name: str) -> RoleTemplateSnapshot:
+        role_template = self.role_repo.get_role_template(role_name, tenant_id)
+        if role_template is None:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "Role template not found", "role": role_name},
+            )
+        permissions = self.role_repo.list_permissions_for_role_template(role_template.id)
+        return RoleTemplateSnapshot(permissions=sorted(set(permissions)))
+
+    def replace_role_template_permissions(
+        self,
+        *,
+        tenant_id: str | None,
+        role_name: str,
+        permissions: list[str],
+    ) -> tuple[RoleTemplateSnapshot, RoleTemplateSnapshot]:
+        catalog = self._catalog_codes()
+        self._validate_codes(permissions, catalog)
+        role_template = self.role_repo.get_role_template(role_name, tenant_id)
+        if role_template is None:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "Role template not found", "role": role_name},
+            )
+        before = self.get_role_template(tenant_id=tenant_id, role_name=role_name)
+        self.role_repo.replace_role_template_permissions(role_template.id, permissions)
+        self.db.commit()
+        after = RoleTemplateSnapshot(permissions=sorted(set(permissions)))
+        return before, after
 
     def get_tenant_role_policy(self, *, tenant_id: str | None, role_name: str) -> PolicySnapshot:
         allow, deny = self._partition_entries(

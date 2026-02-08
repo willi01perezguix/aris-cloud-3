@@ -1,14 +1,16 @@
 import uuid
 
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import Tenant, User
+from app.aris3.db.models import Store, Tenant, User
 
 
 def _create_user(db_session, **kwargs):
     tenant = kwargs.pop("tenant", Tenant(id=uuid.uuid4(), name="Tenant A"))
+    store = kwargs.pop("store", Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store A"))
     user = User(
         id=kwargs.pop("id", uuid.uuid4()),
         tenant_id=tenant.id,
+        store_id=kwargs.pop("store_id", store.id),
         username=kwargs.pop("username", "jane"),
         email=kwargs.pop("email", "jane@example.com"),
         hashed_password=kwargs.pop("hashed_password", get_password_hash("OldPass123")),
@@ -18,6 +20,7 @@ def _create_user(db_session, **kwargs):
         is_active=kwargs.pop("is_active", True),
     )
     db_session.add(tenant)
+    db_session.add(store)
     db_session.add(user)
     db_session.commit()
     return tenant, user
@@ -97,10 +100,11 @@ def test_me_unauthorized(client):
     response = client.get("/aris3/me")
     assert response.status_code == 401
     assert response.json()["code"] == "http_error"
+    assert response.json()["trace_id"]
 
 
 def test_me_authorized(client, db_session):
-    _create_user(db_session)
+    tenant, user = _create_user(db_session)
 
     response = client.post(
         "/aris3/auth/login",
@@ -111,7 +115,8 @@ def test_me_authorized(client, db_session):
     me_response = client.get("/aris3/me", headers={"Authorization": f"Bearer {token}"})
     assert me_response.status_code == 200
     payload = me_response.json()
-    assert payload["tenant_id"]
+    assert payload["tenant_id"] == str(tenant.id)
+    assert payload["store_id"] == str(user.store_id)
     assert payload["role"] == "admin"
     assert payload["status"] == "active"
     assert payload["is_active"] is True

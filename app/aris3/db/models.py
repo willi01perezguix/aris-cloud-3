@@ -58,6 +58,19 @@ class User(Base):
     )
 
 
+class VariantFieldSettings(Base):
+    __tablename__ = "variant_field_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    var1_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    var2_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_variant_field_settings_tenant_id"),)
+
+
 class PermissionCatalog(Base):
     __tablename__ = "permission_catalog"
 

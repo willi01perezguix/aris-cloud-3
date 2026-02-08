@@ -15,13 +15,29 @@ from app.aris3.db.models import (
 DEFAULT_PERMISSIONS = [
     ("TENANT_VIEW", "View tenant details"),
     ("STORE_VIEW", "View store details"),
+    ("STORE_MANAGE", "Manage store details"),
     ("USER_MANAGE", "Manage users"),
+    ("SETTINGS_MANAGE", "Manage tenant settings"),
     ("AUDIT_VIEW", "View audit events"),
 ]
 
 DEFAULT_ROLE_TEMPLATES = {
-    "SUPERADMIN": ["TENANT_VIEW", "STORE_VIEW", "USER_MANAGE", "AUDIT_VIEW"],
-    "ADMIN": ["TENANT_VIEW", "STORE_VIEW", "USER_MANAGE", "AUDIT_VIEW"],
+    "SUPERADMIN": [
+        "TENANT_VIEW",
+        "STORE_VIEW",
+        "STORE_MANAGE",
+        "USER_MANAGE",
+        "SETTINGS_MANAGE",
+        "AUDIT_VIEW",
+    ],
+    "ADMIN": [
+        "TENANT_VIEW",
+        "STORE_VIEW",
+        "STORE_MANAGE",
+        "USER_MANAGE",
+        "SETTINGS_MANAGE",
+        "AUDIT_VIEW",
+    ],
     "MANAGER": ["STORE_VIEW", "USER_MANAGE"],
     "USER": ["STORE_VIEW"],
 }

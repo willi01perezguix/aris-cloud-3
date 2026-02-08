@@ -80,7 +80,7 @@ def test_effective_permissions_for_roles(client, db_session, role_name):
 def test_effective_permissions_unauthorized(client):
     response = client.get("/aris3/access-control/effective-permissions")
     assert response.status_code == 401
-    assert response.json()["code"] == "http_error"
+    assert response.json()["code"] == "INVALID_TOKEN"
 
 
 def test_unknown_permission_denied(db_session):

@@ -57,7 +57,7 @@ def test_login_invalid_password(client, db_session):
         json={"email": "jane@example.com", "password": "wrong-pass"},
     )
     assert response.status_code == 401
-    assert response.json()["code"] == "http_error"
+    assert response.json()["code"] == "INVALID_CREDENTIALS"
 
 
 def test_login_blocked_inactive(client, db_session):
@@ -68,7 +68,7 @@ def test_login_blocked_inactive(client, db_session):
         json={"email": "jane@example.com", "password": "OldPass123"},
     )
     assert response.status_code == 403
-    assert response.json()["code"] == "http_error"
+    assert response.json()["code"] == "USER_INACTIVE"
 
 
 def test_login_blocked_suspended(client, db_session):
@@ -79,7 +79,7 @@ def test_login_blocked_suspended(client, db_session):
         json={"email": "jane@example.com", "password": "OldPass123"},
     )
     assert response.status_code == 403
-    assert response.json()["code"] == "http_error"
+    assert response.json()["code"] == "USER_INACTIVE"
 
 
 def test_must_change_password_flow(client, db_session):
@@ -95,7 +95,7 @@ def test_must_change_password_flow(client, db_session):
 
     change_response = client.post(
         "/aris3/auth/change-password",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "change-1"},
         json={"current_password": "OldPass123", "new_password": "NewPass456"},
     )
     assert change_response.status_code == 200
@@ -110,7 +110,7 @@ def test_must_change_password_flow(client, db_session):
 def test_me_unauthorized(client):
     response = client.get("/aris3/me")
     assert response.status_code == 401
-    assert response.json()["code"] == "http_error"
+    assert response.json()["code"] == "INVALID_TOKEN"
     assert response.json()["trace_id"]
 
 

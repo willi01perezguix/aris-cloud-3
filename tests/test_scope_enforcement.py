@@ -1,8 +1,8 @@
 import uuid
 
 import pytest
-from fastapi import HTTPException, status
 
+from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import enforce_store_scope, enforce_tenant_scope
 from app.aris3.core.security import TokenData
 from app.aris3.db.models import Store, Tenant
@@ -28,9 +28,9 @@ def test_enforce_tenant_scope_blocks_cross_tenant():
     token_data = _token_data(tenant_id=str(uuid.uuid4()))
     other_tenant_id = str(uuid.uuid4())
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(AppError) as exc:
         enforce_tenant_scope(token_data, other_tenant_id)
-    assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc.value.error == ErrorCatalog.CROSS_TENANT_ACCESS_DENIED
 
 
 def test_enforce_store_scope_blocks_store_mismatch(db_session):
@@ -46,6 +46,6 @@ def test_enforce_store_scope_blocks_store_mismatch(db_session):
         role="USER",
     )
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(AppError) as exc:
         enforce_store_scope(token_data, str(store_b.id), db_session)
-    assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc.value.error == ErrorCatalog.STORE_SCOPE_MISMATCH

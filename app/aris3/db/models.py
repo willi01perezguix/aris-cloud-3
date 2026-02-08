@@ -123,7 +123,7 @@ class AuditEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
-    trace_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     entity: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -135,4 +135,3 @@ class AuditEvent(Base):
 
 Index("ix_users_tenant_username", User.tenant_id, User.username)
 Index("ix_users_tenant_email", User.tenant_id, User.email)
-Index("ix_audit_events_trace_id", AuditEvent.trace_id)

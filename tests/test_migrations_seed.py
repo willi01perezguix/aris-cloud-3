@@ -35,6 +35,9 @@ def test_migrations_apply(tmp_path: Path):
     assert "idempotency_records" in tables
     assert "audit_events" in tables
 
+    indexes = [index["name"] for index in inspector.get_indexes("audit_events")]
+    assert indexes.count("ix_audit_events_trace_id") == 1
+
 
 def test_seed_is_idempotent(tmp_path: Path):
     db_path = tmp_path / "seed.db"

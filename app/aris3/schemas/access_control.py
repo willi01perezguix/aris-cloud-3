@@ -13,3 +13,4 @@ class EffectivePermissionsResponse(BaseModel):
     store_id: str | None
     role: str | None
     permissions: list[PermissionEntry]
+    trace_id: str

@@ -28,4 +28,5 @@ async def effective_permissions(
         store_id=context.store_id or token_data.store_id,
         role=(context.role or token_data.role),
         permissions=[PermissionEntry(key=d.key, allowed=d.allowed, source=d.source) for d in decisions],
+        trace_id=getattr(request.state, "trace_id", ""),
     )

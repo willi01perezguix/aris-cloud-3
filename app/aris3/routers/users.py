@@ -18,4 +18,5 @@ async def me(token_data=Depends(get_current_token_data), context=Depends(require
         status=token_data.status,
         is_active=token_data.is_active,
         must_change_password=token_data.must_change_password,
+        trace_id=context.trace_id,
     )

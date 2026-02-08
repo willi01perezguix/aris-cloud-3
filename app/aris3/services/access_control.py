@@ -39,12 +39,13 @@ class AccessControlService:
         if normalized_key not in catalog:
             return PermissionDecision(key=normalized_key, allowed=False, source="unknown_permission")
 
-        role_name, tenant_id = self._resolve_role_scope(context, token_data)
+        role_name, tenant_id, store_id = self._resolve_role_scope(context, token_data)
         if not role_name:
             return PermissionDecision(key=normalized_key, allowed=False, source="default_deny")
 
         base_allowed = self._get_allowed_permissions(role_name, tenant_id)
         tenant_allow, tenant_deny = self._get_tenant_role_policy(tenant_id, role_name)
+        store_allow, store_deny = self._get_store_role_policy(tenant_id, store_id, role_name)
         user_allow, user_deny = self._get_user_overrides(tenant_id, context.user_id)
         deny_permissions = self._get_denied_permissions(context, token_data)
         if normalized_key in deny_permissions:
@@ -52,10 +53,14 @@ class AccessControlService:
 
         if normalized_key in user_deny:
             return PermissionDecision(key=normalized_key, allowed=False, source="user_override_deny")
-        if normalized_key in user_allow:
-            return PermissionDecision(key=normalized_key, allowed=True, source="user_override_allow")
+        if normalized_key in store_deny:
+            return PermissionDecision(key=normalized_key, allowed=False, source="store_policy_deny")
         if normalized_key in tenant_deny:
             return PermissionDecision(key=normalized_key, allowed=False, source="tenant_policy_deny")
+        if normalized_key in user_allow:
+            return PermissionDecision(key=normalized_key, allowed=True, source="user_override_allow")
+        if normalized_key in store_allow:
+            return PermissionDecision(key=normalized_key, allowed=True, source="store_policy_allow")
         if normalized_key in tenant_allow:
             return PermissionDecision(key=normalized_key, allowed=True, source="tenant_policy_allow")
         if normalized_key in base_allowed:
@@ -68,27 +73,37 @@ class AccessControlService:
         context: RequestContext,
         token_data: TokenData | None = None,
     ) -> list[PermissionDecision]:
-        role_name, tenant_id = self._resolve_role_scope(context, token_data)
+        role_name, tenant_id, store_id = self._resolve_role_scope(context, token_data)
         catalog = sorted(self._get_catalog_permissions())
         deny_permissions = self._get_denied_permissions(context, token_data)
         base_allowed = self._get_allowed_permissions(role_name, tenant_id) if role_name else set()
         tenant_allow, tenant_deny = self._get_tenant_role_policy(tenant_id, role_name) if role_name else (set(), set())
+        store_allow, store_deny = (
+            self._get_store_role_policy(tenant_id, store_id, role_name) if role_name else (set(), set())
+        )
         user_allow, user_deny = self._get_user_overrides(tenant_id, context.user_id)
 
         decisions: list[PermissionDecision] = []
         for key in catalog:
-            # Evaluation order (deterministic): template -> tenant policy -> user override, with DENY precedence.
+            # Evaluation order (deterministic): template -> tenant policy -> store policy -> user override,
+            # with DENY precedence at every level.
             if key in deny_permissions:
                 decisions.append(PermissionDecision(key=key, allowed=False, source="explicit_deny"))
                 continue
             if key in user_deny:
                 decisions.append(PermissionDecision(key=key, allowed=False, source="user_override_deny"))
                 continue
-            if key in user_allow:
-                decisions.append(PermissionDecision(key=key, allowed=True, source="user_override_allow"))
+            if key in store_deny:
+                decisions.append(PermissionDecision(key=key, allowed=False, source="store_policy_deny"))
                 continue
             if key in tenant_deny:
                 decisions.append(PermissionDecision(key=key, allowed=False, source="tenant_policy_deny"))
+                continue
+            if key in user_allow:
+                decisions.append(PermissionDecision(key=key, allowed=True, source="user_override_allow"))
+                continue
+            if key in store_allow:
+                decisions.append(PermissionDecision(key=key, allowed=True, source="store_policy_allow"))
                 continue
             if key in tenant_allow:
                 decisions.append(PermissionDecision(key=key, allowed=True, source="tenant_policy_allow"))
@@ -167,11 +182,39 @@ class AccessControlService:
         self.cache[cache_key] = (allow, deny)
         return allow, deny
 
+    def _get_store_role_policy(
+        self,
+        tenant_id: str | None,
+        store_id: str | None,
+        role_name: str | None,
+    ) -> tuple[set[str], set[str]]:
+        if not tenant_id or not store_id or not role_name:
+            return set(), set()
+        cache_key = f"store_policy:{tenant_id}:{store_id}:{role_name}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        entries = self.policy_repo.list_store_role_policies(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            role_name=role_name,
+        )
+        allow: set[str] = set()
+        deny: set[str] = set()
+        for entry in entries:
+            effect = (entry.effect or "").lower()
+            if effect == "deny":
+                deny.add(entry.permission_code)
+            else:
+                allow.add(entry.permission_code)
+        self.cache[cache_key] = (allow, deny)
+        return allow, deny
+
     @staticmethod
     def _resolve_role_scope(
         context: RequestContext,
         token_data: TokenData | None,
-    ) -> tuple[str | None, str | None]:
+    ) -> tuple[str | None, str | None, str | None]:
         role = (context.role or (token_data.role if token_data else "")).upper() or None
         tenant_id = context.tenant_id or (token_data.tenant_id if token_data else None)
-        return role, tenant_id
+        store_id = context.store_id or (token_data.store_id if token_data else None)
+        return role, tenant_id, store_id

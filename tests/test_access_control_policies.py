@@ -18,7 +18,7 @@ def _create_user(db_session, *, tenant, store, role: str, username: str, passwor
     user = User(
         id=uuid.uuid4(),
         tenant_id=tenant.id,
-        store_id=store.id,
+        store_id=store.id if store else None,
         username=username,
         email=f"{username}@example.com",
         hashed_password=get_password_hash(password),
@@ -30,6 +30,13 @@ def _create_user(db_session, *, tenant, store, role: str, username: str, passwor
     db_session.add(user)
     db_session.commit()
     return user
+
+
+def _create_store(db_session, *, tenant, name_suffix: str):
+    store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name=f"Store {name_suffix}")
+    db_session.add(store)
+    db_session.commit()
+    return store
 
 
 def _login(client, username: str, password: str):
@@ -185,6 +192,102 @@ def test_user_override_updates_effective_permissions_and_requires_idempotency(
     )
     assert event is not None
     assert event.result == "success"
+
+
+def test_store_role_policy_denies_override_allow_and_targeted_read(client, db_session):
+    run_seed(db_session)
+    tenant, store_a = _create_tenant_store(db_session, name_suffix="StorePolicy")
+    store_b = _create_store(db_session, tenant=tenant, name_suffix="StorePolicyB")
+    _create_user(db_session, tenant=tenant, store=None, role="ADMIN", username="admin6", password="Pass1234!")
+    user = _create_user(
+        db_session,
+        tenant=tenant,
+        store=store_b,
+        role="USER",
+        username="user-store",
+        password="Pass1234!",
+    )
+
+    token = _login(client, "admin6", "Pass1234!")
+    store_policy = {"allow": [], "deny": ["USER_MANAGE"]}
+    response = client.put(
+        f"/aris3/access-control/tenants/{tenant.id}/stores/{store_b.id}/role-policies/USER",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-policy-1"},
+        json=store_policy,
+    )
+    assert response.status_code == 200
+
+    override_response = client.put(
+        f"/aris3/access-control/tenants/{tenant.id}/users/{user.id}/permission-overrides",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "override-store-1"},
+        json={"allow": ["USER_MANAGE"], "deny": []},
+    )
+    assert override_response.status_code == 200
+
+    targeted = client.get(
+        f"/aris3/access-control/tenants/{tenant.id}/stores/{store_b.id}/users/{user.id}/effective-permissions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert targeted.status_code == 200
+    permissions = {entry["key"]: entry for entry in targeted.json()["permissions"]}
+    assert permissions["USER_MANAGE"]["allowed"] is False
+    assert permissions["USER_MANAGE"]["source"] == "store_policy_deny"
+
+
+def test_store_role_policy_respects_store_scope(client, db_session):
+    run_seed(db_session)
+    tenant, store_a = _create_tenant_store(db_session, name_suffix="Scope")
+    store_b = _create_store(db_session, tenant=tenant, name_suffix="ScopeB")
+    _create_user(db_session, tenant=tenant, store=store_a, role="ADMIN", username="admin7", password="Pass1234!")
+
+    token = _login(client, "admin7", "Pass1234!")
+    response = client.put(
+        f"/aris3/access-control/tenants/{tenant.id}/stores/{store_b.id}/role-policies/USER",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-policy-2"},
+        json={"allow": ["STORE_VIEW"], "deny": []},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "STORE_SCOPE_MISMATCH"
+
+
+def test_effective_permissions_user_store_scope_enforced(client, db_session):
+    run_seed(db_session)
+    tenant, store_a = _create_tenant_store(db_session, name_suffix="ScopeUser")
+    store_b = _create_store(db_session, tenant=tenant, name_suffix="ScopeUserB")
+    _create_user(db_session, tenant=tenant, store=store_a, role="ADMIN", username="admin9", password="Pass1234!")
+    user = _create_user(
+        db_session,
+        tenant=tenant,
+        store=store_b,
+        role="USER",
+        username="user-scope",
+        password="Pass1234!",
+    )
+
+    token = _login(client, "admin9", "Pass1234!")
+    response = client.get(
+        f"/aris3/access-control/effective-permissions/users/{user.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "STORE_SCOPE_MISMATCH"
+
+
+def test_store_policy_admin_ceiling_applies(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="StoreCeiling")
+    _create_user(db_session, tenant=tenant, store=None, role="ADMIN", username="admin8", password="Pass1234!")
+    db_session.add(PermissionCatalog(code="SECRET_STORE", description="Hidden"))
+    db_session.commit()
+
+    token = _login(client, "admin8", "Pass1234!")
+    response = client.put(
+        f"/aris3/access-control/tenants/{tenant.id}/stores/{store.id}/role-policies/USER",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-policy-3"},
+        json={"allow": ["SECRET_STORE"], "deny": []},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "PERMISSION_DENIED"
 
 
 def test_role_policy_requires_idempotency_key(client, db_session):

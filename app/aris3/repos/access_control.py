@@ -1,6 +1,11 @@
 from sqlalchemy import delete, select
 
-from app.aris3.db.models import PermissionCatalog, TenantRolePolicy, UserPermissionOverride
+from app.aris3.db.models import (
+    PermissionCatalog,
+    StoreRolePolicy,
+    TenantRolePolicy,
+    UserPermissionOverride,
+)
 
 
 class AccessControlPolicyRepository:
@@ -19,6 +24,15 @@ class AccessControlPolicyRepository:
             stmt = stmt.where(TenantRolePolicy.tenant_id == tenant_id)
         return self.db.execute(stmt).scalars().all()
 
+    def list_store_role_policies(self, *, tenant_id: str, store_id: str, role_name: str):
+        stmt = (
+            select(StoreRolePolicy)
+            .where(StoreRolePolicy.role_name == role_name)
+            .where(StoreRolePolicy.tenant_id == tenant_id)
+            .where(StoreRolePolicy.store_id == store_id)
+        )
+        return self.db.execute(stmt).scalars().all()
+
     def replace_tenant_role_policies(
         self,
         *,
@@ -31,6 +45,20 @@ class AccessControlPolicyRepository:
             stmt = stmt.where(TenantRolePolicy.tenant_id.is_(None))
         else:
             stmt = stmt.where(TenantRolePolicy.tenant_id == tenant_id)
+        self.db.execute(stmt)
+        for entry in entries:
+            self.db.add(entry)
+
+    def replace_store_role_policies(
+        self,
+        *,
+        tenant_id: str,
+        store_id: str,
+        role_name: str,
+        entries: list[StoreRolePolicy],
+    ):
+        stmt = delete(StoreRolePolicy).where(StoreRolePolicy.role_name == role_name)
+        stmt = stmt.where(StoreRolePolicy.tenant_id == tenant_id).where(StoreRolePolicy.store_id == store_id)
         self.db.execute(stmt)
         for entry in entries:
             self.db.add(entry)

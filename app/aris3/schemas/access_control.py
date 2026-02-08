@@ -39,6 +39,15 @@ class RolePolicyResponse(BaseModel):
     trace_id: str
 
 
+class StoreRolePolicyResponse(BaseModel):
+    tenant_id: str
+    store_id: str
+    role: str
+    allow: list[str]
+    deny: list[str]
+    trace_id: str
+
+
 class UserPermissionOverrideRequest(BaseModel):
     allow: list[str] = Field(default_factory=list)
     deny: list[str] = Field(default_factory=list)

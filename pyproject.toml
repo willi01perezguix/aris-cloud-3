@@ -1,0 +1,9 @@
+[project]
+name = "aris-cloud-3"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["."]

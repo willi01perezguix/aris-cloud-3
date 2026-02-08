@@ -72,6 +72,29 @@ class VariantFieldSettings(Base):
     __table_args__ = (UniqueConstraint("tenant_id", name="uq_variant_field_settings_tenant_id"),)
 
 
+class StockItem(Base):
+    __tablename__ = "stock_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    var2_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    epc: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    location_is_vendible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    image_asset_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_thumb_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    image_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class PermissionCatalog(Base):
     __tablename__ = "permission_catalog"
 

@@ -49,7 +49,7 @@ def enforce_store_scope(
     store = db.execute(select(Store).where(Store.id == store_id)).scalars().first()
     if store is None:
         raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
-    if store.tenant_id != token_data.tenant_id:
+    if str(store.tenant_id) != token_data.tenant_id:
         if allow_superadmin and is_superadmin(token_data.role):
             return store
         raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)

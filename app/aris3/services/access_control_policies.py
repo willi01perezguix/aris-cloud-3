@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.db.models import TenantRolePolicy, UserPermissionOverride
+from app.aris3.db.models import StoreRolePolicy, TenantRolePolicy, UserPermissionOverride
 from app.aris3.repos.access_control import AccessControlPolicyRepository
 from app.aris3.repos.rbac import RoleTemplateRepository
 
@@ -32,6 +32,18 @@ class AccessControlPolicyService:
     def get_tenant_role_policy(self, *, tenant_id: str | None, role_name: str) -> PolicySnapshot:
         allow, deny = self._partition_entries(
             self.repo.list_tenant_role_policies(tenant_id=tenant_id, role_name=role_name)
+        )
+        return PolicySnapshot(allow=sorted(allow), deny=sorted(deny))
+
+    def get_store_role_policy(
+        self, *, tenant_id: str, store_id: str, role_name: str
+    ) -> PolicySnapshot:
+        allow, deny = self._partition_entries(
+            self.repo.list_store_role_policies(
+                tenant_id=tenant_id,
+                store_id=store_id,
+                role_name=role_name,
+            )
         )
         return PolicySnapshot(allow=sorted(allow), deny=sorted(deny))
 
@@ -64,6 +76,48 @@ class AccessControlPolicyService:
         entries = self._build_tenant_role_entries(tenant_id, role_name, allow, deny)
         self.repo.replace_tenant_role_policies(
             tenant_id=tenant_id,
+            role_name=role_name,
+            entries=entries,
+        )
+        self.db.commit()
+        after = PolicySnapshot(allow=sorted(set(allow)), deny=sorted(set(deny)))
+        return before, after
+
+    def replace_store_role_policy(
+        self,
+        *,
+        tenant_id: str,
+        store_id: str,
+        role_name: str,
+        allow: list[str],
+        deny: list[str],
+        enforce_ceiling: bool,
+    ) -> tuple[PolicySnapshot, PolicySnapshot]:
+        self._validate_role_policy_role(role_name)
+        self._validate_allow_deny(allow, deny)
+        catalog = self._catalog_codes()
+        self._validate_codes(allow + deny, catalog)
+        if enforce_ceiling:
+            ceiling = self._tenant_admin_ceiling(tenant_id)
+            requested_allow = set(allow)
+            if not requested_allow.issubset(ceiling):
+                raise AppError(
+                    ErrorCatalog.PERMISSION_DENIED,
+                    details={
+                        "message": "ADMIN ceiling exceeded",
+                        "disallowed": sorted(requested_allow.difference(ceiling)),
+                    },
+                )
+
+        before = self.get_store_role_policy(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            role_name=role_name,
+        )
+        entries = self._build_store_role_entries(tenant_id, store_id, role_name, allow, deny)
+        self.repo.replace_store_role_policies(
+            tenant_id=tenant_id,
+            store_id=store_id,
             role_name=role_name,
             entries=entries,
         )
@@ -208,6 +262,39 @@ class AccessControlPolicyService:
                 UserPermissionOverride(
                     tenant_id=tenant_id,
                     user_id=user_id,
+                    permission_code=code,
+                    effect=EFFECT_DENY,
+                    created_at=datetime.utcnow(),
+                )
+            )
+        return entries
+
+    @staticmethod
+    def _build_store_role_entries(
+        tenant_id: str,
+        store_id: str,
+        role_name: str,
+        allow: list[str],
+        deny: list[str],
+    ) -> list[StoreRolePolicy]:
+        entries: list[StoreRolePolicy] = []
+        for code in sorted(set(allow)):
+            entries.append(
+                StoreRolePolicy(
+                    tenant_id=tenant_id,
+                    store_id=store_id,
+                    role_name=role_name,
+                    permission_code=code,
+                    effect=EFFECT_ALLOW,
+                    created_at=datetime.utcnow(),
+                )
+            )
+        for code in sorted(set(deny)):
+            entries.append(
+                StoreRolePolicy(
+                    tenant_id=tenant_id,
+                    store_id=store_id,
+                    role_name=role_name,
                     permission_code=code,
                     effect=EFFECT_DENY,
                     created_at=datetime.utcnow(),

@@ -93,6 +93,15 @@ def test_unknown_permission_denied(db_session):
     assert decision.source == "unknown_permission"
 
 
+def test_default_deny_without_role(db_session):
+    _seed_defaults(db_session)
+    context = RequestContext(user_id="user", tenant_id="tenant", store_id=None, role=None, trace_id="")
+    service = AccessControlService(db_session)
+    decision = service.evaluate_permission("STORE_VIEW", context)
+    assert decision.allowed is False
+    assert decision.source == "default_deny"
+
+
 def test_explicit_deny_overrides_allow(db_session):
     _seed_defaults(db_session)
     context = RequestContext(user_id="user", tenant_id=None, store_id=None, role="USER", trace_id="")

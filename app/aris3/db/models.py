@@ -1,37 +1,11 @@
-import uuid
 from datetime import datetime
 
+import uuid
+
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.types import TypeDecorator, CHAR
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
-class GUID(TypeDecorator):
-    impl = CHAR
-    cache_ok = True
-
-    def load_dialect_impl(self, dialect):
-        if dialect.name == "postgresql":
-            from sqlalchemy.dialects.postgresql import UUID
-
-            return dialect.type_descriptor(UUID(as_uuid=True))
-        return dialect.type_descriptor(CHAR(36))
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        if isinstance(value, uuid.UUID):
-            return str(value)
-        return str(uuid.UUID(value))
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return None
-        return uuid.UUID(value)
-
-
-class Base(DeclarativeBase):
-    pass
+from app.aris3.db.base import Base, GUID
 
 
 class Tenant(Base):
@@ -43,6 +17,7 @@ class Tenant(Base):
 
     stores = relationship("Store", back_populates="tenant")
     users = relationship("User", back_populates="tenant")
+    role_templates = relationship("RoleTemplate", back_populates="tenant")
 
 
 class Store(Base):
@@ -54,6 +29,9 @@ class Store(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     tenant = relationship("Tenant", back_populates="stores")
+    users = relationship("User", back_populates="store")
+
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_store_tenant_name"),)
 
 
 class User(Base):
@@ -61,15 +39,66 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
-    username: Mapped[str] = mapped_column(String(150), nullable=False, unique=True, index=True)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), index=True, nullable=True)
+    username: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="user", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     tenant = relationship("Tenant", back_populates="users")
+    store = relationship("Store", back_populates="users")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "username", name="uq_users_tenant_username"),
+        UniqueConstraint("tenant_id", "email", name="uq_users_tenant_email"),
+    )
+
+
+class PermissionCatalog(Base):
+    __tablename__ = "permission_catalog"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(150), nullable=False, unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    role_template_permissions = relationship("RoleTemplatePermission", back_populates="permission")
+
+
+class RoleTemplate(Base):
+    __tablename__ = "role_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    tenant = relationship("Tenant", back_populates="role_templates")
+    permissions = relationship("RoleTemplatePermission", back_populates="role_template")
+
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_role_templates_tenant_name"),)
+
+
+class RoleTemplatePermission(Base):
+    __tablename__ = "role_template_permissions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    role_template_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("role_templates.id"), nullable=False)
+    permission_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("permission_catalog.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    role_template = relationship("RoleTemplate", back_populates="permissions")
+    permission = relationship("PermissionCatalog", back_populates="role_template_permissions")
+
+    __table_args__ = (
+        UniqueConstraint("role_template_id", "permission_id", name="uq_role_template_permission"),
+    )
 
 
 class IdempotencyRecord(Base):
@@ -93,8 +122,13 @@ class AuditEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
-    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity: Mapped[str] = mapped_column(String(255), nullable=False)
+    before_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     event_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 

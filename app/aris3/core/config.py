@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     DATABASE_URL: str = "sqlite+pysqlite:///./aris3.db"
+    DEFAULT_TENANT_NAME: str = "Default Tenant"
+    DEFAULT_STORE_NAME: str = "Default Store"
+    SUPERADMIN_USERNAME: str = "superadmin"
+    SUPERADMIN_EMAIL: str = "superadmin@example.com"
+    SUPERADMIN_PASSWORD: str = "change-me"
 
     class Config:
         env_file = ".env"

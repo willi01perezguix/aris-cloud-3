@@ -10,6 +10,13 @@ from .models import (
     TokenResponse,
     UserResponse,
 )
+from .models_stock import (
+    StockMeta,
+    StockQuery,
+    StockRow,
+    StockTableResponse,
+    StockTotals,
+)
 from .session import ApiSession
 from .tracing import TraceContext
 
@@ -33,4 +40,9 @@ __all__ = [
     "ValidationError",
     "load_config",
     "new_idempotency_keys",
+    "StockMeta",
+    "StockQuery",
+    "StockRow",
+    "StockTableResponse",
+    "StockTotals",
 ]

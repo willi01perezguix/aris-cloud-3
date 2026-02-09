@@ -7,6 +7,7 @@ from .clients.access_control import AccessControlClient
 from .clients.auth import AuthClient
 from .clients.health import HealthClient
 from .clients.smoke import SmokeClient
+from .clients.stock_client import StockClient
 from .config import ClientConfig
 from .http_client import HttpClient
 from .models import SessionData, TokenResponse, UserResponse
@@ -43,6 +44,9 @@ class ApiSession:
 
     def smoke_client(self) -> SmokeClient:
         return SmokeClient(self.auth_client(), self.health_client())
+
+    def stock_client(self) -> StockClient:
+        return StockClient(http=self._http(), access_token=self.token)
 
     def establish(self, token: TokenResponse, user: UserResponse | None) -> None:
         self.token = token.access_token

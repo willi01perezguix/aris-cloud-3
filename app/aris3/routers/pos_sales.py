@@ -19,6 +19,7 @@ from app.aris3.core.scope import (
     is_superadmin,
 )
 from app.aris3.db.models import (
+    PosCashDayClose,
     PosCashMovement,
     PosCashSession,
     PosPayment,
@@ -146,7 +147,32 @@ def _record_cash_movement(
     action: str,
     amount: Decimal,
     transaction_id: str | None,
+    actor_user_id: str | None,
+    trace_id: str | None,
+    occurred_at: datetime,
 ) -> None:
+    if amount <= 0:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "cash movement amount must be greater than 0"},
+        )
+    existing_day_close = (
+        db.execute(
+            select(PosCashDayClose).where(
+                PosCashDayClose.tenant_id == tenant_id,
+                PosCashDayClose.store_id == store_id,
+                PosCashDayClose.business_date == session.business_date,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing_day_close:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "cash movements are locked after day close"},
+        )
+
     expected_before = Decimal(str(session.expected_cash or 0))
     if action in {"SALE"}:
         expected_after = expected_before + amount
@@ -164,6 +190,7 @@ def _record_cash_movement(
             store_id=store_id,
             cash_session_id=session.id,
             cashier_user_id=session.cashier_user_id,
+            actor_user_id=actor_user_id,
             business_date=session.business_date,
             timezone=session.timezone,
             sale_id=sale_id,
@@ -172,6 +199,8 @@ def _record_cash_movement(
             expected_balance_before=float(expected_before),
             expected_balance_after=float(expected_after),
             transaction_id=transaction_id,
+            trace_id=trace_id,
+            occurred_at=occurred_at,
         )
     )
 
@@ -384,6 +413,7 @@ def _require_open_cash_session(db, *, tenant_id: str, store_id: str, cashier_use
                 PosCashSession.cashier_user_id == cashier_user_id,
                 PosCashSession.status == "OPEN",
             )
+            .with_for_update()
         )
         .scalars()
         .first()
@@ -1036,6 +1066,9 @@ def sale_action(
                     action="CASH_OUT_REFUND",
                     amount=cash_total,
                     transaction_id=payload.transaction_id,
+                    actor_user_id=str(current_user.id),
+                    trace_id=getattr(request.state, "trace_id", None),
+                    occurred_at=now,
                 )
 
         db.commit()
@@ -1462,6 +1495,9 @@ def sale_action(
                     action="CASH_OUT_REFUND" if delta < 0 else "SALE",
                     amount=cash_total,
                     transaction_id=payload.transaction_id,
+                    actor_user_id=str(current_user.id),
+                    trace_id=getattr(request.state, "trace_id", None),
+                    occurred_at=now,
                 )
 
         response = _sale_response(repo, sale)
@@ -1612,6 +1648,9 @@ def sale_action(
             action="SALE",
             amount=totals["cash_total"],
             transaction_id=payload.transaction_id,
+            actor_user_id=str(current_user.id),
+            trace_id=getattr(request.state, "trace_id", None),
+            occurred_at=now,
         )
     db.commit()
 

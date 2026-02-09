@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
@@ -16,8 +17,12 @@ from app.aris3.db.session import get_db
 from app.aris3.schemas.pos_cash import (
     PosCashDayCloseActionRequest,
     PosCashDayCloseResponse,
+    PosCashDayCloseSummaryListResponse,
+    PosCashDayCloseSummaryResponse,
     PosCashMovementListResponse,
     PosCashMovementResponse,
+    PosCashReconciliationBreakdownResponse,
+    PosCashReconciliationBreakdownRow,
     PosCashSessionActionRequest,
     PosCashSessionCurrentResponse,
     PosCashSessionSummary,
@@ -27,6 +32,27 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+
+MOVEMENT_TYPE_MAP = {
+    "OPEN": "OPENING",
+    "OPENING": "OPENING",
+    "CASH_IN": "CASH_IN",
+    "CASH_OUT": "CASH_OUT",
+    "SALE": "SALE_CASH_IN",
+    "SALE_CASH_IN": "SALE_CASH_IN",
+    "CASH_OUT_REFUND": "CASH_OUT_REFUND",
+    "CLOSE": "CLOSE_ADJUSTMENT",
+    "CLOSE_ADJUSTMENT": "CLOSE_ADJUSTMENT",
+    "DAY_CLOSE": "DAY_CLOSE",
+}
+
+RECONCILIATION_ACTIONS = {
+    "OPENING",
+    "CASH_IN",
+    "CASH_OUT",
+    "SALE_CASH_IN",
+    "CASH_OUT_REFUND",
+}
 
 
 def _require_transaction_id(transaction_id: str | None) -> None:
@@ -75,7 +101,8 @@ def _movement_response(movement: PosCashMovement) -> PosCashMovementResponse:
         tenant_id=_normalize_uuid(movement.tenant_id),
         store_id=_normalize_uuid(movement.store_id),
         cashier_user_id=_normalize_uuid(movement.cashier_user_id),
-        cash_session_id=_normalize_uuid(movement.cash_session_id),
+        actor_user_id=_normalize_uuid(movement.actor_user_id) if movement.actor_user_id else None,
+        cash_session_id=_normalize_uuid(movement.cash_session_id) if movement.cash_session_id else None,
         sale_id=_normalize_uuid(movement.sale_id) if movement.sale_id else None,
         business_date=movement.business_date,
         timezone=movement.timezone,
@@ -89,8 +116,96 @@ def _movement_response(movement: PosCashMovement) -> PosCashMovementResponse:
         else None,
         transaction_id=movement.transaction_id,
         reason=movement.reason,
+        trace_id=movement.trace_id,
+        occurred_at=movement.occurred_at,
         created_at=movement.created_at,
     )
+
+
+def _normalize_movement_type(action: str) -> str:
+    return MOVEMENT_TYPE_MAP.get(action, action)
+
+
+def _difference_type(difference: Decimal | None) -> str | None:
+    if difference is None:
+        return None
+    if difference > 0:
+        return "OVER"
+    if difference < 0:
+        return "SHORT"
+    return "EVEN"
+
+
+def _ensure_not_closed(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    business_date: date,
+) -> None:
+    existing = (
+        db.execute(
+            select(PosCashDayClose).where(
+                PosCashDayClose.tenant_id == tenant_id,
+                PosCashDayClose.store_id == store_id,
+                PosCashDayClose.business_date == business_date,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "day close already finalized for business_date"},
+        )
+
+
+def _reconciliation_rollup(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    business_date: date,
+) -> dict[str, Decimal]:
+    totals = {key: Decimal("0.00") for key in RECONCILIATION_ACTIONS}
+    rows = (
+        db.execute(
+            select(PosCashMovement.action, func.sum(PosCashMovement.amount), func.count())
+            .where(
+                PosCashMovement.tenant_id == tenant_id,
+                PosCashMovement.store_id == store_id,
+                PosCashMovement.business_date == business_date,
+            )
+            .group_by(PosCashMovement.action)
+        )
+        .all()
+    )
+    movement_counts: dict[str, int] = {}
+    for action, total_amount, count in rows:
+        normalized = _normalize_movement_type(action)
+        if normalized in totals:
+            totals[normalized] += Decimal(str(total_amount or 0))
+        movement_counts[normalized] = movement_counts.get(normalized, 0) + int(count or 0)
+
+    opening_amount = totals["OPENING"]
+    cash_in = totals["CASH_IN"]
+    cash_out = totals["CASH_OUT"]
+    net_cash_movement = cash_in - cash_out
+    net_cash_sales = totals["SALE_CASH_IN"]
+    cash_refunds = totals["CASH_OUT_REFUND"]
+    expected_cash = opening_amount + cash_in - cash_out + net_cash_sales - cash_refunds
+
+    return {
+        "opening_amount": opening_amount,
+        "cash_in": cash_in,
+        "cash_out": cash_out,
+        "net_cash_movement": net_cash_movement,
+        "net_cash_sales": net_cash_sales,
+        "cash_refunds": cash_refunds,
+        "expected_cash": expected_cash,
+        "movement_counts": movement_counts,
+    }
 
 
 def _open_session_query(db, *, tenant_id: str, store_id: str, cashier_user_id: str, for_update: bool = False):
@@ -191,6 +306,12 @@ def cash_session_action(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "business_date and timezone are required"},
             )
+        _ensure_not_closed(
+            db,
+            tenant_id=scoped_tenant_id,
+            store_id=payload.store_id,
+            business_date=payload.business_date,
+        )
         existing = _open_session_query(
             db,
             tenant_id=scoped_tenant_id,
@@ -224,6 +345,7 @@ def cash_session_action(
                 store_id=payload.store_id,
                 cash_session_id=session.id,
                 cashier_user_id=current_user.id,
+                actor_user_id=current_user.id,
                 business_date=payload.business_date,
                 timezone=payload.timezone,
                 sale_id=None,
@@ -233,6 +355,8 @@ def cash_session_action(
                 expected_balance_after=float(opening_amount),
                 transaction_id=payload.transaction_id,
                 reason=payload.reason,
+                trace_id=getattr(request.state, "trace_id", None),
+                occurred_at=now,
                 created_at=now,
             )
         )
@@ -275,6 +399,12 @@ def cash_session_action(
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "open cash session required"},
         )
+    _ensure_not_closed(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=payload.store_id,
+        business_date=session.business_date,
+    )
     if session.status != "OPEN":
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
@@ -282,6 +412,8 @@ def cash_session_action(
         )
 
     expected_before = Decimal(str(session.expected_cash or 0))
+    counted_before = Decimal(str(session.counted_cash)) if session.counted_cash is not None else None
+    difference_before = Decimal(str(session.difference)) if session.difference is not None else None
 
     if payload.action == "CASH_IN":
         amount = _ensure_positive_amount(payload.amount, "amount")
@@ -330,6 +462,7 @@ def cash_session_action(
             store_id=payload.store_id,
             cash_session_id=session.id,
             cashier_user_id=session.cashier_user_id,
+            actor_user_id=current_user.id,
             business_date=session.business_date,
             timezone=session.timezone,
             sale_id=None,
@@ -339,6 +472,8 @@ def cash_session_action(
             expected_balance_after=float(expected_after),
             transaction_id=payload.transaction_id,
             reason=payload.reason,
+            trace_id=getattr(request.state, "trace_id", None),
+            occurred_at=now,
             created_at=now,
         )
     )
@@ -358,10 +493,14 @@ def cash_session_action(
             before={
                 "status": status_before,
                 "expected_cash": str(expected_before),
+                "opening_amount": str(session.opening_amount),
+                "counted_cash": str(counted_before) if counted_before is not None else None,
+                "difference": str(difference_before) if difference_before is not None else None,
             },
             after={
                 "status": status_after,
                 "expected_cash": str(expected_after),
+                "opening_amount": str(session.opening_amount),
                 "counted_cash": str(counted_cash) if counted_cash is not None else None,
                 "difference": str(difference) if difference is not None else None,
             },
@@ -476,6 +615,7 @@ def close_day(
                 PosCashSession.business_date == payload.business_date,
                 PosCashSession.status == "OPEN",
             )
+            .with_for_update()
         )
         .scalars()
         .all()
@@ -499,6 +639,16 @@ def close_day(
                 details={"message": "reason is required for force day close"},
             )
 
+    rollup = _reconciliation_rollup(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=payload.store_id,
+        business_date=payload.business_date,
+    )
+    counted_cash = Decimal(str(payload.counted_cash)) if payload.counted_cash is not None else None
+    difference_amount = counted_cash - rollup["expected_cash"] if counted_cash is not None else None
+    difference_type = _difference_type(difference_amount)
+
     now = datetime.utcnow()
     close_record = PosCashDayClose(
         tenant_id=scoped_tenant_id,
@@ -508,12 +658,49 @@ def close_day(
         status="CLOSED",
         force_close=force_close,
         reason=payload.reason,
+        expected_cash=float(rollup["expected_cash"]),
+        counted_cash=float(counted_cash) if counted_cash is not None else None,
+        difference_amount=float(difference_amount) if difference_amount is not None else None,
+        difference_type=difference_type,
+        net_cash_sales=float(rollup["net_cash_sales"]),
+        cash_refunds=float(rollup["cash_refunds"]),
+        net_cash_movement=float(rollup["net_cash_movement"]),
+        day_close_difference=float(difference_amount) if difference_amount is not None else None,
         closed_by_user_id=current_user.id,
         closed_at=now,
         created_at=now,
     )
     db.add(close_record)
-    db.commit()
+    db.flush()
+    db.add(
+        PosCashMovement(
+            tenant_id=scoped_tenant_id,
+            store_id=payload.store_id,
+            cash_session_id=None,
+            cashier_user_id=current_user.id,
+            actor_user_id=current_user.id,
+            business_date=payload.business_date,
+            timezone=payload.timezone,
+            sale_id=None,
+            action="DAY_CLOSE",
+            amount=0.0,
+            expected_balance_before=None,
+            expected_balance_after=None,
+            transaction_id=payload.transaction_id,
+            reason=payload.reason,
+            trace_id=getattr(request.state, "trace_id", None),
+            occurred_at=now,
+            created_at=now,
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "day close already exists"},
+        ) from None
 
     response = PosCashDayCloseResponse(
         id=_normalize_uuid(close_record.id),
@@ -524,6 +711,18 @@ def close_day(
         status=close_record.status,
         force_close=close_record.force_close,
         reason=close_record.reason,
+        expected_cash=Decimal(str(close_record.expected_cash)),
+        counted_cash=Decimal(str(close_record.counted_cash)) if close_record.counted_cash is not None else None,
+        difference_amount=Decimal(str(close_record.difference_amount))
+        if close_record.difference_amount is not None
+        else None,
+        difference_type=close_record.difference_type,
+        net_cash_sales=Decimal(str(close_record.net_cash_sales)),
+        cash_refunds=Decimal(str(close_record.cash_refunds)),
+        net_cash_movement=Decimal(str(close_record.net_cash_movement)),
+        day_close_difference=Decimal(str(close_record.day_close_difference))
+        if close_record.day_close_difference is not None
+        else None,
         closed_by_user_id=_normalize_uuid(close_record.closed_by_user_id),
         closed_at=close_record.closed_at,
         created_at=close_record.created_at,
@@ -540,19 +739,178 @@ def close_day(
             action=action,
             entity_type="pos_cash_day_close",
             entity_id=str(close_record.id),
-            before={"open_sessions": [str(session.id) for session in open_sessions]},
+            before={
+                "open_sessions": [str(session.id) for session in open_sessions],
+                "expected_cash": str(rollup["expected_cash"]),
+                "net_cash_sales": str(rollup["net_cash_sales"]),
+                "cash_refunds": str(rollup["cash_refunds"]),
+                "net_cash_movement": str(rollup["net_cash_movement"]),
+            },
             after={
                 "status": close_record.status,
                 "force_close": close_record.force_close,
                 "business_date": str(close_record.business_date),
                 "timezone": close_record.timezone,
+                "expected_cash": str(rollup["expected_cash"]),
+                "counted_cash": str(counted_cash) if counted_cash is not None else None,
+                "difference_amount": str(difference_amount) if difference_amount is not None else None,
+                "difference_type": difference_type,
+                "net_cash_sales": str(rollup["net_cash_sales"]),
+                "cash_refunds": str(rollup["cash_refunds"]),
+                "net_cash_movement": str(rollup["net_cash_movement"]),
             },
             metadata={
                 "transaction_id": payload.transaction_id,
                 "reason": payload.reason,
                 "open_session_count": len(open_sessions),
+                "actor_role": token_data.role,
             },
             result="success",
         )
     )
     return response
+
+
+@router.get("/aris3/pos/cash/day-close/summary", response_model=PosCashDayCloseSummaryListResponse)
+def list_day_close_summary(
+    store_id: str | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    tenant_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_VIEW")),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
+        store_id = token_data.store_id
+    if store_id:
+        enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+
+    query = select(PosCashDayClose).where(PosCashDayClose.tenant_id == scoped_tenant_id)
+    count_query = select(func.count()).select_from(PosCashDayClose).where(
+        PosCashDayClose.tenant_id == scoped_tenant_id
+    )
+    if store_id:
+        query = query.where(PosCashDayClose.store_id == store_id)
+        count_query = count_query.where(PosCashDayClose.store_id == store_id)
+    if from_date:
+        query = query.where(PosCashDayClose.business_date >= from_date)
+        count_query = count_query.where(PosCashDayClose.business_date >= from_date)
+    if to_date:
+        query = query.where(PosCashDayClose.business_date <= to_date)
+        count_query = count_query.where(PosCashDayClose.business_date <= to_date)
+
+    total = db.execute(count_query).scalar_one()
+    rows = (
+        db.execute(query.order_by(PosCashDayClose.business_date.desc()).limit(limit).offset(offset))
+        .scalars()
+        .all()
+    )
+    return PosCashDayCloseSummaryListResponse(
+        rows=[
+            PosCashDayCloseSummaryResponse(
+                id=_normalize_uuid(row.id),
+                tenant_id=_normalize_uuid(row.tenant_id),
+                store_id=_normalize_uuid(row.store_id),
+                business_date=row.business_date,
+                timezone=row.timezone,
+                status=row.status,
+                force_close=row.force_close,
+                reason=row.reason,
+                expected_cash=Decimal(str(row.expected_cash)),
+                counted_cash=Decimal(str(row.counted_cash)) if row.counted_cash is not None else None,
+                difference_amount=Decimal(str(row.difference_amount)) if row.difference_amount is not None else None,
+                difference_type=row.difference_type,
+                net_cash_sales=Decimal(str(row.net_cash_sales)),
+                cash_refunds=Decimal(str(row.cash_refunds)),
+                net_cash_movement=Decimal(str(row.net_cash_movement)),
+                day_close_difference=Decimal(str(row.day_close_difference))
+                if row.day_close_difference is not None
+                else None,
+                closed_by_user_id=_normalize_uuid(row.closed_by_user_id),
+                closed_at=row.closed_at,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ],
+        total=total,
+    )
+
+
+@router.get("/aris3/pos/cash/reconciliation/breakdown", response_model=PosCashReconciliationBreakdownResponse)
+def reconciliation_breakdown(
+    store_id: str,
+    business_date: date,
+    timezone: str = "UTC",
+    tenant_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_VIEW")),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
+        store_id = token_data.store_id
+    enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+
+    rollup = _reconciliation_rollup(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=store_id,
+        business_date=business_date,
+    )
+    day_close = (
+        db.execute(
+            select(PosCashDayClose).where(
+                PosCashDayClose.tenant_id == scoped_tenant_id,
+                PosCashDayClose.store_id == store_id,
+                PosCashDayClose.business_date == business_date,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    difference = Decimal(str(day_close.day_close_difference)) if day_close and day_close.day_close_difference else None
+
+    movement_rows = (
+        db.execute(
+            select(PosCashMovement.action, func.sum(PosCashMovement.amount), func.count())
+            .where(
+                PosCashMovement.tenant_id == scoped_tenant_id,
+                PosCashMovement.store_id == store_id,
+                PosCashMovement.business_date == business_date,
+            )
+            .group_by(PosCashMovement.action)
+        )
+        .all()
+    )
+    movements = []
+    for action, total_amount, count in movement_rows:
+        movement_type = _normalize_movement_type(action)
+        movements.append(
+            PosCashReconciliationBreakdownRow(
+                movement_type=movement_type,
+                total_amount=Decimal(str(total_amount or 0)),
+                movement_count=int(count or 0),
+            )
+        )
+    return PosCashReconciliationBreakdownResponse(
+        business_date=business_date,
+        timezone=timezone,
+        expected_cash=rollup["expected_cash"],
+        opening_amount=rollup["opening_amount"],
+        cash_in=rollup["cash_in"],
+        cash_out=rollup["cash_out"],
+        net_cash_movement=rollup["net_cash_movement"],
+        net_cash_sales=rollup["net_cash_sales"],
+        cash_refunds=rollup["cash_refunds"],
+        day_close_difference=difference,
+        movements=movements,
+    )

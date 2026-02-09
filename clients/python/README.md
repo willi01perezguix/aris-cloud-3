@@ -27,6 +27,9 @@ Supported config keys:
 - `ARIS3_TIMEOUT_SECONDS`
 - `ARIS3_RETRIES`
 - `ARIS3_VERIFY_SSL`
+- `ARIS3_DEFAULT_PAGE_SIZE`
+- `ARIS3_DEFAULT_SORT_BY`
+- `ARIS3_DEFAULT_SORT_ORDER`
 
 ## Run the app shells
 ```bash
@@ -34,12 +37,22 @@ python -m aris_core_3_app.app
 python -m aris_control_center_app.app
 ```
 
+### Stock screen (ARIS CORE 3)
+1) Launch the app shell: `python -m aris_core_3_app.app`
+2) Login with a user that has `stock.view`
+3) Click **Stock** to open the read-only Stock screen
+
 ## SDK smoke CLI
 ```bash
 python examples/cli_smoke.py health
 python examples/cli_smoke.py login --username <user> --password <pass>
 python examples/cli_smoke.py me
 python examples/cli_smoke.py permissions
+```
+
+## Stock smoke CLI
+```bash
+python examples/stock_smoke.py stock --sku <sku> --page 1 --page-size 50
 ```
 
 ## Tests

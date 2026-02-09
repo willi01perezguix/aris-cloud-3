@@ -25,6 +25,9 @@ DEFAULT_PERMISSIONS = [
     ("POS_SALE_MANAGE", "Manage POS sales"),
     ("POS_SALE_REFUND", "Refund POS sales"),
     ("POS_SALE_EXCHANGE", "Exchange POS sales"),
+    ("POS_CASH_VIEW", "View POS cash sessions and movements"),
+    ("POS_CASH_MANAGE", "Manage POS cash sessions"),
+    ("POS_CASH_DAY_CLOSE", "Close POS cash day"),
 ]
 
 DEFAULT_ROLE_TEMPLATES = {
@@ -41,6 +44,9 @@ DEFAULT_ROLE_TEMPLATES = {
         "POS_SALE_MANAGE",
         "POS_SALE_REFUND",
         "POS_SALE_EXCHANGE",
+        "POS_CASH_VIEW",
+        "POS_CASH_MANAGE",
+        "POS_CASH_DAY_CLOSE",
     ],
     "ADMIN": [
         "TENANT_VIEW",
@@ -55,6 +61,9 @@ DEFAULT_ROLE_TEMPLATES = {
         "POS_SALE_MANAGE",
         "POS_SALE_REFUND",
         "POS_SALE_EXCHANGE",
+        "POS_CASH_VIEW",
+        "POS_CASH_MANAGE",
+        "POS_CASH_DAY_CLOSE",
     ],
     "MANAGER": [
         "STORE_VIEW",
@@ -65,6 +74,9 @@ DEFAULT_ROLE_TEMPLATES = {
         "POS_SALE_MANAGE",
         "POS_SALE_REFUND",
         "POS_SALE_EXCHANGE",
+        "POS_CASH_VIEW",
+        "POS_CASH_MANAGE",
+        "POS_CASH_DAY_CLOSE",
     ],
     "USER": ["STORE_VIEW", "TRANSFER_VIEW", "POS_SALE_VIEW"],
 }

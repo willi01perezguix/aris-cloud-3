@@ -136,6 +136,46 @@ def _payment_summary(payments: list[PosPayment]) -> list[PosPaymentSummary]:
     return [PosPaymentSummary(method=method, amount=amount) for method, amount in totals.items()]
 
 
+def _record_cash_movement(
+    db,
+    *,
+    session: PosCashSession,
+    tenant_id: str,
+    store_id: str,
+    sale_id: uuid.UUID,
+    action: str,
+    amount: Decimal,
+    transaction_id: str | None,
+) -> None:
+    expected_before = Decimal(str(session.expected_cash or 0))
+    if action in {"SALE"}:
+        expected_after = expected_before + amount
+    else:
+        expected_after = expected_before - amount
+    if expected_after < 0:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "cash_out would result in negative expected balance"},
+        )
+    session.expected_cash = float(expected_after)
+    db.add(
+        PosCashMovement(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            cash_session_id=session.id,
+            cashier_user_id=session.cashier_user_id,
+            business_date=session.business_date,
+            timezone=session.timezone,
+            sale_id=sale_id,
+            action=action,
+            amount=float(amount),
+            expected_balance_before=float(expected_before),
+            expected_balance_after=float(expected_after),
+            transaction_id=transaction_id,
+        )
+    )
+
+
 def _validate_payments(payments: list[PosPaymentCreate], total_due: Decimal) -> dict[str, Decimal]:
     if not payments:
         raise AppError(
@@ -987,15 +1027,15 @@ def sale_action(
             )
             db.add(return_event)
             if cash_session and cash_total > 0:
-                db.add(
-                    PosCashMovement(
-                        tenant_id=scoped_tenant_id,
-                        store_id=sale.store_id,
-                        cash_session_id=cash_session.id,
-                        sale_id=sale.id,
-                        action="CASH_OUT_REFUND",
-                        amount=float(cash_total),
-                    )
+                _record_cash_movement(
+                    db,
+                    session=cash_session,
+                    tenant_id=scoped_tenant_id,
+                    store_id=str(sale.store_id),
+                    sale_id=sale.id,
+                    action="CASH_OUT_REFUND",
+                    amount=cash_total,
+                    transaction_id=payload.transaction_id,
                 )
 
         db.commit()
@@ -1413,15 +1453,15 @@ def sale_action(
             db.add(return_event)
 
             if cash_session and cash_total > 0:
-                db.add(
-                    PosCashMovement(
-                        tenant_id=scoped_tenant_id,
-                        store_id=sale.store_id,
-                        cash_session_id=cash_session.id,
-                        sale_id=sale.id,
-                        action="CASH_OUT_REFUND" if delta < 0 else "SALE",
-                        amount=float(cash_total),
-                    )
+                _record_cash_movement(
+                    db,
+                    session=cash_session,
+                    tenant_id=scoped_tenant_id,
+                    store_id=str(sale.store_id),
+                    sale_id=sale.id,
+                    action="CASH_OUT_REFUND" if delta < 0 else "SALE",
+                    amount=cash_total,
+                    transaction_id=payload.transaction_id,
                 )
 
         response = _sale_response(repo, sale)
@@ -1563,15 +1603,15 @@ def sale_action(
         db.add_all(payment_records)
 
     if cash_session:
-        db.add(
-            PosCashMovement(
-                tenant_id=scoped_tenant_id,
-                store_id=sale.store_id,
-                cash_session_id=cash_session.id,
-                sale_id=sale.id,
-                action="SALE",
-                amount=float(totals["cash_total"]),
-            )
+        _record_cash_movement(
+            db,
+            session=cash_session,
+            tenant_id=scoped_tenant_id,
+            store_id=str(sale.store_id),
+            sale_id=sale.id,
+            action="SALE",
+            amount=totals["cash_total"],
+            transaction_id=payload.transaction_id,
         )
     db.commit()
 

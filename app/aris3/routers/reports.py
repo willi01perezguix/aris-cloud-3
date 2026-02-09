@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date
 from decimal import Decimal
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.aris3.core.deps import get_current_token_data, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope
+from app.aris3.core.config import settings
 from app.aris3.db.session import get_db
 from app.aris3.schemas.reports import (
     ReportCalendarDay,
@@ -24,10 +26,12 @@ from app.aris3.services.reports import (
     iter_dates,
     resolve_date_range,
     resolve_timezone,
+    validate_date_range,
 )
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _resolve_store_id(token_data, store_id: str | None) -> str:
@@ -108,6 +112,10 @@ def _build_meta(request: Request, store_id: str, timezone_name: str, date_range,
     )
 
 
+def _sanitize_filters(filters: dict) -> dict:
+    return {key: value for key, value in filters.items() if value is not None}
+
+
 @router.get("/aris3/reports/overview", response_model=ReportOverviewResponse)
 def report_overview(
     request: Request,
@@ -132,6 +140,7 @@ def report_overview(
     )
     tz = resolve_timezone(timezone)
     date_range = resolve_date_range(from_value, to_value, tz)
+    validate_date_range(date_range, max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS)
     filters = {
         "store_id": resolved_store_id,
         "from": from_value,
@@ -161,7 +170,18 @@ def report_overview(
     )
     totals = _totals_from_days(rows)
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
+    meta = _build_meta(request, resolved_store_id, str(tz), date_range, _sanitize_filters(filters), query_ms)
+    logger.info(
+        "reports_overview",
+        extra={
+            "trace_id": meta.trace_id,
+            "tenant_id": str(store.tenant_id),
+            "store_id": resolved_store_id,
+            "endpoint": "/aris3/reports/overview",
+            "latency_ms": query_ms,
+            "row_count": len(rows),
+        },
+    )
     return ReportOverviewResponse(meta=meta, totals=totals)
 
 
@@ -189,6 +209,7 @@ def report_daily(
     )
     tz = resolve_timezone(timezone)
     date_range = resolve_date_range(from_value, to_value, tz)
+    validate_date_range(date_range, max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS)
     filters = {
         "store_id": resolved_store_id,
         "from": from_value,
@@ -218,7 +239,18 @@ def report_daily(
     )
     totals = _totals_from_days(rows)
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
+    meta = _build_meta(request, resolved_store_id, str(tz), date_range, _sanitize_filters(filters), query_ms)
+    logger.info(
+        "reports_daily",
+        extra={
+            "trace_id": meta.trace_id,
+            "tenant_id": str(store.tenant_id),
+            "store_id": resolved_store_id,
+            "endpoint": "/aris3/reports/daily",
+            "latency_ms": query_ms,
+            "row_count": len(rows),
+        },
+    )
     return ReportDailyResponse(meta=meta, totals=totals, rows=rows)
 
 
@@ -246,6 +278,7 @@ def report_calendar(
     )
     tz = resolve_timezone(timezone)
     date_range = resolve_date_range(from_value, to_value, tz)
+    validate_date_range(date_range, max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS)
     filters = {
         "store_id": resolved_store_id,
         "from": from_value,
@@ -284,5 +317,16 @@ def report_calendar(
     ]
     totals = _totals_from_days(daily_rows)
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
+    meta = _build_meta(request, resolved_store_id, str(tz), date_range, _sanitize_filters(filters), query_ms)
+    logger.info(
+        "reports_calendar",
+        extra={
+            "trace_id": meta.trace_id,
+            "tenant_id": str(store.tenant_id),
+            "store_id": resolved_store_id,
+            "endpoint": "/aris3/reports/calendar",
+            "latency_ms": query_ms,
+            "row_count": len(calendar_rows),
+        },
+    )
     return ReportCalendarResponse(meta=meta, totals=totals, rows=calendar_rows)

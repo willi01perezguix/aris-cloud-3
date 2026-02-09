@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     SUPERADMIN_EMAIL: str = "superadmin@example.com"
     SUPERADMIN_PASSWORD: str = "change-me"
     EXPORTS_STORAGE_PATH: str = "./exports_storage"
+    REPORTS_MAX_DATE_RANGE_DAYS: int = 92
+    EXPORTS_MAX_ROWS: int = 31
+    EXPORTS_LIST_MAX_PAGE_SIZE: int = 200
 
     class Config:
         env_file = ".env"

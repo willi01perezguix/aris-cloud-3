@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.models import PosPayment, PosReturnEvent, PosSale, PosSaleLine
@@ -62,6 +62,21 @@ def resolve_date_range(from_value: str | None, to_value: str | None, tz: ZoneInf
         end_utc=end_utc,
         timezone_name=str(tz),
     )
+
+
+def validate_date_range(date_range: ReportDateRange, *, max_days: int) -> None:
+    if max_days <= 0:
+        return
+    days = (date_range.end_date - date_range.start_date).days + 1
+    if days > max_days:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "date range exceeds limit",
+                "reason_code": "REPORT_DATE_RANGE_LIMIT_EXCEEDED",
+                "max_days": max_days,
+            },
+        )
 
 
 def _parse_datetime_or_date(value: str | None, tz: ZoneInfo, *, default: datetime) -> tuple[datetime, bool]:
@@ -158,7 +173,9 @@ def sale_line_totals(
         return {}
     totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     rows = db.execute(
-        select(PosSaleLine.sale_id, PosSaleLine.line_total).where(PosSaleLine.sale_id.in_(sale_ids))
+        select(PosSaleLine.sale_id, func.sum(PosSaleLine.line_total))
+        .where(PosSaleLine.sale_id.in_(sale_ids))
+        .group_by(PosSaleLine.sale_id)
     ).all()
     for sale_id, line_total in rows:
         totals[str(sale_id)] += Decimal(str(line_total or 0.0))

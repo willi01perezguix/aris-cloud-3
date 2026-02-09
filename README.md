@@ -17,6 +17,12 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+## Variables de entorno relevantes (Reports/Exports)
+
+- `REPORTS_MAX_DATE_RANGE_DAYS`: rango máximo de días permitido en reportes/exportes.
+- `EXPORTS_MAX_ROWS`: filas máximas exportables por solicitud.
+- `EXPORTS_LIST_MAX_PAGE_SIZE`: límite superior para `page_size` en listados de exports.
+
 ## Ejecutar local
 
 ```bash

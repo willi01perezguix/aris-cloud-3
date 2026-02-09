@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
+from app.aris3.core.metrics import metrics
 from app.aris3.db.models import IdempotencyRecord
 from app.aris3.repos.idempotency import IdempotencyRepository
 
@@ -104,6 +105,7 @@ class IdempotencyService:
         if existing.response_body is None or existing.status_code is None:
             raise AppError(ErrorCatalog.IDEMPOTENCY_REQUEST_IN_PROGRESS)
         response_body = json.loads(existing.response_body)
+        metrics.increment_idempotency_replay()
         return None, IdempotencyReplay(status_code=existing.status_code, response_body=response_body)
 
 

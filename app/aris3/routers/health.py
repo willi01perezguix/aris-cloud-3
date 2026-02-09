@@ -20,10 +20,12 @@ async def ready(request: Request, db=Depends(get_db)):
         db.execute(text("SELECT 1"))
     except Exception as exc:
         trace_id = getattr(request.state, "trace_id", "")
+        request.state.error_code = ErrorCatalog.DB_UNAVAILABLE.code
+        request.state.error_class = exc.__class__.__name__
         return error_response(
             code=ErrorCatalog.DB_UNAVAILABLE.code,
             message=ErrorCatalog.DB_UNAVAILABLE.message,
-            details=str(exc),
+            details={"type": exc.__class__.__name__},
             trace_id=trace_id,
             status_code=ErrorCatalog.DB_UNAVAILABLE.status_code,
         )

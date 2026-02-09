@@ -71,6 +71,11 @@ class ErrorCatalog:
         "Database unavailable",
         status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+    LOCK_TIMEOUT = ErrorDefinition(
+        "LOCK_TIMEOUT",
+        "Lock wait timeout",
+        status.HTTP_409_CONFLICT,
+    )
     VALIDATION_ERROR = ErrorDefinition(
         "VALIDATION_ERROR",
         "Validation error",

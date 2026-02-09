@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     REPORTS_MAX_DATE_RANGE_DAYS: int = 92
     EXPORTS_MAX_ROWS: int = 31
     EXPORTS_LIST_MAX_PAGE_SIZE: int = 200
+    OPS_ENABLE_INTEGRITY_SCAN: bool = True
+    OPS_ENABLE_BACKUP_DRILL: bool = True
+    OPS_DRILL_TIMEOUT_SEC: int = 120
+    OPS_ARTIFACTS_DIR: str = "./artifacts"
+    METRICS_ENABLED: bool = True
 
     class Config:
         env_file = ".env"

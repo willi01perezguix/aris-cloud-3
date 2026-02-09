@@ -44,6 +44,8 @@ def test_migrations_apply(tmp_path: Path):
         assert "idempotency_records" in tables
         assert "audit_events" in tables
         assert "variant_field_settings" in tables
+        assert "return_policy_settings" in tables
+        assert "pos_return_events" in tables
 
         indexes = [index["name"] for index in inspector.get_indexes("audit_events")]
         assert indexes.count("ix_audit_events_trace_id") == 1

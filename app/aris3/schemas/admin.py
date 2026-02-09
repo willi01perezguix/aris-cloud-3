@@ -126,3 +126,30 @@ class VariantFieldSettingsResponse(BaseModel):
 class VariantFieldSettingsPatchRequest(BaseModel):
     var1_label: str | None = Field(None, max_length=255)
     var2_label: str | None = Field(None, max_length=255)
+
+
+class ReturnPolicySettingsResponse(BaseModel):
+    return_window_days: int
+    require_receipt: bool
+    allow_refund_cash: bool
+    allow_refund_card: bool
+    allow_refund_transfer: bool
+    allow_exchange: bool
+    require_manager_for_exceptions: bool
+    accepted_conditions: list[str]
+    non_reusable_label_strategy: Literal["ASSIGN_NEW_EPC", "TO_PENDING"]
+    restocking_fee_pct: float
+    trace_id: str
+
+
+class ReturnPolicySettingsPatchRequest(BaseModel):
+    return_window_days: int | None = Field(None, ge=0)
+    require_receipt: bool | None = None
+    allow_refund_cash: bool | None = None
+    allow_refund_card: bool | None = None
+    allow_refund_transfer: bool | None = None
+    allow_exchange: bool | None = None
+    require_manager_for_exceptions: bool | None = None
+    accepted_conditions: list[str] | None = None
+    non_reusable_label_strategy: Literal["ASSIGN_NEW_EPC", "TO_PENDING"] | None = None
+    restocking_fee_pct: float | None = Field(None, ge=0)

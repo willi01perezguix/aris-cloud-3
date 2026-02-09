@@ -72,6 +72,27 @@ class VariantFieldSettings(Base):
     __table_args__ = (UniqueConstraint("tenant_id", name="uq_variant_field_settings_tenant_id"),)
 
 
+class ReturnPolicySettings(Base):
+    __tablename__ = "return_policy_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    return_window_days: Mapped[int] = mapped_column(nullable=False, default=30)
+    require_receipt: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    allow_refund_cash: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    allow_refund_card: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    allow_refund_transfer: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    allow_exchange: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    require_manager_for_exceptions: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    accepted_conditions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    non_reusable_label_strategy: Mapped[str] = mapped_column(String(50), nullable=False, default="ASSIGN_NEW_EPC")
+    restocking_fee_pct: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_return_policy_settings_tenant_id"),)
+
+
 class StockItem(Base):
     __tablename__ = "stock_items"
 
@@ -349,6 +370,24 @@ class PosSaleLine(Base):
     image_thumb_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     image_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     image_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosReturnEvent(Base):
+    __tablename__ = "pos_return_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    sale_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    exchange_sale_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    refund_subtotal: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    restocking_fee: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    refund_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    exchange_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    net_adjustment: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

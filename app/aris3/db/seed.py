@@ -19,6 +19,8 @@ DEFAULT_PERMISSIONS = [
     ("USER_MANAGE", "Manage users"),
     ("SETTINGS_MANAGE", "Manage tenant settings"),
     ("AUDIT_VIEW", "View audit events"),
+    ("TRANSFER_VIEW", "View transfers"),
+    ("TRANSFER_MANAGE", "Manage transfers"),
 ]
 
 DEFAULT_ROLE_TEMPLATES = {
@@ -29,6 +31,8 @@ DEFAULT_ROLE_TEMPLATES = {
         "USER_MANAGE",
         "SETTINGS_MANAGE",
         "AUDIT_VIEW",
+        "TRANSFER_VIEW",
+        "TRANSFER_MANAGE",
     ],
     "ADMIN": [
         "TENANT_VIEW",
@@ -37,9 +41,11 @@ DEFAULT_ROLE_TEMPLATES = {
         "USER_MANAGE",
         "SETTINGS_MANAGE",
         "AUDIT_VIEW",
+        "TRANSFER_VIEW",
+        "TRANSFER_MANAGE",
     ],
-    "MANAGER": ["STORE_VIEW", "USER_MANAGE"],
-    "USER": ["STORE_VIEW"],
+    "MANAGER": ["STORE_VIEW", "USER_MANAGE", "TRANSFER_VIEW"],
+    "USER": ["STORE_VIEW", "TRANSFER_VIEW"],
 }
 
 

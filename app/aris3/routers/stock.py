@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -18,6 +19,14 @@ from app.aris3.schemas.stock import (
     StockImportEpcRequest,
     StockImportResponse,
     StockImportSkuRequest,
+    StockActionEpcLifecyclePayload,
+    StockActionMarkdownPayload,
+    StockActionRepricePayload,
+    StockActionReprintPayload,
+    StockActionReplaceEpcPayload,
+    StockActionRequest,
+    StockActionResponse,
+    StockActionWriteOffPayload,
     StockMigrateRequest,
     StockMigrateResponse,
     StockQueryMeta,
@@ -31,6 +40,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 router = APIRouter()
 _EPC_PATTERN = re.compile(r"^[0-9A-F]{24}$")
+_IN_TRANSIT_CODE = "IN_TRANSIT"
 
 
 def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
@@ -80,6 +90,14 @@ def _validate_location_pool(line) -> None:
         )
 
 
+def _require_location_pool(line) -> None:
+    if not line.location_code or not line.pool:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "location_code and pool are required"},
+        )
+
+
 def _validate_expected_status(status: str | None, expected: str) -> None:
     if status != expected:
         raise AppError(
@@ -90,6 +108,53 @@ def _validate_expected_status(status: str | None, expected: str) -> None:
 
 def _image_asset_uuid(asset_id: UUID | None) -> UUID | None:
     return asset_id if asset_id else None
+
+
+def _is_in_transit(location_code: str | None, pool: str | None) -> bool:
+    return location_code == _IN_TRANSIT_CODE or pool == _IN_TRANSIT_CODE
+
+
+def _stock_snapshot(row: StockItem) -> dict:
+    return {
+        "id": str(row.id),
+        "tenant_id": str(row.tenant_id),
+        "sku": row.sku,
+        "description": row.description,
+        "var1_value": row.var1_value,
+        "var2_value": row.var2_value,
+        "epc": row.epc,
+        "location_code": row.location_code,
+        "pool": row.pool,
+        "status": row.status,
+        "location_is_vendible": row.location_is_vendible,
+        "image_asset_id": str(row.image_asset_id) if row.image_asset_id else None,
+        "image_url": row.image_url,
+        "image_thumb_url": row.image_thumb_url,
+        "image_source": row.image_source,
+        "image_updated_at": row.image_updated_at,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _build_stock_match_filter(scoped_tenant_id: str, data):
+    return (
+        StockItem.tenant_id == scoped_tenant_id,
+        StockItem.sku == data.sku,
+        StockItem.description == data.description,
+        StockItem.var1_value == data.var1_value,
+        StockItem.var2_value == data.var2_value,
+        (StockItem.epc.is_(None) if data.epc is None else StockItem.epc == data.epc),
+        StockItem.location_code == data.location_code,
+        StockItem.pool == data.pool,
+        StockItem.status == data.status,
+        StockItem.location_is_vendible == data.location_is_vendible,
+        StockItem.image_asset_id == _image_asset_uuid(data.image_asset_id),
+        StockItem.image_url == data.image_url,
+        StockItem.image_thumb_url == data.image_thumb_url,
+        StockItem.image_source == data.image_source,
+        StockItem.image_updated_at == data.image_updated_at,
+    )
 
 
 @router.get("/aris3/stock", response_model=StockQueryResponse)
@@ -501,6 +566,330 @@ def migrate_stock_sku_to_epc(
             before={"status": "PENDING"},
             after={"status": "RFID", "epc": payload.epc},
             metadata={"transaction_id": payload.transaction_id},
+            result="success",
+        )
+    )
+    return response
+
+
+@router.post("/aris3/stock/actions", response_model=StockActionResponse)
+def stock_actions(
+    request: Request,
+    payload: StockActionRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("STORE_MANAGE")),
+    db=Depends(get_db),
+):
+    _require_transaction_id(payload.transaction_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=scoped_tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    action = payload.action
+    processed = 0
+    before_payload: dict | None = None
+    after_payload: dict | None = None
+    metadata: dict | None = {"transaction_id": payload.transaction_id}
+    now = datetime.utcnow()
+
+    try:
+        if action == "WRITE_OFF":
+            action_payload = StockActionWriteOffPayload(**payload.payload)
+            if action_payload.reason:
+                metadata["reason"] = action_payload.reason
+            data = action_payload.data
+            _require_location_pool(data)
+            if data.status not in {"RFID", "PENDING"}:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "status must be RFID or PENDING", "status": data.status},
+                )
+            if action_payload.qty < 1:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "qty must be at least 1", "qty": action_payload.qty},
+                )
+            if action_payload.reason and action_payload.reason.upper() == "LOST":
+                if _is_in_transit(data.location_code, data.pool):
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "lost write-off not allowed for IN_TRANSIT locations"},
+                    )
+            if data.status == "RFID":
+                if action_payload.qty != 1:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "qty must be 1 for RFID write-off", "qty": action_payload.qty},
+                    )
+                if not data.epc:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "epc is required for RFID write-off"},
+                    )
+                _validate_epc(data.epc)
+                row = (
+                    db.execute(
+                        select(StockItem)
+                        .where(StockItem.tenant_id == scoped_tenant_id, StockItem.epc == data.epc)
+                        .with_for_update()
+                    )
+                    .scalars()
+                    .first()
+                )
+                if not row:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "stock item not found", "epc": data.epc},
+                    )
+                if (
+                    row.location_code != data.location_code
+                    or row.pool != data.pool
+                    or row.status != data.status
+                    or row.location_is_vendible != data.location_is_vendible
+                ):
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "pool/location/status mismatch for write-off"},
+                    )
+                before_payload = {"removed": [_stock_snapshot(row)]}
+                db.delete(row)
+                processed = 1
+            else:
+                if data.epc is not None:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "epc must be empty for PENDING write-off"},
+                    )
+                rows = (
+                    db.execute(
+                        select(StockItem)
+                        .where(*_build_stock_match_filter(scoped_tenant_id, data))
+                        .with_for_update()
+                        .order_by(StockItem.created_at.asc())
+                        .limit(action_payload.qty)
+                    )
+                    .scalars()
+                    .all()
+                )
+                if len(rows) < action_payload.qty:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "insufficient pending stock for write-off"},
+                    )
+                before_payload = {"removed": [_stock_snapshot(row) for row in rows]}
+                for row in rows:
+                    db.delete(row)
+                processed = len(rows)
+            after_payload = {"removed": processed}
+        elif action == "REPRICE":
+            action_payload = StockActionRepricePayload(**payload.payload)
+            if action_payload.price is not None:
+                metadata["price"] = action_payload.price
+            if action_payload.currency:
+                metadata["currency"] = action_payload.currency
+            data = action_payload.data
+            _require_location_pool(data)
+            row = (
+                db.execute(
+                    select(StockItem)
+                    .where(*_build_stock_match_filter(scoped_tenant_id, data))
+                    .with_for_update()
+                )
+                .scalars()
+                .first()
+            )
+            if not row:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "stock item not found for repricing"},
+                )
+            before_payload = _stock_snapshot(row)
+            after_payload = {**before_payload, "price": action_payload.price, "currency": action_payload.currency}
+            processed = 1
+        elif action == "MARKDOWN_BY_AGE":
+            action_payload = StockActionMarkdownPayload(**payload.payload)
+            if action_payload.policy:
+                metadata["policy"] = action_payload.policy
+            data = action_payload.data
+            _require_location_pool(data)
+            row = (
+                db.execute(
+                    select(StockItem)
+                    .where(*_build_stock_match_filter(scoped_tenant_id, data))
+                    .with_for_update()
+                )
+                .scalars()
+                .first()
+            )
+            if not row:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "stock item not found for markdown"},
+                )
+            before_payload = _stock_snapshot(row)
+            after_payload = {**before_payload, "policy": action_payload.policy}
+            processed = 1
+        elif action == "REPRINT_LABEL":
+            action_payload = StockActionReprintPayload(**payload.payload)
+            data = action_payload.data
+            _require_location_pool(data)
+            row = (
+                db.execute(
+                    select(StockItem)
+                    .where(*_build_stock_match_filter(scoped_tenant_id, data))
+                    .with_for_update()
+                )
+                .scalars()
+                .first()
+            )
+            if not row:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "stock item not found for reprint"},
+                )
+            before_payload = _stock_snapshot(row)
+            after_payload = before_payload
+            processed = 1
+        elif action == "REPLACE_EPC":
+            action_payload = StockActionReplaceEpcPayload(**payload.payload)
+            if action_payload.reason:
+                metadata["reason"] = action_payload.reason
+            if action_payload.current_epc == action_payload.new_epc:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "new_epc must differ from current_epc"},
+                )
+            _validate_epc(action_payload.current_epc)
+            _validate_epc(action_payload.new_epc)
+            existing_epc = db.execute(
+                select(StockItem.id).where(
+                    StockItem.tenant_id == scoped_tenant_id,
+                    StockItem.epc == action_payload.new_epc,
+                )
+            ).scalar_one_or_none()
+            if existing_epc:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "epc already exists", "epc": action_payload.new_epc},
+                )
+            row = (
+                db.execute(
+                    select(StockItem)
+                    .where(
+                        StockItem.tenant_id == scoped_tenant_id,
+                        StockItem.epc == action_payload.current_epc,
+                    )
+                    .with_for_update()
+                )
+                .scalars()
+                .first()
+            )
+            if not row:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "stock item not found", "epc": action_payload.current_epc},
+                )
+            if row.status != "RFID":
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "status must be RFID to replace epc", "status": row.status},
+                )
+            before_payload = _stock_snapshot(row)
+            row.epc = action_payload.new_epc
+            row.updated_at = now
+            after_payload = _stock_snapshot(row)
+            processed = 1
+        elif action in {"MARK_EPC_DAMAGED", "RETIRE_EPC", "RETURN_EPC_TO_POOL"}:
+            action_payload = StockActionEpcLifecyclePayload(**payload.payload)
+            if action_payload.reason:
+                metadata["reason"] = action_payload.reason
+            if action_payload.epc_type:
+                metadata["epc_type"] = action_payload.epc_type
+            _validate_epc(action_payload.epc)
+            row = (
+                db.execute(
+                    select(StockItem)
+                    .where(StockItem.tenant_id == scoped_tenant_id, StockItem.epc == action_payload.epc)
+                    .with_for_update()
+                )
+                .scalars()
+                .first()
+            )
+            if not row:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "stock item not found", "epc": action_payload.epc},
+                )
+            if row.status != "RFID":
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "status must be RFID for EPC lifecycle action", "status": row.status},
+                )
+            if action == "RETURN_EPC_TO_POOL":
+                if action_payload.epc_type is None:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "epc_type is required to return to pool"},
+                    )
+                if action_payload.epc_type == "NON_REUSABLE_LABEL":
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "non reusable labels cannot be returned to pool"},
+                    )
+            before_payload = _stock_snapshot(row)
+            row.epc = None
+            row.status = "PENDING"
+            row.updated_at = now
+            after_payload = _stock_snapshot(row)
+            processed = 1
+        else:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "unsupported action", "action": action},
+            )
+    except ValidationError as exc:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "invalid action payload", "errors": exc.errors()},
+        ) from exc
+
+    db.commit()
+    response = StockActionResponse(
+        tenant_id=scoped_tenant_id,
+        action=action,
+        processed=processed,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump())
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=scoped_tenant_id,
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action=f"stock.{action.lower()}",
+            entity_type="stock_item",
+            entity_id=action,
+            before=before_payload,
+            after=after_payload,
+            metadata=metadata,
             result="success",
         )
     )

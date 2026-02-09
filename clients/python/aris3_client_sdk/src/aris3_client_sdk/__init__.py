@@ -11,13 +11,31 @@ from .models import (
     UserResponse,
 )
 from .models_stock import (
+    StockDataBlock,
+    StockImportEpcLine,
+    StockImportEpcRequest,
+    StockImportResponse,
+    StockImportSkuLine,
+    StockImportSkuRequest,
     StockMeta,
+    StockMigrateRequest,
+    StockMigrateResponse,
+    StockMutationLineResult,
     StockQuery,
     StockRow,
     StockTableResponse,
     StockTotals,
 )
 from .session import ApiSession
+from .stock_validation import (
+    ClientValidationError,
+    ValidationIssue,
+    normalize_epc,
+    validate_epc_24_hex,
+    validate_import_epc_line,
+    validate_import_sku_line,
+    validate_migration_line,
+)
 from .tracing import TraceContext
 
 __all__ = [
@@ -40,9 +58,25 @@ __all__ = [
     "ValidationError",
     "load_config",
     "new_idempotency_keys",
+    "ClientValidationError",
     "StockMeta",
+    "StockDataBlock",
+    "StockImportEpcLine",
+    "StockImportEpcRequest",
+    "StockImportResponse",
+    "StockImportSkuLine",
+    "StockImportSkuRequest",
+    "StockMigrateRequest",
+    "StockMigrateResponse",
+    "StockMutationLineResult",
     "StockQuery",
     "StockRow",
     "StockTableResponse",
     "StockTotals",
+    "ValidationIssue",
+    "normalize_epc",
+    "validate_epc_24_hex",
+    "validate_import_epc_line",
+    "validate_import_sku_line",
+    "validate_migration_line",
 ]

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     SUPERADMIN_USERNAME: str = "superadmin"
     SUPERADMIN_EMAIL: str = "superadmin@example.com"
     SUPERADMIN_PASSWORD: str = "change-me"
+    EXPORTS_STORAGE_PATH: str = "./exports_storage"
 
     class Config:
         env_file = ".env"

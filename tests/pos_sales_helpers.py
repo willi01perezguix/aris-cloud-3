@@ -126,3 +126,47 @@ def sale_line(
 
 def sale_payload(store_id: str, lines: list[dict], *, transaction_id: str = "txn-1"):
     return {"transaction_id": transaction_id, "store_id": store_id, "lines": lines}
+
+
+def set_return_policy(client, token: str, payload: dict, *, idempotency_key: str = "return-policy-1"):
+    response = client.patch(
+        "/aris3/admin/settings/return-policy",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": idempotency_key},
+        json=payload,
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def create_paid_sale(
+    client,
+    token: str,
+    store_id: str,
+    lines: list[dict],
+    payments: list[dict],
+    *,
+    create_txn: str = "txn-sale-create",
+    checkout_txn: str = "txn-sale-checkout",
+    idempotency_key: str = "sale-create",
+    checkout_idempotency_key: str = "sale-checkout",
+):
+    create_response = client.post(
+        "/aris3/pos/sales",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": idempotency_key},
+        json=sale_payload(store_id, lines, transaction_id=create_txn),
+    )
+    assert create_response.status_code == 201
+    sale_id = create_response.json()["header"]["id"]
+
+    checkout_payload = {
+        "transaction_id": checkout_txn,
+        "action": "checkout",
+        "payments": payments,
+    }
+    checkout_response = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": checkout_idempotency_key},
+        json=checkout_payload,
+    )
+    assert checkout_response.status_code == 200
+    return checkout_response.json()

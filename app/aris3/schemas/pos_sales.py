@@ -53,11 +53,22 @@ class PosSaleUpdateRequest(BaseModel):
     lines: list[PosSaleLineCreate] | None = None
 
 
+class PosReturnItem(BaseModel):
+    line_id: str
+    qty: int = 1
+    condition: str
+
+
 class PosSaleActionRequest(BaseModel):
     transaction_id: str | None
     tenant_id: str | None = None
-    action: Literal["checkout", "cancel"]
+    action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"]
     payments: list[PosPaymentCreate] | None = None
+    refund_payments: list[PosPaymentCreate] | None = None
+    return_items: list[PosReturnItem] | None = None
+    exchange_lines: list[PosSaleLineCreate] | None = None
+    receipt_number: str | None = None
+    manager_override: bool | None = None
 
 
 class PosSaleHeaderResponse(BaseModel):
@@ -104,11 +115,30 @@ class PosPaymentSummary(BaseModel):
     amount: Decimal
 
 
+class PosReturnTotals(BaseModel):
+    subtotal: Decimal
+    restocking_fee: Decimal
+    total: Decimal
+
+
+class PosReturnEventSummary(BaseModel):
+    id: str
+    action: str
+    refund_total: Decimal
+    exchange_total: Decimal
+    net_adjustment: Decimal
+    created_at: datetime
+
+
 class PosSaleResponse(BaseModel):
     header: PosSaleHeaderResponse
     lines: list[PosSaleLineResponse]
     payments: list[PosPaymentResponse]
     payment_summary: list[PosPaymentSummary]
+    refunded_totals: PosReturnTotals
+    exchanged_totals: PosReturnTotals
+    net_adjustment: Decimal
+    return_events: list[PosReturnEventSummary]
 
 
 class PosSaleListResponse(BaseModel):

@@ -15,10 +15,10 @@ from app.aris3.core.deps import (
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import enforce_store_scope, is_superadmin
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import Store, Tenant, User, VariantFieldSettings
+from app.aris3.db.models import ReturnPolicySettings, Store, Tenant, User, VariantFieldSettings
 from app.aris3.db.session import get_db
 from app.aris3.repos.rbac import RoleTemplateRepository
-from app.aris3.repos.settings import VariantFieldSettingsRepository
+from app.aris3.repos.settings import ReturnPolicySettingsRepository, VariantFieldSettingsRepository
 from app.aris3.repos.stores import StoreRepository
 from app.aris3.repos.tenants import TenantRepository
 from app.aris3.repos.users import UserRepository
@@ -39,6 +39,8 @@ from app.aris3.schemas.admin import (
     UserListResponse,
     UserResponse,
     UserUpdateRequest,
+    ReturnPolicySettingsPatchRequest,
+    ReturnPolicySettingsResponse,
     VariantFieldSettingsPatchRequest,
     VariantFieldSettingsResponse,
 )
@@ -287,6 +289,207 @@ async def admin_replace_role_template(
             before={"permissions": before.permissions},
             after={"permissions": after.permissions},
             metadata={"role": role_name.upper(), "transaction_id": payload.transaction_id},
+            result="success",
+        )
+    )
+    return response
+
+
+def _default_return_policy_payload() -> dict:
+    return {
+        "return_window_days": 30,
+        "require_receipt": True,
+        "allow_refund_cash": True,
+        "allow_refund_card": True,
+        "allow_refund_transfer": True,
+        "allow_exchange": True,
+        "require_manager_for_exceptions": False,
+        "accepted_conditions": ["NEW", "GOOD", "USED"],
+        "non_reusable_label_strategy": "ASSIGN_NEW_EPC",
+        "restocking_fee_pct": 0.0,
+    }
+
+
+def _return_policy_response(settings: ReturnPolicySettings | None, trace_id: str) -> ReturnPolicySettingsResponse:
+    if settings is None:
+        data = _default_return_policy_payload()
+    else:
+        data = {
+            "return_window_days": settings.return_window_days,
+            "require_receipt": settings.require_receipt,
+            "allow_refund_cash": settings.allow_refund_cash,
+            "allow_refund_card": settings.allow_refund_card,
+            "allow_refund_transfer": settings.allow_refund_transfer,
+            "allow_exchange": settings.allow_exchange,
+            "require_manager_for_exceptions": settings.require_manager_for_exceptions,
+            "accepted_conditions": settings.accepted_conditions or [],
+            "non_reusable_label_strategy": settings.non_reusable_label_strategy,
+            "restocking_fee_pct": settings.restocking_fee_pct,
+        }
+    return ReturnPolicySettingsResponse(**data, trace_id=trace_id)
+
+
+@router.get("/settings/return-policy", response_model=ReturnPolicySettingsResponse)
+async def get_return_policy(
+    request: Request,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("TENANT_VIEW")),
+    db=Depends(get_db),
+):
+    tenant_id = _tenant_id_or_error(token_data)
+    settings = ReturnPolicySettingsRepository(db).get_by_tenant_id(tenant_id)
+    return _return_policy_response(settings, getattr(request.state, "trace_id", ""))
+
+
+@router.patch("/settings/return-policy", response_model=ReturnPolicySettingsResponse)
+async def patch_return_policy(
+    request: Request,
+    payload: ReturnPolicySettingsPatchRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("SETTINGS_MANAGE")),
+    db=Depends(get_db),
+):
+    tenant_id = _tenant_id_or_error(token_data)
+    if all(
+        value is None
+        for value in [
+            payload.return_window_days,
+            payload.require_receipt,
+            payload.allow_refund_cash,
+            payload.allow_refund_card,
+            payload.allow_refund_transfer,
+            payload.allow_exchange,
+            payload.require_manager_for_exceptions,
+            payload.accepted_conditions,
+            payload.non_reusable_label_strategy,
+            payload.restocking_fee_pct,
+        ]
+    ):
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "At least one field must be provided"},
+        )
+
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+    idempotency_service = IdempotencyService(db)
+    context_idempotency, replay = idempotency_service.start(
+        tenant_id=tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context_idempotency
+
+    repo = ReturnPolicySettingsRepository(db)
+    settings = repo.get_by_tenant_id(tenant_id)
+    before = None
+    if settings is None:
+        defaults = _default_return_policy_payload()
+        settings = ReturnPolicySettings(
+            tenant_id=tenant_id,
+            return_window_days=payload.return_window_days
+            if payload.return_window_days is not None
+            else defaults["return_window_days"],
+            require_receipt=payload.require_receipt
+            if payload.require_receipt is not None
+            else defaults["require_receipt"],
+            allow_refund_cash=payload.allow_refund_cash
+            if payload.allow_refund_cash is not None
+            else defaults["allow_refund_cash"],
+            allow_refund_card=payload.allow_refund_card
+            if payload.allow_refund_card is not None
+            else defaults["allow_refund_card"],
+            allow_refund_transfer=payload.allow_refund_transfer
+            if payload.allow_refund_transfer is not None
+            else defaults["allow_refund_transfer"],
+            allow_exchange=payload.allow_exchange if payload.allow_exchange is not None else defaults["allow_exchange"],
+            require_manager_for_exceptions=payload.require_manager_for_exceptions
+            if payload.require_manager_for_exceptions is not None
+            else defaults["require_manager_for_exceptions"],
+            accepted_conditions=payload.accepted_conditions or defaults["accepted_conditions"],
+            non_reusable_label_strategy=payload.non_reusable_label_strategy
+            if payload.non_reusable_label_strategy is not None
+            else defaults["non_reusable_label_strategy"],
+            restocking_fee_pct=payload.restocking_fee_pct
+            if payload.restocking_fee_pct is not None
+            else defaults["restocking_fee_pct"],
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        repo.create(settings)
+    else:
+        before = {
+            "return_window_days": settings.return_window_days,
+            "require_receipt": settings.require_receipt,
+            "allow_refund_cash": settings.allow_refund_cash,
+            "allow_refund_card": settings.allow_refund_card,
+            "allow_refund_transfer": settings.allow_refund_transfer,
+            "allow_exchange": settings.allow_exchange,
+            "require_manager_for_exceptions": settings.require_manager_for_exceptions,
+            "accepted_conditions": settings.accepted_conditions,
+            "non_reusable_label_strategy": settings.non_reusable_label_strategy,
+            "restocking_fee_pct": settings.restocking_fee_pct,
+        }
+        if payload.return_window_days is not None:
+            settings.return_window_days = payload.return_window_days
+        if payload.require_receipt is not None:
+            settings.require_receipt = payload.require_receipt
+        if payload.allow_refund_cash is not None:
+            settings.allow_refund_cash = payload.allow_refund_cash
+        if payload.allow_refund_card is not None:
+            settings.allow_refund_card = payload.allow_refund_card
+        if payload.allow_refund_transfer is not None:
+            settings.allow_refund_transfer = payload.allow_refund_transfer
+        if payload.allow_exchange is not None:
+            settings.allow_exchange = payload.allow_exchange
+        if payload.require_manager_for_exceptions is not None:
+            settings.require_manager_for_exceptions = payload.require_manager_for_exceptions
+        if payload.accepted_conditions is not None:
+            settings.accepted_conditions = payload.accepted_conditions
+        if payload.non_reusable_label_strategy is not None:
+            settings.non_reusable_label_strategy = payload.non_reusable_label_strategy
+        if payload.restocking_fee_pct is not None:
+            settings.restocking_fee_pct = payload.restocking_fee_pct
+        settings.updated_at = datetime.utcnow()
+        repo.update(settings)
+
+    response = _return_policy_response(settings, getattr(request.state, "trace_id", ""))
+    context_idempotency.record_success(status_code=200, response_body=response.model_dump())
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=tenant_id,
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            action="admin.settings.return_policy.update",
+            entity_type="return_policy_settings",
+            entity_id=str(settings.id),
+            before=before,
+            after={
+                "return_window_days": settings.return_window_days,
+                "require_receipt": settings.require_receipt,
+                "allow_refund_cash": settings.allow_refund_cash,
+                "allow_refund_card": settings.allow_refund_card,
+                "allow_refund_transfer": settings.allow_refund_transfer,
+                "allow_exchange": settings.allow_exchange,
+                "require_manager_for_exceptions": settings.require_manager_for_exceptions,
+                "accepted_conditions": settings.accepted_conditions,
+                "non_reusable_label_strategy": settings.non_reusable_label_strategy,
+                "restocking_fee_pct": settings.restocking_fee_pct,
+            },
+            metadata=None,
             result="success",
         )
     )

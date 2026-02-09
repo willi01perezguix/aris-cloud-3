@@ -23,6 +23,8 @@ DEFAULT_PERMISSIONS = [
     ("TRANSFER_MANAGE", "Manage transfers"),
     ("POS_SALE_VIEW", "View POS sales"),
     ("POS_SALE_MANAGE", "Manage POS sales"),
+    ("POS_SALE_REFUND", "Refund POS sales"),
+    ("POS_SALE_EXCHANGE", "Exchange POS sales"),
 ]
 
 DEFAULT_ROLE_TEMPLATES = {
@@ -37,6 +39,8 @@ DEFAULT_ROLE_TEMPLATES = {
         "TRANSFER_MANAGE",
         "POS_SALE_VIEW",
         "POS_SALE_MANAGE",
+        "POS_SALE_REFUND",
+        "POS_SALE_EXCHANGE",
     ],
     "ADMIN": [
         "TENANT_VIEW",
@@ -49,6 +53,8 @@ DEFAULT_ROLE_TEMPLATES = {
         "TRANSFER_MANAGE",
         "POS_SALE_VIEW",
         "POS_SALE_MANAGE",
+        "POS_SALE_REFUND",
+        "POS_SALE_EXCHANGE",
     ],
     "MANAGER": [
         "STORE_VIEW",
@@ -57,6 +63,8 @@ DEFAULT_ROLE_TEMPLATES = {
         "TRANSFER_MANAGE",
         "POS_SALE_VIEW",
         "POS_SALE_MANAGE",
+        "POS_SALE_REFUND",
+        "POS_SALE_EXCHANGE",
     ],
     "USER": ["STORE_VIEW", "TRANSFER_VIEW", "POS_SALE_VIEW"],
 }

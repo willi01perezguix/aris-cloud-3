@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select
 
-from app.aris3.db.models import PosPayment, PosSale, PosSaleLine
+from app.aris3.db.models import PosPayment, PosReturnEvent, PosSale, PosSaleLine
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,13 @@ class PosSaleRepository:
     def get_payments(self, sale_id: str) -> list[PosPayment]:
         return (
             self.db.execute(select(PosPayment).where(PosPayment.sale_id == sale_id).order_by(PosPayment.created_at))
+            .scalars()
+            .all()
+        )
+
+    def get_return_events(self, sale_id: str) -> list[PosReturnEvent]:
+        return (
+            self.db.execute(select(PosReturnEvent).where(PosReturnEvent.sale_id == sale_id).order_by(PosReturnEvent.created_at))
             .scalars()
             .all()
         )

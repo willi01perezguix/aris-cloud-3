@@ -1,0 +1,33 @@
+{
+  "status": "WARN",
+  "checks": [
+    {
+      "id": "secrets_in_logs",
+      "status": "PASS",
+      "details": {
+        "command": "rg -n logger\\.(info|warning|error|debug|exception).*?(password|secret|token) app",
+        "returncode": 1,
+        "matches": []
+      }
+    },
+    {
+      "id": "rbac_controls_present",
+      "status": "WARN",
+      "details": {
+        "command": "rg -n require_permissions app/aris3/routers",
+        "returncode": 1,
+        "matches": []
+      }
+    },
+    {
+      "id": "dependency_audit",
+      "status": "WARN",
+      "details": {
+        "command": "python -m pip_audit -r requirements.txt",
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "/root/.pyenv/versions/3.10.19/bin/python: No module named pip_audit"
+      }
+    }
+  ]
+}

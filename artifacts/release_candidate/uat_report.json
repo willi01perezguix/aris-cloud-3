@@ -1,0 +1,163 @@
+{
+  "run_id": "20260209-153304",
+  "status": "NOT_EXECUTED",
+  "note": "UAT automation not executed in this environment.",
+  "summary": {
+    "PASS": 0,
+    "FAIL": 0,
+    "NOT_EXECUTED": 25,
+    "total": 25
+  },
+  "cases": [
+    {
+      "module": "Auth/Me",
+      "description": "login / change-password / me",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Auth/Me",
+      "description": "must_change_password",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Auth/Me",
+      "description": "scope tenant correcto",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Stock",
+      "description": "import-epc (qty=1, EPC 24 HEX único)",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Stock",
+      "description": "import-sku (suma PENDING)",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Stock",
+      "description": "migrate-sku-to-epc (PENDING-1, RFID+1, total constante)",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Stock",
+      "description": "GET /stock full-table con filtros + invariantes de totales",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Transfers",
+      "description": "draft -> dispatch -> receive total/parcial",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Transfers",
+      "description": "report_shortages y resolve_shortages (FOUND_AND_RESEND / LOST_IN_ROUTE MANAGER-only)",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Transfers",
+      "description": "validaciones: mismo tenant, no auto-traslado, recepción solo destino",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "POS Sales + Cash",
+      "description": "checkout con CASH/CARD/TRANSFER/mixed",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "POS Sales + Cash",
+      "description": "reglas de cambio (solo CASH)",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "POS Sales + Cash",
+      "description": "sesión OPEN obligatoria para CASH",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "POS Sales + Cash",
+      "description": "cancel / validaciones de estado",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Refund/Exchange",
+      "description": "REFUND_ITEMS y EXCHANGE_ITEMS atómicos",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Refund/Exchange",
+      "description": "aplicación de return-policy",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Refund/Exchange",
+      "description": "cash refund => CASH_OUT_REFUND",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Inventory Counts",
+      "description": "START/PAUSE/RESUME/CLOSE/CANCEL/RECONCILE",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Inventory Counts",
+      "description": "bloqueo duro por tienda durante conteo",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Inventory Counts",
+      "description": "snapshot + diferencias",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Media",
+      "description": "resolución VARIANT->SKU->PLACEHOLDER",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Media",
+      "description": "stock devuelve image_* correctamente",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Admin + RBAC",
+      "description": "ADMIN ceiling tenant",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Admin + RBAC",
+      "description": "effective-permissions coherente",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    },
+    {
+      "module": "Admin + RBAC",
+      "description": "denegaciones auditables",
+      "status": "NOT_EXECUTED",
+      "notes": "UAT automation not executed in this environment."
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "status": "FAIL",
+  "runs": [
+    {
+      "label": "sqlite",
+      "report": "artifacts/release_candidate/test_matrix_sqlite.json",
+      "status": "FAIL",
+      "note": "pytest terminated (SIGTERM) after prolonged runtime; rerun needed."
+    },
+    {
+      "label": "postgres",
+      "report": "artifacts/release_candidate/test_matrix_postgres.json",
+      "status": "FAIL",
+      "note": "pytest terminated (SIGTERM); requires running against a live PostgreSQL instance."
+    }
+  ]
+}

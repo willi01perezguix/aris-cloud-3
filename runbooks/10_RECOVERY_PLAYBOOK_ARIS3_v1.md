@@ -48,3 +48,24 @@ Guardar:
 - `drill_report_<timestamp>.json`
 - Bitácora de ejecución (salida CLI)
 
+## 7) Rollback drill final (Sprint 4 Día 7)
+### Disparadores de rollback
+- CRITICAL en integrity scan.
+- Backup/restore drill fallido.
+- Test matrix rojo (sqlite/postgres) o UAT crítico fallido.
+- Gate de seguridad FAIL.
+
+### Pasos de rollback (app + DB)
+1. Anunciar “NO-GO” y congelar despliegues adicionales.
+2. Revertir versión de aplicación al último release estable.
+3. Restaurar backup válido (manifest + verify PASS).
+4. Ejecutar smoke post-rollback (health/readiness + endpoints críticos).
+
+### Verificación mínima post-rollback
+- `GET /aris3/health` y `GET /aris3/ready` con 200.
+- `GET /aris3/stock` responde correctamente (meta/rows/totals).
+- `GET /aris3/reports/sales` retorna datos sin errores.
+
+### Evidencia requerida
+- `backup_restore_drill_report.json`
+- `rollback_drill_report.md`

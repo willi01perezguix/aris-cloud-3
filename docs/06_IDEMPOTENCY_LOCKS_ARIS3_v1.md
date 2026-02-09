@@ -13,3 +13,7 @@
 ## Observabilidad de RBAC
 - Denegaciones de permisos incrementan `rbac_denied_total`.
 
+## Evidencias Sprint 4 Día 7
+- Pruebas de idempotencia y auditoría ejecutadas vía `pytest` (suite estándar).
+- Locks de concurrencia validados por métricas y manejo de `LOCK_TIMEOUT` en errores estándar.
+- Reporte consolidado en `artifacts/release_candidate/test_matrix_summary.json`.

@@ -1,0 +1,14 @@
+{
+  "label": "sqlite",
+  "result": {
+    "command": "pytest -q",
+    "database_url": null,
+    "returncode": -15,
+    "status": "FAIL",
+    "stdout": "...............................................................",
+    "stderr": "",
+    "started_at": 1770651303.5522623,
+    "finished_at": 1770651433.8689764,
+    "duration_sec": 130.317
+  }
+}

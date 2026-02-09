@@ -97,6 +97,68 @@ class StockItem(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "epc", name="uq_stock_items_tenant_epc"),)
 
 
+class Transfer(Base):
+    __tablename__ = "transfers"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    origin_store_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("stores.id"), index=True, nullable=False)
+    destination_store_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("stores.id"), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="DRAFT")
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    dispatched_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    canceled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TransferLine(Base):
+    __tablename__ = "transfer_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    transfer_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("transfers.id"), index=True, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    line_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    qty: Mapped[int] = mapped_column(nullable=False, default=1)
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    var2_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    epc: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    location_is_vendible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    image_asset_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_thumb_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    image_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TransferMovement(Base):
+    __tablename__ = "transfer_movements"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    transfer_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("transfers.id"), index=True, nullable=False)
+    transfer_line_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("transfer_lines.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    from_location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    from_pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    to_location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    to_pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    qty: Mapped[int] = mapped_column(nullable=False, default=1)
+    snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class PermissionCatalog(Base):
     __tablename__ = "permission_catalog"
 

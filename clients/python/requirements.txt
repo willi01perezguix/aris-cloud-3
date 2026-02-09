@@ -1,0 +1,5 @@
+-e ./aris3_client_sdk
+-e ./aris_core_3_app
+-e ./aris_control_center_app
+pytest>=8.2
+responses>=0.25

@@ -7,6 +7,8 @@ from .clients.access_control import AccessControlClient
 from .clients.auth import AuthClient
 from .clients.health import HealthClient
 from .clients.smoke import SmokeClient
+from .clients.pos_cash_client import PosCashClient
+from .clients.pos_sales_client import PosSalesClient
 from .clients.stock_client import StockClient
 from .config import ClientConfig
 from .http_client import HttpClient
@@ -47,6 +49,12 @@ class ApiSession:
 
     def stock_client(self) -> StockClient:
         return StockClient(http=self._http(), access_token=self.token)
+
+    def pos_sales_client(self) -> PosSalesClient:
+        return PosSalesClient(http=self._http(), access_token=self.token)
+
+    def pos_cash_client(self) -> PosCashClient:
+        return PosCashClient(http=self._http(), access_token=self.token)
 
     def establish(self, token: TokenResponse, user: UserResponse | None) -> None:
         self.token = token.access_token

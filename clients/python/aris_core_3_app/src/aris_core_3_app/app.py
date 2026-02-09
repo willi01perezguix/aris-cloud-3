@@ -6,15 +6,25 @@ import os
 import threading
 import tkinter as tk
 from dataclasses import dataclass, field
+from decimal import Decimal
 from tkinter import filedialog, messagebox, ttk
 
 from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempotency_keys
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
+from aris3_client_sdk.clients.pos_cash_client import PosCashClient
+from aris3_client_sdk.clients.pos_sales_client import PosSalesClient
 from aris3_client_sdk.clients.stock_client import StockClient
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.models import PermissionEntry
+from aris3_client_sdk.models_pos_sales import (
+    PosPaymentCreate,
+    PosSaleLineCreate,
+    PosSaleLineSnapshot,
+    PosSaleResponse,
+)
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
+from aris3_client_sdk.payment_validation import PaymentValidationIssue, validate_checkout_payload
 from aris3_client_sdk.stock_validation import (
     ClientValidationError,
     ValidationIssue,
@@ -33,7 +43,7 @@ class MenuItem:
 
 CORE_MENU = [
     MenuItem("Stock", "stock.view"),
-    MenuItem("POS", "pos.view"),
+    MenuItem("POS", "POS_SALE_VIEW"),
     MenuItem("Transfers", "transfers.view"),
     MenuItem("Inventory Counts", "inventory.counts.view"),
     MenuItem("Reports", "reports.view"),
@@ -51,6 +61,13 @@ class StockViewState:
     totals: dict[str, int | None] = field(default_factory=dict)
 
 
+@dataclass
+class PosViewState:
+    sale: PosSaleResponse | None = None
+    lines: list[PosSaleLineCreate] = field(default_factory=list)
+    busy: bool = False
+
+
 def _default_int_env(key: str, fallback: int) -> int:
     raw = os.getenv(key)
     if raw is None:
@@ -59,6 +76,7 @@ def _default_int_env(key: str, fallback: int) -> int:
         return int(raw)
     except ValueError:
         return fallback
+
 
 
 def build_stock_query(
@@ -129,6 +147,30 @@ class CoreAppShell:
         self.stock_sort_dir_var = tk.StringVar(value=self.stock_state.sort_dir)
         self.stock_controls: list[tk.Widget] = []
         self.stock_action_controls: list[tk.Widget] = []
+        self.pos_state = PosViewState()
+        self.pos_error_var = tk.StringVar(value="")
+        self.pos_trace_var = tk.StringVar(value="")
+        self.pos_loading_var = tk.StringVar(value="")
+        self.pos_validation_var = tk.StringVar(value="")
+        self.pos_sale_status_var = tk.StringVar(value="")
+        self.pos_totals_var = tk.StringVar(value="")
+        self.pos_cart_var = tk.StringVar(value="")
+        self.pos_store_id_var = tk.StringVar(value=os.getenv("ARIS3_POS_DEFAULT_STORE_ID", ""))
+        self.pos_epc_var = tk.StringVar(value="")
+        self.pos_sku_var = tk.StringVar(value="")
+        self.pos_qty_var = tk.StringVar(value="1")
+        self.pos_unit_price_var = tk.StringVar(value="0.00")
+        self.pos_line_type_var = tk.StringVar(value="SKU")
+        self.pos_location_code_var = tk.StringVar(value="")
+        self.pos_pool_var = tk.StringVar(value="")
+        self.pos_cash_amount_var = tk.StringVar(value="0.00")
+        self.pos_card_amount_var = tk.StringVar(value="0.00")
+        self.pos_card_auth_var = tk.StringVar(value="")
+        self.pos_transfer_amount_var = tk.StringVar(value="0.00")
+        self.pos_transfer_bank_var = tk.StringVar(value="")
+        self.pos_transfer_voucher_var = tk.StringVar(value="")
+        self.pos_currency = os.getenv("ARIS3_POS_DEFAULT_CURRENCY", "USD")
+        self.pos_cart_table: ttk.Treeview | None = None
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -181,6 +223,8 @@ class CoreAppShell:
 
         allowed = allowed_permission_set(permissions.permissions)
         self.allowed_permissions = allowed
+        if not self.pos_store_id_var.get().strip() and user.store_id:
+            self.pos_store_id_var.set(user.store_id)
         self._show_main_ui(user.username, user.role or "")
         self._apply_menu_state(build_menu_items(allowed))
 
@@ -208,6 +252,8 @@ class CoreAppShell:
         for item in CORE_MENU:
             if item.label == "Stock":
                 command = self._show_stock_view
+            elif item.label == "POS":
+                command = self._show_pos_view
             else:
                 command = lambda label=item.label: self._show_placeholder(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
@@ -237,6 +283,12 @@ class CoreAppShell:
 
     def _can_manage_stock(self) -> bool:
         return self._has_permission("STORE_MANAGE", "stock.manage", "stock.mutations")
+
+    def _is_pos_allowed(self) -> bool:
+        return self._has_permission("POS_SALE_VIEW", "POS_SALE_MANAGE")
+
+    def _can_manage_pos(self) -> bool:
+        return self._has_permission("POS_SALE_MANAGE")
 
     def _ensure_stock_filter_vars(self) -> None:
         if self.stock_filter_vars:
@@ -812,6 +864,498 @@ class CoreAppShell:
             f"row {issue.row_index} {issue.field}: {issue.reason}" if issue.row_index is not None else f"{issue.field}: {issue.reason}"
             for issue in issues
         )
+
+    def _show_pos_view(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+
+        allowed = self._is_pos_allowed()
+        can_manage = self._can_manage_pos()
+        view_state = tk.NORMAL if allowed else tk.DISABLED
+        manage_state = tk.NORMAL if can_manage else tk.DISABLED
+
+        container = ttk.Frame(self.content_frame)
+        container.pack(fill="both", expand=True)
+
+        header = ttk.Frame(container, padding=(0, 0, 0, 8))
+        header.pack(fill="x")
+        ttk.Label(header, text="POS Sales", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+        if not allowed:
+            ttk.Label(
+                header,
+                text="You do not have permission to access POS sales.",
+                foreground="red",
+            ).pack(anchor="w", pady=(4, 0))
+
+        status = ttk.Frame(container)
+        status.pack(fill="x", pady=(4, 8))
+        ttk.Label(status, textvariable=self.pos_sale_status_var).pack(anchor="w")
+        ttk.Label(status, textvariable=self.pos_totals_var).pack(anchor="w")
+        ttk.Label(status, textvariable=self.pos_cart_var).pack(anchor="w")
+        ttk.Label(status, textvariable=self.pos_loading_var, foreground="blue").pack(anchor="w")
+        ttk.Label(status, textvariable=self.pos_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(status, textvariable=self.pos_validation_var, foreground="red").pack(anchor="w")
+        ttk.Label(status, textvariable=self.pos_trace_var, foreground="gray").pack(anchor="w")
+
+        header_form = ttk.LabelFrame(container, text="Sale Header", padding=10)
+        header_form.pack(fill="x", pady=(0, 10))
+        ttk.Label(header_form, text="Store ID").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Entry(header_form, textvariable=self.pos_store_id_var, state=view_state, width=32).grid(
+            row=0, column=1, sticky="w"
+        )
+        ttk.Label(header_form, text=f"Currency: {self.pos_currency}").grid(row=0, column=2, sticky="w", padx=(16, 0))
+
+        entry_frame = ttk.LabelFrame(container, text="Item Entry", padding=10)
+        entry_frame.pack(fill="x", pady=(0, 10))
+        ttk.Label(entry_frame, text="Line Type").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        line_type = ttk.Combobox(
+            entry_frame,
+            textvariable=self.pos_line_type_var,
+            values=("SKU", "EPC"),
+            state="readonly" if allowed else "disabled",
+            width=10,
+        )
+        line_type.grid(row=0, column=1, sticky="w", padx=(0, 12))
+        ttk.Label(entry_frame, text="SKU").grid(row=0, column=2, sticky="w", padx=(0, 8))
+        ttk.Entry(entry_frame, textvariable=self.pos_sku_var, state=view_state, width=18).grid(
+            row=0, column=3, sticky="w"
+        )
+        ttk.Label(entry_frame, text="EPC").grid(row=0, column=4, sticky="w", padx=(12, 8))
+        ttk.Entry(entry_frame, textvariable=self.pos_epc_var, state=view_state, width=24).grid(
+            row=0, column=5, sticky="w"
+        )
+
+        ttk.Label(entry_frame, text="Qty").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+        ttk.Entry(entry_frame, textvariable=self.pos_qty_var, state=view_state, width=10).grid(
+            row=1, column=1, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(entry_frame, text="Unit Price").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=(6, 0))
+        ttk.Entry(entry_frame, textvariable=self.pos_unit_price_var, state=view_state, width=12).grid(
+            row=1, column=3, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(entry_frame, text="Location").grid(row=1, column=4, sticky="w", padx=(12, 8), pady=(6, 0))
+        ttk.Entry(entry_frame, textvariable=self.pos_location_code_var, state=view_state, width=12).grid(
+            row=1, column=5, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(entry_frame, text="Pool").grid(row=1, column=6, sticky="w", padx=(12, 8), pady=(6, 0))
+        ttk.Entry(entry_frame, textvariable=self.pos_pool_var, state=view_state, width=10).grid(
+            row=1, column=7, sticky="w", pady=(6, 0)
+        )
+
+        entry_controls = ttk.Frame(entry_frame)
+        entry_controls.grid(row=2, column=0, columnspan=8, sticky="w", pady=(8, 0))
+        add_button = ttk.Button(
+            entry_controls,
+            text="Add line to cart",
+            command=self._add_pos_line,
+            state=manage_state,
+        )
+        remove_button = ttk.Button(
+            entry_controls,
+            text="Remove selected line (placeholder)",
+            state=tk.DISABLED,
+        )
+        add_button.pack(side="left", padx=(0, 8))
+        remove_button.pack(side="left")
+
+        cart_frame = ttk.LabelFrame(container, text="Cart", padding=10)
+        cart_frame.pack(fill="both", expand=True, pady=(0, 10))
+        columns = ("line_type", "sku", "epc", "qty", "unit_price", "line_total")
+        self.pos_cart_table = ttk.Treeview(cart_frame, columns=columns, show="headings", height=6)
+        for col in columns:
+            self.pos_cart_table.heading(col, text=col.replace("_", " ").title())
+            self.pos_cart_table.column(col, width=110, anchor="w")
+        self.pos_cart_table.pack(fill="both", expand=True)
+
+        totals_frame = ttk.LabelFrame(container, text="Totals", padding=10)
+        totals_frame.pack(fill="x", pady=(0, 10))
+        ttk.Label(totals_frame, textvariable=self.pos_totals_var).pack(anchor="w")
+
+        payments_frame = ttk.LabelFrame(container, text="Payments", padding=10)
+        payments_frame.pack(fill="x", pady=(0, 10))
+        ttk.Label(payments_frame, text="Cash").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Entry(payments_frame, textvariable=self.pos_cash_amount_var, state=view_state, width=12).grid(
+            row=0, column=1, sticky="w"
+        )
+        ttk.Label(payments_frame, text="Card").grid(row=0, column=2, sticky="w", padx=(12, 8))
+        ttk.Entry(payments_frame, textvariable=self.pos_card_amount_var, state=view_state, width=12).grid(
+            row=0, column=3, sticky="w"
+        )
+        ttk.Label(payments_frame, text="Auth Code").grid(row=0, column=4, sticky="w", padx=(12, 8))
+        ttk.Entry(payments_frame, textvariable=self.pos_card_auth_var, state=view_state, width=16).grid(
+            row=0, column=5, sticky="w"
+        )
+
+        ttk.Label(payments_frame, text="Transfer").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+        ttk.Entry(payments_frame, textvariable=self.pos_transfer_amount_var, state=view_state, width=12).grid(
+            row=1, column=1, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(payments_frame, text="Bank").grid(row=1, column=2, sticky="w", padx=(12, 8), pady=(6, 0))
+        ttk.Entry(payments_frame, textvariable=self.pos_transfer_bank_var, state=view_state, width=16).grid(
+            row=1, column=3, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(payments_frame, text="Voucher").grid(row=1, column=4, sticky="w", padx=(12, 8), pady=(6, 0))
+        ttk.Entry(payments_frame, textvariable=self.pos_transfer_voucher_var, state=view_state, width=16).grid(
+            row=1, column=5, sticky="w", pady=(6, 0)
+        )
+
+        action_frame = ttk.LabelFrame(container, text="Actions", padding=10)
+        action_frame.pack(fill="x")
+        create_button = ttk.Button(
+            action_frame,
+            text="Create Sale",
+            command=self._create_pos_sale,
+            state=manage_state,
+        )
+        update_button = ttk.Button(
+            action_frame,
+            text="Add/Update Items",
+            command=self._update_pos_sale,
+            state=manage_state,
+        )
+        checkout_button = ttk.Button(
+            action_frame,
+            text="Checkout",
+            command=self._checkout_pos_sale,
+            state=manage_state,
+        )
+        cancel_button = ttk.Button(
+            action_frame,
+            text="Cancel Sale",
+            command=self._cancel_pos_sale,
+            state=manage_state,
+        )
+        refresh_button = ttk.Button(
+            action_frame,
+            text="Refresh",
+            command=self._refresh_pos_sale,
+            state=view_state,
+        )
+        create_button.pack(side="left", padx=(0, 6))
+        update_button.pack(side="left", padx=(0, 6))
+        checkout_button.pack(side="left", padx=(0, 6))
+        cancel_button.pack(side="left", padx=(0, 6))
+        refresh_button.pack(side="left")
+
+        self._update_pos_totals()
+        self._refresh_pos_cart_table()
+
+    def _reset_pos_messages(self) -> None:
+        self.pos_error_var.set("")
+        self.pos_trace_var.set("")
+        self.pos_validation_var.set("")
+
+    def _set_pos_loading(self, text: str) -> None:
+        self.pos_loading_var.set(text)
+
+    def _parse_decimal(self, value: str, fallback: Decimal = Decimal("0.00")) -> Decimal:
+        try:
+            return Decimal(value.strip())
+        except Exception:
+            return fallback
+
+    def _format_payment_issues(self, issues: list[PaymentValidationIssue]) -> str:
+        if not issues:
+            return ""
+        return "\n".join(f"{issue.field}: {issue.reason}" for issue in issues)
+
+    def _current_pos_total_due(self) -> Decimal:
+        if self.pos_state.sale and self.pos_state.sale.header.total_due is not None:
+            return Decimal(str(self.pos_state.sale.header.total_due))
+        subtotal = Decimal("0.00")
+        for line in self.pos_state.lines:
+            subtotal += Decimal(str(line.unit_price)) * Decimal(line.qty)
+        return subtotal
+
+    def _update_pos_totals(self) -> None:
+        subtotal = self._current_pos_total_due()
+        payments = self._collect_pos_payments()
+        validation = validate_checkout_payload(total_due=subtotal, payments=payments) if payments else None
+        paid_total = validation.totals.paid_total if validation else Decimal("0.00")
+        missing = validation.totals.missing_amount if validation else subtotal
+        change = validation.totals.change_due if validation else Decimal("0.00")
+        totals_text = (
+            f"Totals: subtotal={subtotal:.2f} total_due={subtotal:.2f} "
+            f"paid_total={paid_total:.2f} missing={missing:.2f} change={change:.2f}"
+        )
+        self.pos_totals_var.set(totals_text)
+        self.pos_cart_var.set(f"Cart lines: {len(self.pos_state.lines)}")
+
+    def _refresh_pos_cart_table(self) -> None:
+        if self.pos_cart_table is None:
+            return
+        for row in self.pos_cart_table.get_children():
+            self.pos_cart_table.delete(row)
+        for line in self.pos_state.lines:
+            snapshot = line.snapshot
+            line_total = Decimal(str(line.unit_price)) * Decimal(line.qty)
+            self.pos_cart_table.insert(
+                "",
+                "end",
+                values=(
+                    line.line_type,
+                    snapshot.sku if snapshot else None,
+                    snapshot.epc if snapshot else None,
+                    line.qty,
+                    f"{Decimal(str(line.unit_price)):.2f}",
+                    f"{line_total:.2f}",
+                ),
+            )
+
+    def _build_pos_line(self) -> PosSaleLineCreate | None:
+        self._reset_pos_messages()
+        line_type = self.pos_line_type_var.get().strip().upper() or "SKU"
+        qty = int(self._parse_decimal(self.pos_qty_var.get(), Decimal("1")))
+        unit_price = self._parse_decimal(self.pos_unit_price_var.get(), Decimal("0.00"))
+        sku = self.pos_sku_var.get().strip() or None
+        epc = self.pos_epc_var.get().strip() or None
+        location_code = self.pos_location_code_var.get().strip()
+        pool = self.pos_pool_var.get().strip()
+        issues: list[str] = []
+        if qty < 1:
+            issues.append("qty must be at least 1")
+        if unit_price < 0:
+            issues.append("unit_price must be >= 0")
+        if line_type == "EPC":
+            if qty != 1:
+                issues.append("EPC qty must be 1")
+            if not epc:
+                issues.append("epc is required for EPC lines")
+        if line_type == "SKU" and epc:
+            issues.append("epc must be empty for SKU lines")
+        if not location_code or not pool:
+            issues.append("location_code and pool are required")
+        if issues:
+            self.pos_validation_var.set("; ".join(issues))
+            return None
+        status = "RFID" if line_type == "EPC" else "PENDING"
+        snapshot = PosSaleLineSnapshot(
+            sku=sku,
+            description=None,
+            var1_value=None,
+            var2_value=None,
+            epc=epc,
+            location_code=location_code,
+            pool=pool,
+            status=status,
+            location_is_vendible=True,
+        )
+        return PosSaleLineCreate(line_type=line_type, qty=qty, unit_price=unit_price, snapshot=snapshot)
+
+    def _add_pos_line(self) -> None:
+        if not self._can_manage_pos():
+            return
+        line = self._build_pos_line()
+        if line is None:
+            return
+        self.pos_state.lines.append(line)
+        self._update_pos_totals()
+        self._refresh_pos_cart_table()
+
+    def _collect_pos_payments(self) -> list[PosPaymentCreate]:
+        payments: list[PosPaymentCreate] = []
+        cash_amount = self._parse_decimal(self.pos_cash_amount_var.get())
+        if cash_amount > 0:
+            payments.append(PosPaymentCreate(method="CASH", amount=cash_amount))
+        card_amount = self._parse_decimal(self.pos_card_amount_var.get())
+        if card_amount > 0:
+            payments.append(
+                PosPaymentCreate(
+                    method="CARD",
+                    amount=card_amount,
+                    authorization_code=self.pos_card_auth_var.get().strip() or None,
+                )
+            )
+        transfer_amount = self._parse_decimal(self.pos_transfer_amount_var.get())
+        if transfer_amount > 0:
+            payments.append(
+                PosPaymentCreate(
+                    method="TRANSFER",
+                    amount=transfer_amount,
+                    bank_name=self.pos_transfer_bank_var.get().strip() or None,
+                    voucher_number=self.pos_transfer_voucher_var.get().strip() or None,
+                )
+            )
+        return payments
+
+    def _apply_sale_response(self, response: PosSaleResponse) -> None:
+        self.pos_state.sale = response
+        header = response.header
+        self.pos_sale_status_var.set(
+            f"Sale {header.id} status={header.status} total_due={header.total_due} paid={header.paid_total}"
+        )
+        mapped_lines: list[PosSaleLineCreate] = []
+        for line in response.lines:
+            if not line.snapshot or line.unit_price is None:
+                continue
+            mapped_lines.append(
+                PosSaleLineCreate(
+                    line_type=line.line_type or "SKU",
+                    qty=line.qty or 1,
+                    unit_price=Decimal(str(line.unit_price)),
+                    snapshot=line.snapshot,
+                )
+            )
+        if mapped_lines:
+            self.pos_state.lines = mapped_lines
+        self._update_pos_totals()
+        self._refresh_pos_cart_table()
+
+    def _create_pos_sale(self) -> None:
+        if not self._can_manage_pos():
+            return
+        self._reset_pos_messages()
+        if not self.pos_state.lines:
+            self.pos_validation_var.set("Add at least one line before creating a sale.")
+            return
+        store_id = self.pos_store_id_var.get().strip()
+        if not store_id:
+            self.pos_validation_var.set("Store ID is required.")
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "store_id": store_id,
+            "lines": [line.model_dump(mode="json", exclude_none=True) for line in self.pos_state.lines],
+        }
+
+        def worker() -> None:
+            try:
+                client = PosSalesClient(http=self.session._http(), access_token=self.session.token)
+                response = client.create_sale(payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_sale_response(response))
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_api_error(exc))
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_loading(""))
+
+        self._set_pos_loading("Creating sale...")
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_pos_sale(self) -> None:
+        if not self._can_manage_pos():
+            return
+        self._reset_pos_messages()
+        sale = self.pos_state.sale
+        if sale is None:
+            self.pos_validation_var.set("Create a sale before updating items.")
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "lines": [line.model_dump(mode="json", exclude_none=True) for line in self.pos_state.lines],
+        }
+
+        def worker() -> None:
+            try:
+                client = PosSalesClient(http=self.session._http(), access_token=self.session.token)
+                response = client.update_sale(sale.header.id, payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_sale_response(response))
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_api_error(exc))
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_loading(""))
+
+        self._set_pos_loading("Updating sale lines...")
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _checkout_pos_sale(
+        self,
+        *,
+        client: PosSalesClient | None = None,
+        cash_client: PosCashClient | None = None,
+    ) -> None:
+        if not self._can_manage_pos():
+            return
+        self._reset_pos_messages()
+        sale = self.pos_state.sale
+        if sale is None:
+            self.pos_validation_var.set("Create a sale before checkout.")
+            return
+        payments = self._collect_pos_payments()
+        validation = validate_checkout_payload(total_due=self._current_pos_total_due(), payments=payments)
+        if not validation.ok:
+            self.pos_validation_var.set(self._format_payment_issues(validation.issues))
+            return
+        if validation.totals.cash_total > 0:
+            cash_client = cash_client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+            current = cash_client.get_current_session(store_id=self.pos_store_id_var.get().strip() or None)
+            if current.session is None:
+                self.pos_validation_var.set("CASH checkout requires an open cash session.")
+                return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "action": "checkout",
+            "payments": [payment.model_dump(mode="json", exclude_none=True) for payment in payments],
+        }
+        client = client or PosSalesClient(http=self.session._http(), access_token=self.session.token)
+        try:
+            response = client.sale_action(
+                sale.header.id,
+                "checkout",
+                payload,
+                idempotency_key=keys.idempotency_key,
+            )
+            self._apply_sale_response(response)
+        except ApiError as exc:
+            self._set_pos_api_error(exc)
+
+    def _cancel_pos_sale(self, *, client: PosSalesClient | None = None) -> None:
+        if not self._can_manage_pos():
+            return
+        self._reset_pos_messages()
+        sale = self.pos_state.sale
+        if sale is None:
+            self.pos_validation_var.set("Create a sale before cancel.")
+            return
+        keys = new_idempotency_keys()
+        payload = {"transaction_id": keys.transaction_id, "action": "cancel"}
+        client = client or PosSalesClient(http=self.session._http(), access_token=self.session.token)
+        try:
+            response = client.sale_action(sale.header.id, "cancel", payload, idempotency_key=keys.idempotency_key)
+            self._apply_sale_response(response)
+        except ApiError as exc:
+            self._set_pos_api_error(exc)
+
+    def _refresh_pos_sale(self) -> None:
+        if not self._is_pos_allowed():
+            return
+        sale = self.pos_state.sale
+        if sale is None:
+            self.pos_validation_var.set("No sale loaded to refresh.")
+            return
+        self._reset_pos_messages()
+
+        def worker() -> None:
+            try:
+                client = PosSalesClient(http=self.session._http(), access_token=self.session.token)
+                response = client.get_sale(sale.header.id)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_sale_response(response))
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_api_error(exc))
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_loading(""))
+
+        self._set_pos_loading("Refreshing sale...")
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_pos_api_error(self, exc: ApiError) -> None:
+        self.pos_error_var.set(f"{exc.code}: {exc.message}")
+        if exc.details:
+            self.pos_validation_var.set(json.dumps(exc.details, indent=2))
+        self.pos_trace_var.set(f"trace_id: {exc.trace_id}")
 
     def _submit_stock_import_epc(
         self,

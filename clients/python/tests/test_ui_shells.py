@@ -3,6 +3,8 @@ from __future__ import annotations
 from aris_core_3_app.app import CoreAppShell, build_menu_items as build_core_menu, build_stock_query
 from aris_control_center_app.app import ControlCenterAppShell, build_menu_items as build_control_menu
 from aris3_client_sdk.models_stock import StockMeta, StockTableResponse, StockTotals
+from aris3_client_sdk.models_pos_cash import PosCashSessionCurrentResponse, PosCashSessionSummary
+from aris3_client_sdk.models_pos_sales import PosSaleHeader, PosSaleResponse
 from aris3_client_sdk.stock_validation import ValidationIssue
 
 
@@ -112,3 +114,141 @@ def test_stock_action_validation_formatting() -> None:
     formatted = app._format_validation_issues(issues)
     assert "row 0 epc: missing" in formatted
     assert "lines: empty" in formatted
+
+
+def test_pos_permission_gating() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = set()
+    assert app._is_pos_allowed() is False
+    app.allowed_permissions = {"POS_SALE_VIEW"}
+    assert app._is_pos_allowed() is True
+    app.allowed_permissions = {"POS_SALE_MANAGE"}
+    assert app._can_manage_pos() is True
+
+
+def test_pos_totals_initialize() -> None:
+    app = CoreAppShell()
+    app._update_pos_totals()
+    assert "total_due" in app.pos_totals_var.get()
+
+
+def test_pos_checkout_validation_and_call() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_SALE_MANAGE"}
+    app.pos_store_id_var.set("store-1")
+    app.pos_cash_amount_var.set("10.00")
+    app.pos_state.sale = PosSaleResponse(
+        header=PosSaleHeader(
+            id="sale-1",
+            tenant_id="tenant-1",
+            store_id="store-1",
+            status="DRAFT",
+            total_due=10.0,
+            paid_total=0.0,
+            balance_due=10.0,
+            change_due=0.0,
+        ),
+        lines=[],
+        payments=[],
+        payment_summary=[],
+        refunded_totals=None,
+        exchanged_totals=None,
+        net_adjustment=None,
+        return_events=[],
+    )
+
+    class FakePosClient:
+        def __init__(self) -> None:
+            self.called = False
+
+        def sale_action(self, sale_id, action, payload, idempotency_key=None):
+            self.called = True
+            return app.pos_state.sale
+
+    class FakeCashClient:
+        def get_current_session(self, store_id=None):
+            return PosCashSessionCurrentResponse(session=PosCashSessionSummary(id="cash-1", status="OPEN"))
+
+    fake_client = FakePosClient()
+    app._checkout_pos_sale(client=fake_client, cash_client=FakeCashClient())
+    assert fake_client.called is True
+
+
+def test_pos_checkout_validation_errors_rendered() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_SALE_MANAGE"}
+    app.pos_store_id_var.set("store-1")
+    app.pos_card_amount_var.set("10.00")
+    app.pos_state.sale = PosSaleResponse(
+        header=PosSaleHeader(
+            id="sale-2",
+            tenant_id="tenant-1",
+            store_id="store-1",
+            status="DRAFT",
+            total_due=10.0,
+            paid_total=0.0,
+            balance_due=10.0,
+            change_due=0.0,
+        ),
+        lines=[],
+        payments=[],
+        payment_summary=[],
+        refunded_totals=None,
+        exchanged_totals=None,
+        net_adjustment=None,
+        return_events=[],
+    )
+
+    class FakePosClient:
+        def __init__(self) -> None:
+            self.called = False
+
+        def sale_action(self, sale_id, action, payload, idempotency_key=None):
+            self.called = True
+            return app.pos_state.sale
+
+    app._checkout_pos_sale(client=FakePosClient())
+    assert "authorization_code" in app.pos_validation_var.get()
+
+
+def test_pos_cash_session_guard() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_SALE_MANAGE"}
+    app.pos_store_id_var.set("store-1")
+    app.pos_cash_amount_var.set("10.00")
+    app.pos_state.sale = PosSaleResponse(
+        header=PosSaleHeader(
+            id="sale-3",
+            tenant_id="tenant-1",
+            store_id="store-1",
+            status="DRAFT",
+            total_due=10.0,
+            paid_total=0.0,
+            balance_due=10.0,
+            change_due=0.0,
+        ),
+        lines=[],
+        payments=[],
+        payment_summary=[],
+        refunded_totals=None,
+        exchanged_totals=None,
+        net_adjustment=None,
+        return_events=[],
+    )
+
+    class FakePosClient:
+        def __init__(self) -> None:
+            self.called = False
+
+        def sale_action(self, sale_id, action, payload, idempotency_key=None):
+            self.called = True
+            return app.pos_state.sale
+
+    class FakeCashClient:
+        def get_current_session(self, store_id=None):
+            return PosCashSessionCurrentResponse(session=None)
+
+    fake_client = FakePosClient()
+    app._checkout_pos_sale(client=fake_client, cash_client=FakeCashClient())
+    assert fake_client.called is False
+    assert "CASH checkout" in app.pos_validation_var.get()

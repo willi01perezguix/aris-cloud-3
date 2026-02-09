@@ -44,6 +44,17 @@ python -m aris_control_center_app.app
 
 Mutation actions (Import EPC, Import SKU, Migrate SKU->EPC) require `STORE_MANAGE`.
 
+### POS screen (ARIS CORE 3)
+1) Launch the app shell: `python -m aris_core_3_app.app`
+2) Login with a user that has `POS_SALE_VIEW`
+3) Click **POS** to open the POS Sales scaffold:
+   - Add EPC or SKU lines to the cart
+   - Create/update a draft sale
+   - Validate and checkout payments (cash/card/transfer)
+   - Cancel or refresh a sale
+
+Checkout and cancel actions require `POS_SALE_MANAGE`.
+
 ## SDK smoke CLI
 ```bash
 python examples/cli_smoke.py health
@@ -63,6 +74,25 @@ python examples/stock_import_epc_smoke.py --input /path/to/import_epc.json
 python examples/stock_import_sku_smoke.py --input /path/to/import_sku.json
 python examples/stock_migrate_smoke.py --input /path/to/migrate.json
 ```
+
+## POS smoke CLIs
+```bash
+python examples/pos_create_sale_smoke.py --store-id <store_id> --sku SKU-1 --qty 1 --unit-price 10 --location-code LOC-1 --pool P1
+python examples/pos_add_items_smoke.py --sale-id <sale_id> --sku SKU-1 --qty 1 --unit-price 10 --location-code LOC-1 --pool P1
+python examples/pos_checkout_smoke.py --sale-id <sale_id> --cash 10
+python examples/pos_cancel_sale_smoke.py --sale-id <sale_id>
+```
+
+Payment field requirements:
+- `CARD` requires `authorization_code`
+- `TRANSFER` requires `bank_name` + `voucher_number`
+- Change is only allowed against the cash portion of a payment mix
+
+Cash checkout guard:
+- If any `CASH` payment is included, POS checkout verifies there is an open cash session.
+
+Troubleshooting:
+- When API errors occur, capture the `trace_id` displayed in CLI/UI to correlate backend logs.
 
 ## SDK mutation example (idempotency)
 ```python

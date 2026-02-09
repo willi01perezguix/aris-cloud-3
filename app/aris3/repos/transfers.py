@@ -54,3 +54,19 @@ class TransferRepository:
         )
         count, qty = self.db.execute(query).one()
         return int(count or 0), int(qty or 0)
+
+    def get_movement_totals(self, transfer_id: str) -> dict[str, dict[str, int]]:
+        query = (
+            select(
+                TransferMovement.transfer_line_id,
+                TransferMovement.action,
+                func.coalesce(func.sum(TransferMovement.qty), 0),
+            )
+            .where(TransferMovement.transfer_id == transfer_id)
+            .group_by(TransferMovement.transfer_line_id, TransferMovement.action)
+        )
+        totals: dict[str, dict[str, int]] = {}
+        for line_id, action, qty in self.db.execute(query).all():
+            line_key = str(line_id)
+            totals.setdefault(line_key, {})[action] = int(qty or 0)
+        return totals

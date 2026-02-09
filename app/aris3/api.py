@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.aris3.core.config import settings
 from app.aris3.routers.access_control import router as access_control_router
 from app.aris3.routers.admin import router as admin_router
 from app.aris3.routers.health import router as health_router
@@ -11,6 +12,7 @@ from app.aris3.routers.pos_sales import router as pos_sales_router
 from app.aris3.routers.pos_cash import router as pos_cash_router
 from app.aris3.routers.reports import router as reports_router
 from app.aris3.routers.exports import router as exports_router
+from app.aris3.routers.metrics import router as metrics_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
@@ -24,3 +26,5 @@ api_router.include_router(pos_sales_router, tags=["pos-sales"])
 api_router.include_router(pos_cash_router, tags=["pos-cash"])
 api_router.include_router(reports_router, tags=["reports"])
 api_router.include_router(exports_router, tags=["exports"])
+if settings.METRICS_ENABLED:
+    api_router.include_router(metrics_router, tags=["ops"])

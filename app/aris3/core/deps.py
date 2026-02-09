@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from app.aris3.core.context import RequestContext, build_request_context, get_request_context
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
+from app.aris3.core.metrics import metrics
 from app.aris3.core.security import TokenData, decode_token, oauth2_scheme
 from app.aris3.db.session import get_db
 from app.aris3.repos.users import UserRepository
@@ -66,6 +67,7 @@ def require_permission(permission_key: str):
         service = AccessControlService(db, cache=cache)
         decision = service.evaluate_permission(permission_key, context, token_data)
         if not decision.allowed:
+            metrics.increment_rbac_denied()
             raise AppError(ErrorCatalog.PERMISSION_DENIED)
         return decision
 

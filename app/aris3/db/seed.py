@@ -21,6 +21,8 @@ DEFAULT_PERMISSIONS = [
     ("AUDIT_VIEW", "View audit events"),
     ("TRANSFER_VIEW", "View transfers"),
     ("TRANSFER_MANAGE", "Manage transfers"),
+    ("POS_SALE_VIEW", "View POS sales"),
+    ("POS_SALE_MANAGE", "Manage POS sales"),
 ]
 
 DEFAULT_ROLE_TEMPLATES = {
@@ -33,6 +35,8 @@ DEFAULT_ROLE_TEMPLATES = {
         "AUDIT_VIEW",
         "TRANSFER_VIEW",
         "TRANSFER_MANAGE",
+        "POS_SALE_VIEW",
+        "POS_SALE_MANAGE",
     ],
     "ADMIN": [
         "TENANT_VIEW",
@@ -43,9 +47,18 @@ DEFAULT_ROLE_TEMPLATES = {
         "AUDIT_VIEW",
         "TRANSFER_VIEW",
         "TRANSFER_MANAGE",
+        "POS_SALE_VIEW",
+        "POS_SALE_MANAGE",
     ],
-    "MANAGER": ["STORE_VIEW", "USER_MANAGE", "TRANSFER_VIEW", "TRANSFER_MANAGE"],
-    "USER": ["STORE_VIEW", "TRANSFER_VIEW"],
+    "MANAGER": [
+        "STORE_VIEW",
+        "USER_MANAGE",
+        "TRANSFER_VIEW",
+        "TRANSFER_MANAGE",
+        "POS_SALE_VIEW",
+        "POS_SALE_MANAGE",
+    ],
+    "USER": ["STORE_VIEW", "TRANSFER_VIEW", "POS_SALE_VIEW"],
 }
 
 

@@ -304,5 +304,93 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class PosSale(Base):
+    __tablename__ = "pos_sales"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="DRAFT")
+    total_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    paid_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    balance_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    change_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    checked_out_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    canceled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    checked_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PosSaleLine(Base):
+    __tablename__ = "pos_sale_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    sale_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    line_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    qty: Mapped[int] = mapped_column(nullable=False, default=1)
+    unit_price: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    line_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    var2_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    epc: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    location_is_vendible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    image_asset_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_thumb_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    image_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosPayment(Base):
+    __tablename__ = "pos_payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    sale_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    method: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    authorization_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    voucher_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosCashSession(Base):
+    __tablename__ = "pos_cash_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    cashier_user_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN")
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosCashMovement(Base):
+    __tablename__ = "pos_cash_movements"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    cash_session_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    sale_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    amount: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 Index("ix_users_tenant_username", User.tenant_id, User.username)
 Index("ix_users_tenant_email", User.tenant_id, User.email)

@@ -1,0 +1,16 @@
+[project]
+name = "aris-control-center-app"
+version = "0.1.0"
+description = "ARIS Control Center Tkinter shell"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "aris3-client-sdk",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

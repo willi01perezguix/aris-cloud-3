@@ -28,6 +28,7 @@ DEFAULT_PERMISSIONS = [
     ("POS_CASH_VIEW", "View POS cash sessions and movements"),
     ("POS_CASH_MANAGE", "Manage POS cash sessions"),
     ("POS_CASH_DAY_CLOSE", "Close POS cash day"),
+    ("REPORTS_VIEW", "View reports"),
 ]
 
 DEFAULT_ROLE_TEMPLATES = {
@@ -47,6 +48,7 @@ DEFAULT_ROLE_TEMPLATES = {
         "POS_CASH_VIEW",
         "POS_CASH_MANAGE",
         "POS_CASH_DAY_CLOSE",
+        "REPORTS_VIEW",
     ],
     "ADMIN": [
         "TENANT_VIEW",
@@ -64,6 +66,7 @@ DEFAULT_ROLE_TEMPLATES = {
         "POS_CASH_VIEW",
         "POS_CASH_MANAGE",
         "POS_CASH_DAY_CLOSE",
+        "REPORTS_VIEW",
     ],
     "MANAGER": [
         "STORE_VIEW",
@@ -77,6 +80,7 @@ DEFAULT_ROLE_TEMPLATES = {
         "POS_CASH_VIEW",
         "POS_CASH_MANAGE",
         "POS_CASH_DAY_CLOSE",
+        "REPORTS_VIEW",
     ],
     "USER": ["STORE_VIEW", "TRANSFER_VIEW", "POS_SALE_VIEW"],
 }

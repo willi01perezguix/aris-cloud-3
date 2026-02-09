@@ -29,3 +29,15 @@ class NotFoundError(ApiError):
 
 class ValidationError(ApiError):
     pass
+
+
+class CashSessionNotOpenError(ApiError):
+    pass
+
+
+class CashDrawerNegativeError(ApiError):
+    pass
+
+
+class CashPermissionDeniedError(ForbiddenError):
+    pass

@@ -1,6 +1,15 @@
 from .auth_store import AuthStore
 from .config import ClientConfig, ConfigError, load_config
-from .exceptions import ApiError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
+from .exceptions import (
+    ApiError,
+    CashDrawerNegativeError,
+    CashPermissionDeniedError,
+    CashSessionNotOpenError,
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationError,
+)
 from .http_client import HttpClient
 from .idempotency import IdempotencyKeys, new_idempotency_keys
 from .models import (
@@ -10,7 +19,15 @@ from .models import (
     TokenResponse,
     UserResponse,
 )
-from .models_pos_cash import PosCashSessionCurrentResponse, PosCashSessionSummary
+from .models_pos_cash import (
+    PosCashDayCloseActionRequest,
+    PosCashDayCloseResponse,
+    PosCashMovementListResponse,
+    PosCashMovementResponse,
+    PosCashSessionActionRequest,
+    PosCashSessionCurrentResponse,
+    PosCashSessionSummary,
+)
 from .models_pos_sales import (
     PosPaymentBase,
     PosPaymentCard,
@@ -66,12 +83,26 @@ from .payment_validation import (
     compute_payment_totals,
     validate_checkout_payload,
 )
+from .pos_cash_validation import (
+    CashValidationIssue,
+    CashValidationResult,
+    validate_cash_in_payload,
+    validate_cash_out_payload,
+    validate_close_session_payload,
+    validate_day_close_payload,
+    validate_open_session_payload,
+)
 from .tracing import TraceContext
 
 __all__ = [
     "ApiError",
     "ApiSession",
     "AuthStore",
+    "CashDrawerNegativeError",
+    "CashPermissionDeniedError",
+    "CashSessionNotOpenError",
+    "CashValidationIssue",
+    "CashValidationResult",
     "ClientConfig",
     "ConfigError",
     "EffectivePermissionsResponse",
@@ -83,6 +114,11 @@ __all__ = [
     "PaymentTotals",
     "PaymentValidationIssue",
     "PaymentValidationResult",
+    "PosCashDayCloseActionRequest",
+    "PosCashDayCloseResponse",
+    "PosCashMovementListResponse",
+    "PosCashMovementResponse",
+    "PosCashSessionActionRequest",
     "PosCashSessionCurrentResponse",
     "PosCashSessionSummary",
     "PosPaymentBase",
@@ -136,4 +172,9 @@ __all__ = [
     "validate_import_sku_line",
     "validate_migration_line",
     "validate_checkout_payload",
+    "validate_cash_in_payload",
+    "validate_cash_out_payload",
+    "validate_close_session_payload",
+    "validate_day_close_payload",
+    "validate_open_session_payload",
 ]

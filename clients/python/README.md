@@ -55,6 +55,23 @@ Mutation actions (Import EPC, Import SKU, Migrate SKU->EPC) require `STORE_MANAG
 
 Checkout and cancel actions require `POS_SALE_MANAGE`.
 
+### POS cash operations (ARIS CORE 3)
+The POS screen now includes a **Cash Drawer** section that surfaces:
+- Current cash session status + metadata
+- Open/Cash In/Cash Out/Close actions (permission-gated)
+- Recent cash movements
+- Day close button (manager/admin permission-gated)
+
+Permissions:
+- `POS_CASH_VIEW` to view cash sessions/movements
+- `POS_CASH_MANAGE` to open/adjust/close cash sessions
+- `POS_CASH_DAY_CLOSE` to close the business day
+
+Cash guardrails:
+- `CASH` checkout requires an open cash session
+- Cash out is prevented when it would drive expected cash negative
+- Change is only allowed against the cash portion of payments
+
 ## SDK smoke CLI
 ```bash
 python examples/cli_smoke.py health
@@ -83,6 +100,15 @@ python examples/pos_checkout_smoke.py --sale-id <sale_id> --cash 10
 python examples/pos_cancel_sale_smoke.py --sale-id <sale_id>
 ```
 
+## POS cash smoke CLIs
+```bash
+python examples/pos_cash_open_smoke.py --store-id <store_id> --opening-amount 100 --business-date 2024-01-01 --timezone UTC
+python examples/pos_cash_in_smoke.py --store-id <store_id> --amount 20 --reason "Midday float"
+python examples/pos_cash_out_smoke.py --store-id <store_id> --amount 10 --reason "Safe drop"
+python examples/pos_cash_close_smoke.py --store-id <store_id> --counted-cash 110 --reason "End of shift"
+python examples/pos_day_close_smoke.py --store-id <store_id> --business-date 2024-01-01 --timezone UTC
+```
+
 Payment field requirements:
 - `CARD` requires `authorization_code`
 - `TRANSFER` requires `bank_name` + `voucher_number`
@@ -90,6 +116,7 @@ Payment field requirements:
 
 Cash checkout guard:
 - If any `CASH` payment is included, POS checkout verifies there is an open cash session.
+ - Cash session operations include `transaction_id` + `Idempotency-Key` for safe retries.
 
 Troubleshooting:
 - When API errors occur, capture the `trace_id` displayed in CLI/UI to correlate backend logs.

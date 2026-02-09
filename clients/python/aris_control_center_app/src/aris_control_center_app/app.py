@@ -39,18 +39,33 @@ def allowed_permission_set(decisions: list[PermissionEntry]) -> set[str]:
     return {entry.key for entry in decisions if entry.allowed}
 
 
+def _ensure_default_root() -> None:
+    if tk._default_root is not None:
+        return
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except tk.TclError:
+        root = tk.Tcl()
+    tk._default_root = root
+
+
 class ControlCenterAppShell:
     def __init__(self, config: ClientConfig | None = None, session: ApiSession | None = None) -> None:
+        _ensure_default_root()
         self.config = config or load_config()
         self.session = session or ApiSession(self.config)
-        self.root: tk.Tk | None = None
+        self.root: tk.Tk | None = tk._default_root if isinstance(tk._default_root, tk.Tk) else None
         self.menu_buttons: list[ttk.Button] = []
         self.error_var = tk.StringVar(value="")
 
     def start(self, headless: bool = False) -> None:
         if headless:
             return
-        self.root = tk.Tk()
+        if self.root is None:
+            self.root = tk.Tk()
+        else:
+            self.root.deiconify()
         self.root.title("ARIS Control Center")
         self._build_login_ui()
         self.root.mainloop()

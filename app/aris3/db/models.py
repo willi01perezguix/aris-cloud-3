@@ -305,6 +305,33 @@ class IdempotencyRecord(Base):
     )
 
 
+class ExportRecord(Base):
+    __tablename__ = "export_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    format: Mapped[str] = mapped_column(String(10), nullable=False)
+    filters_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="CREATED")
+    row_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_size_bytes: Mapped[int | None] = mapped_column(nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    generated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_export_records_tenant_status", "tenant_id", "status"),
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

@@ -8,6 +8,7 @@ from app.aris3.routers.users import router as users_router
 from app.aris3.routers.stock import router as stock_router
 from app.aris3.routers.transfers import router as transfers_router
 from app.aris3.routers.pos_sales import router as pos_sales_router
+from app.aris3.routers.pos_cash import router as pos_cash_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
@@ -18,3 +19,4 @@ api_router.include_router(admin_router, prefix="/aris3/admin", tags=["admin"])
 api_router.include_router(stock_router, tags=["stock"])
 api_router.include_router(transfers_router, tags=["transfers"])
 api_router.include_router(pos_sales_router, tags=["pos-sales"])
+api_router.include_router(pos_cash_router, tags=["pos-cash"])

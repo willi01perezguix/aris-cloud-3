@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.aris3.db.base import Base, GUID
@@ -413,6 +413,12 @@ class PosCashSession(Base):
     store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     cashier_user_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN")
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    opening_amount: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    expected_cash: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    counted_cash: Mapped[float | None] = mapped_column(nullable=True)
+    difference: Mapped[float | None] = mapped_column(nullable=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
@@ -425,10 +431,37 @@ class PosCashMovement(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     cash_session_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    cashier_user_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
     sale_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
     action: Mapped[str] = mapped_column(String(50), nullable=False)
     amount: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    expected_balance_before: Mapped[float | None] = mapped_column(nullable=True)
+    expected_balance_after: Mapped[float | None] = mapped_column(nullable=True)
+    transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosCashDayClose(Base):
+    __tablename__ = "pos_cash_day_closes"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="CLOSED")
+    force_close: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    closed_by_user_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    closed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "store_id", "business_date", name="uq_pos_cash_day_close_store_date"),
+    )
 
 
 Index("ix_users_tenant_username", User.tenant_id, User.username)

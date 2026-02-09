@@ -76,13 +76,28 @@ def create_stock_item(
     return stock
 
 
-def open_cash_session(db_session, *, tenant_id: str, store_id: str, cashier_user_id: str):
+def open_cash_session(
+    db_session,
+    *,
+    tenant_id: str,
+    store_id: str,
+    cashier_user_id: str,
+    opening_amount: float = 100.0,
+    business_date: datetime | None = None,
+    timezone: str = "UTC",
+):
+    if business_date is None:
+        business_date = datetime.utcnow()
     session = PosCashSession(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
         store_id=store_id,
         cashier_user_id=cashier_user_id,
         status="OPEN",
+        business_date=business_date.date(),
+        timezone=timezone,
+        opening_amount=opening_amount,
+        expected_cash=opening_amount,
         opened_at=datetime.utcnow(),
     )
     db_session.add(session)

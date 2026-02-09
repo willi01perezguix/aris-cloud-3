@@ -32,3 +32,8 @@ Cada request registra un evento JSON con:
 Si `METRICS_ENABLED=true`, se expone:
 - `GET /aris3/ops/metrics` (uso interno, documentado para observabilidad).
 
+## Gate de seguridad — Sprint 4 Día 7
+- Validación de redacción de secretos: chequeo de patrones en logs sin coincidencias.
+- Verificación de controles RBAC: presencia de `require_permissions` en rutas sensibles.
+- Dependencias: intento de `pip_audit` (si no está instalado, se registra como WARN).
+- Evidencia: `artifacts/release_candidate/security_gate_summary.json`.

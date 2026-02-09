@@ -1,0 +1,14 @@
+{
+  "label": "postgres",
+  "result": {
+    "command": "pytest -q",
+    "database_url": "postgresql+psycopg2://postgres:postgres@localhost:5432/aris3",
+    "returncode": -15,
+    "status": "FAIL",
+    "stdout": "E.EEEEEEEEEEEEEE..EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE [ 36%]\nEEEEEEEEEEFFEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE.EEEEEE [ 73%]\nEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    "stderr": "",
+    "started_at": 1770651441.7529519,
+    "finished_at": 1770651516.904874,
+    "duration_sec": 75.152
+  }
+}

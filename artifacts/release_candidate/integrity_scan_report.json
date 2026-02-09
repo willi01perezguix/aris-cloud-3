@@ -1,0 +1,6 @@
+{
+  "status": "FAIL",
+  "note": "Integrity scan failed: missing database tables (tenants). Run migrations and seed data before rerun.",
+  "command": "PYTHONPATH=. python -m app.ops.integrity_scan --tenant all --format json --fail-on-critical",
+  "error": "sqlite3.OperationalError: no such table: tenants"
+}

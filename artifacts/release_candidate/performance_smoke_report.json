@@ -1,0 +1,6 @@
+{
+  "status": "SKIPPED",
+  "note": "Performance smoke not executed (missing base URL).",
+  "baseline": null,
+  "results": []
+}

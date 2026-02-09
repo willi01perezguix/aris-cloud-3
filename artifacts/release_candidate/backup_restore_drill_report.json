@@ -1,0 +1,12 @@
+{
+  "status": "FAIL",
+  "note": "Backup/restore drill not executed. backup_create failed due to missing database tables; restore verify failed due to missing manifest.",
+  "commands": [
+    "PYTHONPATH=. python scripts/ops/backup_create.py --name backup_drill_s4d7",
+    "PYTHONPATH=. python scripts/ops/backup_restore_verify.py artifacts/release_candidate/nonexistent_manifest.json"
+  ],
+  "errors": [
+    "sqlite3.OperationalError: no such table: tenants",
+    "[Errno 2] No such file or directory: 'artifacts/release_candidate/nonexistent_manifest.json'"
+  ]
+}

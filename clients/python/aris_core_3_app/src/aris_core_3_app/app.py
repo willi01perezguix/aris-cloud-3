@@ -6,6 +6,7 @@ import os
 import threading
 import tkinter as tk
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from tkinter import filedialog, messagebox, ttk
 
@@ -17,6 +18,11 @@ from aris3_client_sdk.clients.pos_sales_client import PosSalesClient
 from aris3_client_sdk.clients.stock_client import StockClient
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.models import PermissionEntry
+from aris3_client_sdk.models_pos_cash import (
+    PosCashDayCloseResponse,
+    PosCashMovementResponse,
+    PosCashSessionSummary,
+)
 from aris3_client_sdk.models_pos_sales import (
     PosPaymentCreate,
     PosSaleLineCreate,
@@ -25,6 +31,14 @@ from aris3_client_sdk.models_pos_sales import (
 )
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
 from aris3_client_sdk.payment_validation import PaymentValidationIssue, validate_checkout_payload
+from aris3_client_sdk.pos_cash_validation import (
+    CashValidationIssue,
+    validate_cash_in_payload,
+    validate_cash_out_payload,
+    validate_close_session_payload,
+    validate_day_close_payload,
+    validate_open_session_payload,
+)
 from aris3_client_sdk.stock_validation import (
     ClientValidationError,
     ValidationIssue,
@@ -65,6 +79,14 @@ class StockViewState:
 class PosViewState:
     sale: PosSaleResponse | None = None
     lines: list[PosSaleLineCreate] = field(default_factory=list)
+    busy: bool = False
+
+
+@dataclass
+class PosCashViewState:
+    session: PosCashSessionSummary | None = None
+    movements: list[PosCashMovementResponse] = field(default_factory=list)
+    last_day_close: PosCashDayCloseResponse | None = None
     busy: bool = False
 
 
@@ -115,11 +137,23 @@ def allowed_permission_set(decisions: list[PermissionEntry]) -> set[str]:
     return {entry.key for entry in decisions if entry.allowed}
 
 
+def _ensure_default_root() -> None:
+    if tk._default_root is not None:
+        return
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except tk.TclError:
+        root = tk.Tcl()
+    tk._default_root = root
+
+
 class CoreAppShell:
     def __init__(self, config: ClientConfig | None = None, session: ApiSession | None = None) -> None:
+        _ensure_default_root()
         self.config = config or load_config()
         self.session = session or ApiSession(self.config)
-        self.root: tk.Tk | None = None
+        self.root: tk.Tk | None = tk._default_root if isinstance(tk._default_root, tk.Tk) else None
         self.status_var = tk.StringVar(value="Disconnected")
         self.menu_buttons: list[ttk.Button] = []
         self.error_var = tk.StringVar(value="")
@@ -155,6 +189,13 @@ class CoreAppShell:
         self.pos_sale_status_var = tk.StringVar(value="")
         self.pos_totals_var = tk.StringVar(value="")
         self.pos_cart_var = tk.StringVar(value="")
+        self.pos_cash_state = PosCashViewState()
+        self.pos_cash_status_var = tk.StringVar(value="")
+        self.pos_cash_meta_var = tk.StringVar(value="")
+        self.pos_cash_action_status_var = tk.StringVar(value="")
+        self.pos_cash_loading_var = tk.StringVar(value="")
+        self.pos_cash_error_var = tk.StringVar(value="")
+        self.pos_cash_trace_var = tk.StringVar(value="")
         self.pos_store_id_var = tk.StringVar(value=os.getenv("ARIS3_POS_DEFAULT_STORE_ID", ""))
         self.pos_epc_var = tk.StringVar(value="")
         self.pos_sku_var = tk.StringVar(value="")
@@ -171,11 +212,23 @@ class CoreAppShell:
         self.pos_transfer_voucher_var = tk.StringVar(value="")
         self.pos_currency = os.getenv("ARIS3_POS_DEFAULT_CURRENCY", "USD")
         self.pos_cart_table: ttk.Treeview | None = None
+        self.pos_cash_opening_amount_var = tk.StringVar(value="0.00")
+        self.pos_cash_action_amount_var = tk.StringVar(value="0.00")
+        self.pos_cash_counted_cash_var = tk.StringVar(value="0.00")
+        self.pos_cash_reason_var = tk.StringVar(value="")
+        default_business_date = os.getenv("ARIS3_POS_DEFAULT_BUSINESS_DATE", date.today().isoformat())
+        self.pos_cash_business_date_var = tk.StringVar(value=default_business_date)
+        self.pos_cash_timezone_var = tk.StringVar(value=os.getenv("ARIS3_POS_DEFAULT_TIMEZONE", "UTC"))
+        self.pos_cash_force_day_close_var = tk.BooleanVar(value=False)
+        self.pos_cash_movements_table: ttk.Treeview | None = None
 
     def start(self, headless: bool = False) -> None:
         if headless:
             return
-        self.root = tk.Tk()
+        if self.root is None:
+            self.root = tk.Tk()
+        else:
+            self.root.deiconify()
         self.root.title("ARIS CORE 3")
         self._build_login_ui()
         self.root.mainloop()
@@ -289,6 +342,15 @@ class CoreAppShell:
 
     def _can_manage_pos(self) -> bool:
         return self._has_permission("POS_SALE_MANAGE")
+
+    def _is_pos_cash_allowed(self) -> bool:
+        return self._has_permission("POS_CASH_VIEW", "POS_CASH_MANAGE", "POS_CASH_DAY_CLOSE")
+
+    def _can_manage_pos_cash(self) -> bool:
+        return self._has_permission("POS_CASH_MANAGE")
+
+    def _can_day_close_pos_cash(self) -> bool:
+        return self._has_permission("POS_CASH_DAY_CLOSE")
 
     def _ensure_stock_filter_vars(self) -> None:
         if self.stock_filter_vars:
@@ -1001,6 +1063,141 @@ class CoreAppShell:
             row=1, column=5, sticky="w", pady=(6, 0)
         )
 
+        cash_frame = ttk.LabelFrame(container, text="Cash Drawer", padding=10)
+        cash_frame.pack(fill="x", pady=(0, 10))
+        cash_allowed = self._is_pos_cash_allowed()
+        cash_manage_state = tk.NORMAL if self._can_manage_pos_cash() else tk.DISABLED
+        cash_view_state = tk.NORMAL if cash_allowed else tk.DISABLED
+        day_close_state = tk.NORMAL if self._can_day_close_pos_cash() else tk.DISABLED
+
+        if not cash_allowed:
+            ttk.Label(
+                cash_frame,
+                text="You do not have permission to access cash drawer operations.",
+                foreground="red",
+            ).pack(anchor="w")
+
+        cash_status = ttk.Frame(cash_frame)
+        cash_status.pack(fill="x")
+        ttk.Label(cash_status, textvariable=self.pos_cash_status_var).pack(anchor="w")
+        ttk.Label(cash_status, textvariable=self.pos_cash_meta_var).pack(anchor="w")
+        ttk.Label(cash_status, textvariable=self.pos_cash_action_status_var, foreground="green").pack(anchor="w")
+        ttk.Label(cash_status, textvariable=self.pos_cash_loading_var, foreground="blue").pack(anchor="w")
+        ttk.Label(cash_status, textvariable=self.pos_cash_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(cash_status, textvariable=self.pos_cash_trace_var, foreground="gray").pack(anchor="w")
+
+        cash_inputs = ttk.Frame(cash_frame)
+        cash_inputs.pack(fill="x", pady=(8, 6))
+        ttk.Label(cash_inputs, text="Business Date").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(
+            cash_inputs,
+            textvariable=self.pos_cash_business_date_var,
+            state=cash_view_state,
+            width=14,
+        ).grid(row=0, column=1, sticky="w")
+        ttk.Label(cash_inputs, text="Timezone").grid(row=0, column=2, sticky="w", padx=(12, 6))
+        ttk.Entry(
+            cash_inputs,
+            textvariable=self.pos_cash_timezone_var,
+            state=cash_view_state,
+            width=10,
+        ).grid(row=0, column=3, sticky="w")
+        ttk.Label(cash_inputs, text="Reason").grid(row=0, column=4, sticky="w", padx=(12, 6))
+        ttk.Entry(
+            cash_inputs,
+            textvariable=self.pos_cash_reason_var,
+            state=cash_view_state,
+            width=24,
+        ).grid(row=0, column=5, sticky="w")
+
+        ttk.Label(cash_inputs, text="Opening Amount").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(
+            cash_inputs,
+            textvariable=self.pos_cash_opening_amount_var,
+            state=cash_manage_state,
+            width=14,
+        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ttk.Label(cash_inputs, text="Action Amount").grid(row=1, column=2, sticky="w", padx=(12, 6), pady=(6, 0))
+        ttk.Entry(
+            cash_inputs,
+            textvariable=self.pos_cash_action_amount_var,
+            state=cash_manage_state,
+            width=10,
+        ).grid(row=1, column=3, sticky="w", pady=(6, 0))
+        ttk.Label(cash_inputs, text="Counted Cash").grid(row=1, column=4, sticky="w", padx=(12, 6), pady=(6, 0))
+        ttk.Entry(
+            cash_inputs,
+            textvariable=self.pos_cash_counted_cash_var,
+            state=cash_manage_state,
+            width=12,
+        ).grid(row=1, column=5, sticky="w", pady=(6, 0))
+        ttk.Checkbutton(
+            cash_inputs,
+            text="Force day close (if open sessions)",
+            variable=self.pos_cash_force_day_close_var,
+            state=day_close_state,
+        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
+        cash_actions = ttk.Frame(cash_frame)
+        cash_actions.pack(fill="x", pady=(4, 6))
+        ttk.Button(
+            cash_actions,
+            text="Open Session",
+            command=self._open_cash_session,
+            state=cash_manage_state,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            cash_actions,
+            text="Cash In",
+            command=self._cash_in_session,
+            state=cash_manage_state,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            cash_actions,
+            text="Cash Out",
+            command=self._cash_out_session,
+            state=cash_manage_state,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            cash_actions,
+            text="Close Session",
+            command=self._close_cash_session,
+            state=cash_manage_state,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            cash_actions,
+            text="Day Close",
+            command=self._day_close_cash,
+            state=day_close_state,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            cash_actions,
+            text="Refresh",
+            command=self._refresh_pos_cash_data,
+            state=cash_view_state,
+        ).pack(side="left")
+
+        if not self._can_day_close_pos_cash():
+            ttk.Label(
+                cash_frame,
+                text="Day close requires POS_CASH_DAY_CLOSE permission.",
+                foreground="gray",
+            ).pack(anchor="w", pady=(0, 4))
+
+        movements_frame = ttk.Frame(cash_frame)
+        movements_frame.pack(fill="x")
+        movement_columns = ("movement_type", "amount", "expected_after", "occurred_at", "reason")
+        self.pos_cash_movements_table = ttk.Treeview(
+            movements_frame,
+            columns=movement_columns,
+            show="headings",
+            height=4,
+        )
+        for col in movement_columns:
+            self.pos_cash_movements_table.heading(col, text=col.replace("_", " ").title())
+            self.pos_cash_movements_table.column(col, width=140, anchor="w")
+        self.pos_cash_movements_table.pack(fill="x", expand=True)
+
         action_frame = ttk.LabelFrame(container, text="Actions", padding=10)
         action_frame.pack(fill="x")
         create_button = ttk.Button(
@@ -1041,6 +1238,8 @@ class CoreAppShell:
 
         self._update_pos_totals()
         self._refresh_pos_cart_table()
+        if cash_allowed:
+            self._refresh_pos_cash_data(async_mode=True)
 
     def _reset_pos_messages(self) -> None:
         self.pos_error_var.set("")
@@ -1056,10 +1255,76 @@ class CoreAppShell:
         except Exception:
             return fallback
 
+    def _parse_optional_decimal(self, value: str) -> Decimal | None:
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            return Decimal(raw)
+        except Exception:
+            return None
+
     def _format_payment_issues(self, issues: list[PaymentValidationIssue]) -> str:
         if not issues:
             return ""
         return "\n".join(f"{issue.field}: {issue.reason}" for issue in issues)
+
+    def _format_cash_validation_issues(self, issues: list[CashValidationIssue]) -> str:
+        if not issues:
+            return ""
+        return "; ".join(f"{issue.field}: {issue.reason}" for issue in issues)
+
+    def _format_cash_session_status(self, session: PosCashSessionSummary | None) -> str:
+        if session is None:
+            return "Cash session: NONE"
+        status = session.status or "UNKNOWN"
+        return f"Cash session: {status} (id={session.id})"
+
+    def _format_cash_session_meta(self, session: PosCashSessionSummary | None) -> str:
+        if session is None:
+            return "No active cash session."
+        parts = [
+            f"cashier={session.cashier_user_id}",
+            f"opened_at={session.opened_at}",
+            f"opening_amount={session.opening_amount}",
+            f"expected_cash={session.expected_cash}",
+        ]
+        return " | ".join(part for part in parts if part and "None" not in str(part))
+
+    def _reset_pos_cash_messages(self) -> None:
+        self.pos_cash_error_var.set("")
+        self.pos_cash_trace_var.set("")
+        self.pos_cash_action_status_var.set("")
+
+    def _set_pos_cash_loading(self, text: str) -> None:
+        self.pos_cash_loading_var.set(text)
+
+    def _apply_pos_cash_session(self, session: PosCashSessionSummary | None) -> None:
+        self.pos_cash_state.session = session
+        self.pos_cash_status_var.set(self._format_cash_session_status(session))
+        self.pos_cash_meta_var.set(self._format_cash_session_meta(session))
+
+    def _apply_pos_cash_movements(self, movements: list[PosCashMovementResponse]) -> None:
+        self.pos_cash_state.movements = movements
+        self._refresh_cash_movements_table()
+
+    def _refresh_cash_movements_table(self) -> None:
+        if self.pos_cash_movements_table is None:
+            return
+        for row in self.pos_cash_movements_table.get_children():
+            self.pos_cash_movements_table.delete(row)
+        for movement in self.pos_cash_state.movements:
+            self.pos_cash_movements_table.insert(
+                "",
+                "end",
+                values=(
+                    movement.movement_type,
+                    movement.amount,
+                    movement.expected_balance_after,
+                    movement.occurred_at,
+                    movement.reason,
+                ),
+            )
 
     def _current_pos_total_due(self) -> Decimal:
         if self.pos_state.sale and self.pos_state.sale.header.total_due is not None:
@@ -1103,6 +1368,331 @@ class CoreAppShell:
                     f"{line_total:.2f}",
                 ),
             )
+
+    def _refresh_pos_cash_data(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
+        if not self._is_pos_cash_allowed():
+            return
+        store_id = self.pos_store_id_var.get().strip() or None
+        if not store_id:
+            self.pos_cash_error_var.set("Store ID is required for cash session actions.")
+            return
+        if not store_id:
+            self.pos_cash_error_var.set("Store ID is required to load cash session.")
+            return
+        self._reset_pos_cash_messages()
+
+        def worker() -> None:
+            try:
+                api_client = client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+                current = api_client.get_current_session(store_id=store_id)
+                movements = api_client.get_movements(store_id=store_id, limit=10)
+                session = current.session
+                if self.root:
+                    self.root.after(0, lambda: self._apply_pos_cash_session(session))
+                    self.root.after(0, lambda: self._apply_pos_cash_movements(movements.rows))
+                else:
+                    self._apply_pos_cash_session(session)
+                    self._apply_pos_cash_movements(movements.rows)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_api_error(exc))
+                else:
+                    self._set_pos_cash_api_error(exc)
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_loading(""))
+                else:
+                    self._set_pos_cash_loading("")
+
+        self._set_pos_cash_loading("Loading cash session...")
+        if async_mode:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            worker()
+
+    def _set_pos_cash_api_error(self, exc: ApiError) -> None:
+        self.pos_cash_error_var.set(f"{exc.code}: {exc.message}")
+        self.pos_cash_trace_var.set(f"trace_id: {exc.trace_id}")
+
+    def _open_cash_session(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
+        if not self._can_manage_pos_cash():
+            return
+        self._reset_pos_cash_messages()
+        store_id = self.pos_store_id_var.get().strip() or None
+        if not store_id:
+            self.pos_cash_error_var.set("Store ID is required for cash session actions.")
+            return
+        opening_amount = self._parse_optional_decimal(self.pos_cash_opening_amount_var.get())
+        business_date = self.pos_cash_business_date_var.get().strip() or None
+        timezone = self.pos_cash_timezone_var.get().strip() or None
+        reason = self.pos_cash_reason_var.get().strip() or None
+        validation = validate_open_session_payload(
+            store_id=store_id,
+            opening_amount=opening_amount,
+            business_date=business_date,
+            timezone=timezone,
+        )
+        if not validation.ok:
+            self.pos_cash_error_var.set(self._format_cash_validation_issues(validation.issues))
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "store_id": store_id,
+            "action": "OPEN",
+            "opening_amount": str(opening_amount),
+            "business_date": business_date,
+            "timezone": timezone,
+            "reason": reason,
+        }
+
+        def worker() -> None:
+            try:
+                api_client = client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+                session = api_client.cash_action("OPEN", payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_pos_cash_session(session))
+                    self.root.after(0, lambda: self.pos_cash_action_status_var.set("Cash session opened."))
+                    self.root.after(0, lambda: self._refresh_pos_cash_data(client=api_client, async_mode=False))
+                else:
+                    self._apply_pos_cash_session(session)
+                    self.pos_cash_action_status_var.set("Cash session opened.")
+                    self._refresh_pos_cash_data(client=api_client, async_mode=False)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_api_error(exc))
+                else:
+                    self._set_pos_cash_api_error(exc)
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_loading(""))
+                else:
+                    self._set_pos_cash_loading("")
+
+        self._set_pos_cash_loading("Opening cash session...")
+        if async_mode:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            worker()
+
+    def _cash_in_session(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
+        if not self._can_manage_pos_cash():
+            return
+        self._reset_pos_cash_messages()
+        store_id = self.pos_store_id_var.get().strip() or None
+        if not store_id:
+            self.pos_cash_error_var.set("Store ID is required for cash session actions.")
+            return
+        amount = self._parse_optional_decimal(self.pos_cash_action_amount_var.get())
+        reason = self.pos_cash_reason_var.get().strip() or None
+        validation = validate_cash_in_payload(amount, reason)
+        if not validation.ok:
+            self.pos_cash_error_var.set(self._format_cash_validation_issues(validation.issues))
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "store_id": store_id,
+            "action": "CASH_IN",
+            "amount": str(amount),
+            "reason": reason,
+        }
+
+        def worker() -> None:
+            try:
+                api_client = client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+                session = api_client.cash_action("CASH_IN", payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_pos_cash_session(session))
+                    self.root.after(0, lambda: self.pos_cash_action_status_var.set("Cash in recorded."))
+                    self.root.after(0, lambda: self._refresh_pos_cash_data(client=api_client, async_mode=False))
+                else:
+                    self._apply_pos_cash_session(session)
+                    self.pos_cash_action_status_var.set("Cash in recorded.")
+                    self._refresh_pos_cash_data(client=api_client, async_mode=False)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_api_error(exc))
+                else:
+                    self._set_pos_cash_api_error(exc)
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_loading(""))
+                else:
+                    self._set_pos_cash_loading("")
+
+        self._set_pos_cash_loading("Recording cash in...")
+        if async_mode:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            worker()
+
+    def _cash_out_session(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
+        if not self._can_manage_pos_cash():
+            return
+        self._reset_pos_cash_messages()
+        store_id = self.pos_store_id_var.get().strip() or None
+        if not store_id:
+            self.pos_cash_error_var.set("Store ID is required for cash session actions.")
+            return
+        amount = self._parse_optional_decimal(self.pos_cash_action_amount_var.get())
+        reason = self.pos_cash_reason_var.get().strip() or None
+        expected_balance = None
+        if self.pos_cash_state.session and self.pos_cash_state.session.expected_cash is not None:
+            expected_balance = Decimal(str(self.pos_cash_state.session.expected_cash))
+        validation = validate_cash_out_payload(amount, reason, expected_balance=expected_balance)
+        if not validation.ok:
+            self.pos_cash_error_var.set(self._format_cash_validation_issues(validation.issues))
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "store_id": store_id,
+            "action": "CASH_OUT",
+            "amount": str(amount),
+            "reason": reason,
+        }
+
+        def worker() -> None:
+            try:
+                api_client = client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+                session = api_client.cash_action("CASH_OUT", payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_pos_cash_session(session))
+                    self.root.after(0, lambda: self.pos_cash_action_status_var.set("Cash out recorded."))
+                    self.root.after(0, lambda: self._refresh_pos_cash_data(client=api_client, async_mode=False))
+                else:
+                    self._apply_pos_cash_session(session)
+                    self.pos_cash_action_status_var.set("Cash out recorded.")
+                    self._refresh_pos_cash_data(client=api_client, async_mode=False)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_api_error(exc))
+                else:
+                    self._set_pos_cash_api_error(exc)
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_loading(""))
+                else:
+                    self._set_pos_cash_loading("")
+
+        self._set_pos_cash_loading("Recording cash out...")
+        if async_mode:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            worker()
+
+    def _close_cash_session(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
+        if not self._can_manage_pos_cash():
+            return
+        self._reset_pos_cash_messages()
+        store_id = self.pos_store_id_var.get().strip() or None
+        if not store_id:
+            self.pos_cash_error_var.set("Store ID is required for cash session actions.")
+            return
+        counted_cash = self._parse_optional_decimal(self.pos_cash_counted_cash_var.get())
+        reason = self.pos_cash_reason_var.get().strip() or None
+        validation = validate_close_session_payload(counted_cash, reason)
+        if not validation.ok:
+            self.pos_cash_error_var.set(self._format_cash_validation_issues(validation.issues))
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "store_id": store_id,
+            "action": "CLOSE",
+            "counted_cash": str(counted_cash),
+            "reason": reason,
+        }
+
+        def worker() -> None:
+            try:
+                api_client = client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+                session = api_client.cash_action("CLOSE", payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self._apply_pos_cash_session(session))
+                    self.root.after(0, lambda: self.pos_cash_action_status_var.set("Cash session closed."))
+                    self.root.after(0, lambda: self._refresh_pos_cash_data(client=api_client, async_mode=False))
+                else:
+                    self._apply_pos_cash_session(session)
+                    self.pos_cash_action_status_var.set("Cash session closed.")
+                    self._refresh_pos_cash_data(client=api_client, async_mode=False)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_api_error(exc))
+                else:
+                    self._set_pos_cash_api_error(exc)
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_loading(""))
+                else:
+                    self._set_pos_cash_loading("")
+
+        self._set_pos_cash_loading("Closing cash session...")
+        if async_mode:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            worker()
+
+    def _day_close_cash(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
+        if not self._can_day_close_pos_cash():
+            return
+        self._reset_pos_cash_messages()
+        store_id = self.pos_store_id_var.get().strip() or None
+        business_date = self.pos_cash_business_date_var.get().strip() or None
+        timezone = self.pos_cash_timezone_var.get().strip() or None
+        counted_cash = self._parse_optional_decimal(self.pos_cash_counted_cash_var.get())
+        reason = self.pos_cash_reason_var.get().strip() or None
+        validation = validate_day_close_payload(
+            store_id=store_id,
+            business_date=business_date,
+            timezone=timezone,
+            counted_cash=counted_cash,
+            reason=reason,
+        )
+        if not validation.ok:
+            self.pos_cash_error_var.set(self._format_cash_validation_issues(validation.issues))
+            return
+        keys = new_idempotency_keys()
+        payload = {
+            "transaction_id": keys.transaction_id,
+            "store_id": store_id,
+            "action": "CLOSE_DAY",
+            "business_date": business_date,
+            "timezone": timezone,
+            "force_if_open_sessions": self.pos_cash_force_day_close_var.get(),
+            "reason": reason,
+        }
+        if counted_cash is not None:
+            payload["counted_cash"] = str(counted_cash)
+
+        def worker() -> None:
+            try:
+                api_client = client or PosCashClient(http=self.session._http(), access_token=self.session.token)
+                response = api_client.day_close(payload, idempotency_key=keys.idempotency_key)
+                if self.root:
+                    self.root.after(0, lambda: self.pos_cash_action_status_var.set("Day close completed."))
+                    self.root.after(0, lambda: self._refresh_pos_cash_data(client=api_client, async_mode=False))
+                else:
+                    self.pos_cash_action_status_var.set("Day close completed.")
+                    self._refresh_pos_cash_data(client=api_client, async_mode=False)
+                self.pos_cash_state.last_day_close = response
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_api_error(exc))
+                else:
+                    self._set_pos_cash_api_error(exc)
+            finally:
+                if self.root:
+                    self.root.after(0, lambda: self._set_pos_cash_loading(""))
+                else:
+                    self._set_pos_cash_loading("")
+
+        self._set_pos_cash_loading("Closing business day...")
+        if async_mode:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            worker()
 
     def _build_pos_line(self) -> PosSaleLineCreate | None:
         self._reset_pos_messages()
@@ -1287,8 +1877,12 @@ class CoreAppShell:
             return
         if validation.totals.cash_total > 0:
             cash_client = cash_client or PosCashClient(http=self.session._http(), access_token=self.session.token)
-            current = cash_client.get_current_session(store_id=self.pos_store_id_var.get().strip() or None)
-            if current.session is None:
+            try:
+                current = cash_client.get_current_session(store_id=self.pos_store_id_var.get().strip() or None)
+            except ApiError as exc:
+                self._set_pos_api_error(exc)
+                return
+            if current.session is None or current.session.status != "OPEN":
                 self.pos_validation_var.set("CASH checkout requires an open cash session.")
                 return
         keys = new_idempotency_keys()

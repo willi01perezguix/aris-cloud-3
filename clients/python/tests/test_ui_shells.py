@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import pytest
+
 from aris_core_3_app.app import CoreAppShell, build_menu_items as build_core_menu, build_stock_query
 from aris_control_center_app.app import ControlCenterAppShell, build_menu_items as build_control_menu
 from aris3_client_sdk.models_stock import StockMeta, StockTableResponse, StockTotals
-from aris3_client_sdk.models_pos_cash import PosCashSessionCurrentResponse, PosCashSessionSummary
+from aris3_client_sdk.models_pos_cash import (
+    PosCashMovementListResponse,
+    PosCashMovementResponse,
+    PosCashSessionCurrentResponse,
+    PosCashSessionSummary,
+)
 from aris3_client_sdk.models_pos_sales import PosSaleHeader, PosSaleResponse
 from aris3_client_sdk.stock_validation import ValidationIssue
+
+
+@pytest.fixture(autouse=True)
+def _set_api_base_url(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
 
 
 def test_core_app_shell_headless() -> None:
@@ -124,6 +136,18 @@ def test_pos_permission_gating() -> None:
     assert app._is_pos_allowed() is True
     app.allowed_permissions = {"POS_SALE_MANAGE"}
     assert app._can_manage_pos() is True
+
+
+def test_pos_cash_permission_gating() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = set()
+    assert app._is_pos_cash_allowed() is False
+    app.allowed_permissions = {"POS_CASH_VIEW"}
+    assert app._is_pos_cash_allowed() is True
+    app.allowed_permissions = {"POS_CASH_MANAGE"}
+    assert app._can_manage_pos_cash() is True
+    app.allowed_permissions = {"POS_CASH_DAY_CLOSE"}
+    assert app._can_day_close_pos_cash() is True
 
 
 def test_pos_totals_initialize() -> None:
@@ -252,3 +276,96 @@ def test_pos_cash_session_guard() -> None:
     app._checkout_pos_sale(client=fake_client, cash_client=FakeCashClient())
     assert fake_client.called is False
     assert "CASH checkout" in app.pos_validation_var.get()
+
+
+def test_pos_cash_session_status_not_open_blocks_checkout() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_SALE_MANAGE"}
+    app.pos_store_id_var.set("store-1")
+    app.pos_cash_amount_var.set("10.00")
+    app.pos_state.sale = PosSaleResponse(
+        header=PosSaleHeader(
+            id="sale-4",
+            tenant_id="tenant-1",
+            store_id="store-1",
+            status="DRAFT",
+            total_due=10.0,
+            paid_total=0.0,
+            balance_due=10.0,
+            change_due=0.0,
+        ),
+        lines=[],
+        payments=[],
+        payment_summary=[],
+        refunded_totals=None,
+        exchanged_totals=None,
+        net_adjustment=None,
+        return_events=[],
+    )
+
+    class FakePosClient:
+        def __init__(self) -> None:
+            self.called = False
+
+        def sale_action(self, sale_id, action, payload, idempotency_key=None):
+            self.called = True
+            return app.pos_state.sale
+
+    class FakeCashClient:
+        def get_current_session(self, store_id=None):
+            return PosCashSessionCurrentResponse(session=PosCashSessionSummary(id="cash-2", status="CLOSED"))
+
+    fake_client = FakePosClient()
+    app._checkout_pos_sale(client=fake_client, cash_client=FakeCashClient())
+    assert fake_client.called is False
+    assert "CASH checkout" in app.pos_validation_var.get()
+
+
+def test_pos_cash_open_calls_client() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_CASH_MANAGE"}
+    app.pos_store_id_var.set("store-1")
+    app.pos_cash_opening_amount_var.set("10.00")
+    app.pos_cash_business_date_var.set("2024-01-01")
+    app.pos_cash_timezone_var.set("UTC")
+
+    class FakeCashClient:
+        def __init__(self) -> None:
+            self.called = False
+
+        def cash_action(self, action, payload, idempotency_key=None):
+            self.called = True
+            return PosCashSessionSummary(id="cash-3", status="OPEN")
+
+        def get_current_session(self, store_id=None):
+            return PosCashSessionCurrentResponse(session=PosCashSessionSummary(id="cash-3", status="OPEN"))
+
+        def get_movements(self, store_id=None, limit=None):
+            return PosCashMovementListResponse(
+                rows=[PosCashMovementResponse(id="move-1", movement_type="OPEN")],
+                total=1,
+            )
+
+    fake_client = FakeCashClient()
+    app._open_cash_session(client=fake_client, async_mode=False)
+    assert fake_client.called is True
+
+
+def test_pos_cash_day_close_permission_gate() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_CASH_VIEW"}
+    app.pos_store_id_var.set("store-1")
+    app.pos_cash_business_date_var.set("2024-01-01")
+    app.pos_cash_timezone_var.set("UTC")
+
+    class FakeCashClient:
+        def __init__(self) -> None:
+            self.called = False
+
+        def day_close(self, payload, idempotency_key=None):
+            self.called = True
+            return None
+
+    fake_client = FakeCashClient()
+    app._day_close_cash(client=fake_client, async_mode=False)
+    assert fake_client.called is False

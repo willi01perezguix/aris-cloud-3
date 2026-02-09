@@ -34,6 +34,10 @@ class TransferLineResponse(BaseModel):
     id: str
     line_type: str
     qty: int
+    received_qty: int
+    outstanding_qty: int
+    shortage_status: str
+    resolution_status: str
     snapshot: TransferLineSnapshot
     created_at: datetime
 
@@ -54,10 +58,38 @@ class TransferUpdateRequest(BaseModel):
     lines: list[TransferLineCreate] | None = None
 
 
+class TransferReceiveLine(BaseModel):
+    line_id: str
+    qty: int = 1
+    location_code: str
+    pool: str
+    location_is_vendible: bool = True
+
+
+class TransferShortageLine(BaseModel):
+    line_id: str
+    qty: int
+    reason_code: str
+    notes: str | None = None
+
+
+class TransferShortageResolutionLine(BaseModel):
+    line_id: str
+    qty: int
+
+
+class TransferShortageResolution(BaseModel):
+    resolution: Literal["FOUND_AND_RESEND", "LOST_IN_ROUTE"]
+    lines: list[TransferShortageResolutionLine]
+
+
 class TransferActionRequest(BaseModel):
     transaction_id: str | None
     tenant_id: str | None = None
-    action: Literal["dispatch", "cancel"]
+    action: Literal["dispatch", "cancel", "receive", "report_shortages", "resolve_shortages"]
+    receive_lines: list[TransferReceiveLine] | None = None
+    shortages: list[TransferShortageLine] | None = None
+    resolution: TransferShortageResolution | None = None
 
 
 class TransferHeaderResponse(BaseModel):

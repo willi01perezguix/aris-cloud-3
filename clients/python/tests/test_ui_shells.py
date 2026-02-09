@@ -3,6 +3,7 @@ from __future__ import annotations
 from aris_core_3_app.app import CoreAppShell, build_menu_items as build_core_menu, build_stock_query
 from aris_control_center_app.app import ControlCenterAppShell, build_menu_items as build_control_menu
 from aris3_client_sdk.models_stock import StockMeta, StockTableResponse, StockTotals
+from aris3_client_sdk.stock_validation import ValidationIssue
 
 
 def test_core_app_shell_headless() -> None:
@@ -63,3 +64,51 @@ def test_stock_permission_denied_state() -> None:
     app = CoreAppShell()
     app.allowed_permissions = set()
     assert app._is_stock_allowed() is False
+
+
+def test_stock_action_permission_state() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"STORE_MANAGE"}
+    assert app._can_manage_stock() is True
+    app.allowed_permissions = {"STORE_VIEW"}
+    assert app._can_manage_stock() is False
+
+
+def test_stock_action_submit_calls_client() -> None:
+    app = CoreAppShell()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.called = False
+            self.payload = None
+
+        def import_epc(self, lines, transaction_id=None, idempotency_key=None):
+            self.called = True
+            self.payload = (lines, transaction_id, idempotency_key)
+
+            class Response:
+                trace_id = "trace"
+                processed = 1
+
+            return Response()
+
+    fake = FakeClient()
+    app._submit_stock_import_epc(
+        [{"sku": "SKU-1", "epc": "A" * 24, "location_code": "LOC-1", "pool": "P1", "status": "RFID", "qty": 1}],
+        transaction_id="txn-1",
+        idempotency_key="idem-1",
+        client=fake,
+    )
+    assert fake.called is True
+    assert fake.payload[1] == "txn-1"
+
+
+def test_stock_action_validation_formatting() -> None:
+    app = CoreAppShell()
+    issues = [
+        ValidationIssue(row_index=0, field="epc", reason="missing"),
+        ValidationIssue(row_index=None, field="lines", reason="empty"),
+    ]
+    formatted = app._format_validation_issues(issues)
+    assert "row 0 epc: missing" in formatted
+    assert "lines: empty" in formatted

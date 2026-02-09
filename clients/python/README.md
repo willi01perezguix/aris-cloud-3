@@ -3,7 +3,7 @@
 ## Overview
 This folder contains the shared Python SDK plus two lightweight Tkinter app shells:
 
-- **aris3_client_sdk**: API configuration, auth session, HTTP client, error mapping, idempotency helpers, tracing.
+- **aris3_client_sdk**: API configuration, auth session, HTTP client, error mapping, idempotency helpers, tracing, and stock mutation helpers.
 - **aris_core_3_app**: Store app shell with login + permission-aware menu placeholders.
 - **aris_control_center_app**: Admin app shell with login + permission-aware menu placeholders.
 
@@ -40,7 +40,9 @@ python -m aris_control_center_app.app
 ### Stock screen (ARIS CORE 3)
 1) Launch the app shell: `python -m aris_core_3_app.app`
 2) Login with a user that has `stock.view`
-3) Click **Stock** to open the read-only Stock screen
+3) Click **Stock** to open the Stock screen with search + mutation actions
+
+Mutation actions (Import EPC, Import SKU, Migrate SKU->EPC) require `STORE_MANAGE`.
 
 ## SDK smoke CLI
 ```bash
@@ -54,6 +56,48 @@ python examples/cli_smoke.py permissions
 ```bash
 python examples/stock_smoke.py stock --sku <sku> --page 1 --page-size 50
 ```
+
+## Stock mutation smoke CLIs
+```bash
+python examples/stock_import_epc_smoke.py --input /path/to/import_epc.json
+python examples/stock_import_sku_smoke.py --input /path/to/import_sku.json
+python examples/stock_migrate_smoke.py --input /path/to/migrate.json
+```
+
+## SDK mutation example (idempotency)
+```python
+from aris3_client_sdk import ApiSession, load_config, new_idempotency_keys
+from aris3_client_sdk.clients.stock_client import StockClient
+
+config = load_config()
+session = ApiSession(config)
+client = StockClient(http=session._http(), access_token=session.token)
+keys = new_idempotency_keys()
+
+response = client.import_epc(
+    [
+        {
+            "sku": "SKU-1",
+            "description": "Blue Jacket",
+            "var1_value": "Blue",
+            "var2_value": "L",
+            "epc": "A" * 24,
+            "location_code": "LOC-1",
+            "pool": "P1",
+            "status": "RFID",
+            "location_is_vendible": True,
+            "qty": 1,
+        }
+    ],
+    transaction_id=keys.transaction_id,
+    idempotency_key=keys.idempotency_key,
+)
+print(response.trace_id)
+```
+
+### Troubleshooting
+- **Validation errors**: client-side validation errors include row index + field details.
+- **API errors**: check `trace_id` in the response or error payload to correlate backend logs.
 
 ## Tests
 ```bash

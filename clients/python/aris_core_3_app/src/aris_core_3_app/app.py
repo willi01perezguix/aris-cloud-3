@@ -1,19 +1,27 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import threading
 import tkinter as tk
 from dataclasses import dataclass, field
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
-from aris3_client_sdk import ApiSession, ClientConfig, load_config
+from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempotency_keys
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.stock_client import StockClient
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.models import PermissionEntry
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
+from aris3_client_sdk.stock_validation import (
+    ClientValidationError,
+    ValidationIssue,
+    validate_import_epc_line,
+    validate_import_sku_line,
+    validate_migration_line,
+)
 
 
 @dataclass
@@ -110,6 +118,9 @@ class CoreAppShell:
         self.stock_totals_var = tk.StringVar(value="")
         self.stock_error_var = tk.StringVar(value="")
         self.stock_loading_var = tk.StringVar(value="")
+        self.stock_action_status_var = tk.StringVar(value="")
+        self.stock_action_error_var = tk.StringVar(value="")
+        self.stock_action_trace_var = tk.StringVar(value="")
         self.stock_table: ttk.Treeview | None = None
         self.stock_detail_text: tk.Text | None = None
         self.stock_page_var = tk.StringVar(value=str(self.stock_state.page))
@@ -117,6 +128,7 @@ class CoreAppShell:
         self.stock_sort_by_var = tk.StringVar(value=self.stock_state.sort_by)
         self.stock_sort_dir_var = tk.StringVar(value=self.stock_state.sort_dir)
         self.stock_controls: list[tk.Widget] = []
+        self.stock_action_controls: list[tk.Widget] = []
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -217,8 +229,14 @@ class CoreAppShell:
         placeholder.pack(fill="both", expand=True)
         ttk.Label(placeholder, text=message).pack(anchor="center")
 
+    def _has_permission(self, *keys: str) -> bool:
+        return any(key in self.allowed_permissions for key in keys)
+
     def _is_stock_allowed(self) -> bool:
-        return "stock.view" in self.allowed_permissions
+        return self._has_permission("stock.view", "STORE_VIEW", "STORE_MANAGE")
+
+    def _can_manage_stock(self) -> bool:
+        return self._has_permission("STORE_MANAGE", "stock.manage", "stock.mutations")
 
     def _ensure_stock_filter_vars(self) -> None:
         if self.stock_filter_vars:
@@ -279,6 +297,9 @@ class CoreAppShell:
         ttk.Label(summary, textvariable=self.stock_totals_var).pack(anchor="w")
         ttk.Label(summary, textvariable=self.stock_loading_var, foreground="blue").pack(anchor="w")
         ttk.Label(summary, textvariable=self.stock_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.stock_action_status_var, foreground="blue").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.stock_action_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.stock_action_trace_var, foreground="gray").pack(anchor="w")
 
         filter_frame = ttk.LabelFrame(container, text="Filters", padding=10)
         filter_frame.pack(fill="x", pady=(0, 10))
@@ -323,6 +344,31 @@ class CoreAppShell:
         search_button.pack(side="left", padx=(0, 6))
         clear_button.pack(side="left", padx=(0, 6))
         refresh_button.pack(side="left")
+
+        action_frame = ttk.LabelFrame(container, text="Stock Actions", padding=10)
+        action_frame.pack(fill="x", pady=(0, 10))
+        action_state = tk.NORMAL if self._can_manage_stock() else tk.DISABLED
+        import_epc_button = ttk.Button(
+            action_frame,
+            text="Import EPC",
+            command=self._open_import_epc_dialog,
+            state=action_state,
+        )
+        import_sku_button = ttk.Button(
+            action_frame,
+            text="Import SKU",
+            command=self._open_import_sku_dialog,
+            state=action_state,
+        )
+        migrate_button = ttk.Button(
+            action_frame,
+            text="Migrate SKU->EPC",
+            command=self._open_migrate_dialog,
+            state=action_state,
+        )
+        import_epc_button.pack(side="left", padx=(0, 6))
+        import_sku_button.pack(side="left", padx=(0, 6))
+        migrate_button.pack(side="left", padx=(0, 6))
 
         pagination = ttk.Frame(container)
         pagination.pack(fill="x", pady=(0, 8))
@@ -392,11 +438,18 @@ class CoreAppShell:
             next_button,
             page_size_select,
         ]
+        self.stock_action_controls = [import_epc_button, import_sku_button, migrate_button]
         if not allowed:
             self._set_stock_controls_state(tk.DISABLED)
+        if not self._can_manage_stock():
+            self._set_stock_action_controls_state(tk.DISABLED)
 
     def _set_stock_controls_state(self, state: str) -> None:
         for widget in self.stock_controls:
+            widget.configure(state=state)
+
+    def _set_stock_action_controls_state(self, state: str) -> None:
+        for widget in self.stock_action_controls:
             widget.configure(state=state)
 
     def _on_page_size_change(self) -> None:
@@ -508,6 +561,374 @@ class CoreAppShell:
         pretty = json.dumps(payload, indent=2, default=str)
         self.stock_detail_text.delete("1.0", tk.END)
         self.stock_detail_text.insert(tk.END, pretty)
+
+    def _open_import_epc_dialog(self) -> None:
+        self._open_stock_action_dialog(
+            title="Import EPC",
+            validator=validate_import_epc_line,
+            submitter=self._submit_stock_import_epc,
+            sample_payload=self._sample_import_epc_payload(),
+            expects_single=False,
+        )
+
+    def _open_import_sku_dialog(self) -> None:
+        self._open_stock_action_dialog(
+            title="Import SKU",
+            validator=validate_import_sku_line,
+            submitter=self._submit_stock_import_sku,
+            sample_payload=self._sample_import_sku_payload(),
+            expects_single=False,
+        )
+
+    def _open_migrate_dialog(self) -> None:
+        self._open_stock_action_dialog(
+            title="Migrate SKU -> EPC",
+            validator=validate_migration_line,
+            submitter=self._submit_stock_migrate,
+            sample_payload=self._sample_migrate_payload(),
+            expects_single=True,
+        )
+
+    def _open_stock_action_dialog(
+        self,
+        *,
+        title: str,
+        validator,
+        submitter,
+        sample_payload: dict | list[dict],
+        expects_single: bool,
+    ) -> None:
+        if self.root is None:
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("760x560")
+        dialog.grab_set()
+
+        file_var = tk.StringVar(value="")
+        status_var = tk.StringVar(value="")
+        error_var = tk.StringVar(value="")
+        lines: list[dict] = []
+        normalized_lines: list[dict] = []
+
+        header = ttk.Label(dialog, text=title, font=("TkDefaultFont", 12, "bold"))
+        header.pack(anchor="w", padx=12, pady=(12, 6))
+
+        input_frame = ttk.LabelFrame(dialog, text="Input (JSON or CSV)", padding=8)
+        input_frame.pack(fill="x", padx=12, pady=(0, 8))
+        ttk.Label(input_frame, text="File").grid(row=0, column=0, sticky="w")
+        file_entry = ttk.Entry(input_frame, textvariable=file_var, width=60)
+        file_entry.grid(row=0, column=1, sticky="ew", padx=(6, 6))
+
+        def browse_file() -> None:
+            path = filedialog.askopenfilename(
+                title="Select file",
+                filetypes=(("JSON", "*.json"), ("CSV", "*.csv"), ("All files", "*.*")),
+            )
+            if path:
+                file_var.set(path)
+
+        ttk.Button(input_frame, text="Browse", command=browse_file).grid(row=0, column=2, sticky="e")
+
+        ttk.Label(input_frame, text="Inline JSON").grid(row=1, column=0, sticky="nw", pady=(6, 0))
+        inline_text = tk.Text(input_frame, height=6, width=60)
+        inline_text.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(6, 0), pady=(6, 0))
+
+        def load_sample() -> None:
+            inline_text.delete("1.0", tk.END)
+            inline_text.insert(tk.END, json.dumps(sample_payload, indent=2))
+            file_var.set("")
+
+        ttk.Button(input_frame, text="Load sample", command=load_sample).grid(row=2, column=1, sticky="w", pady=(6, 0))
+
+        input_frame.columnconfigure(1, weight=1)
+
+        preview_frame = ttk.LabelFrame(dialog, text="Preview", padding=8)
+        preview_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+
+        columns = ("sku", "epc", "status", "location_code", "qty")
+        preview_table = ttk.Treeview(preview_frame, columns=columns, show="headings", height=8)
+        for col in columns:
+            preview_table.heading(col, text=col.replace("_", " ").title())
+            preview_table.column(col, width=120, anchor="w")
+        preview_table.pack(side="left", fill="both", expand=True)
+        preview_scroll = ttk.Scrollbar(preview_frame, orient="vertical", command=preview_table.yview)
+        preview_table.configure(yscrollcommand=preview_scroll.set)
+        preview_scroll.pack(side="right", fill="y")
+
+        actions_frame = ttk.Frame(dialog)
+        actions_frame.pack(fill="x", padx=12, pady=(0, 6))
+        ttk.Button(actions_frame, text="Load & Preview", command=lambda: load_input()).pack(side="left", padx=(0, 6))
+        ttk.Button(actions_frame, text="Validate", command=lambda: validate_input()).pack(side="left", padx=(0, 6))
+        ttk.Button(actions_frame, text="Submit", command=lambda: submit_input()).pack(side="left", padx=(0, 6))
+        ttk.Label(actions_frame, textvariable=status_var, foreground="blue").pack(side="left", padx=(8, 0))
+
+        ttk.Label(dialog, textvariable=error_var, foreground="red").pack(anchor="w", padx=12, pady=(0, 6))
+
+        def load_input() -> None:
+            nonlocal lines
+            status_var.set("")
+            error_var.set("")
+            try:
+                parsed = self._parse_stock_action_payload(file_var.get(), inline_text.get("1.0", tk.END), expects_single)
+            except ValueError as exc:
+                error_var.set(str(exc))
+                return
+            lines = parsed
+            self._populate_preview_table(preview_table, lines)
+
+        def validate_input() -> None:
+            nonlocal normalized_lines
+            status_var.set("")
+            error_var.set("")
+            try:
+                normalized_lines = self._validate_action_lines(lines, validator)
+            except ClientValidationError as exc:
+                error_var.set(self._format_validation_issues(exc.issues))
+                return
+            status_var.set(f"Validated {len(normalized_lines)} line(s)")
+
+        def submit_input() -> None:
+            if not normalized_lines:
+                validate_input()
+                if not normalized_lines:
+                    return
+            if not messagebox.askyesno("Confirm", f"Submit {len(normalized_lines)} line(s)?"):
+                return
+            status_var.set("Submitting...")
+            error_var.set("")
+            self.stock_action_status_var.set("Submitting stock mutation...")
+            self.stock_action_error_var.set("")
+            self.stock_action_trace_var.set("")
+
+            def worker() -> None:
+                keys = new_idempotency_keys()
+                try:
+                    response = submitter(
+                        normalized_lines,
+                        transaction_id=keys.transaction_id,
+                        idempotency_key=keys.idempotency_key,
+                    )
+                except ApiError as exc:
+                    if self.root:
+                        self.root.after(0, lambda: self._handle_stock_action_error(exc))
+                    return
+                if self.root:
+                    self.root.after(0, lambda: self._handle_stock_action_success(response))
+
+            threading.Thread(target=worker, daemon=True).start()
+            dialog.destroy()
+
+    def _parse_stock_action_payload(self, file_path: str, inline_json: str, expects_single: bool) -> list[dict]:
+        payload: object | None = None
+        if file_path:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext == ".json":
+                with open(file_path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            elif ext == ".csv":
+                with open(file_path, "r", encoding="utf-8", newline="") as handle:
+                    payload = [self._coerce_csv_row(row) for row in csv.DictReader(handle)]
+            else:
+                raise ValueError("Unsupported file type; use .json or .csv")
+        else:
+            raw = inline_json.strip()
+            if not raw:
+                raise ValueError("Provide a file or inline JSON input.")
+            payload = json.loads(raw)
+        return self._normalize_payload_to_lines(payload, expects_single)
+
+    def _normalize_payload_to_lines(self, payload: object, expects_single: bool) -> list[dict]:
+        if isinstance(payload, dict) and "lines" in payload:
+            lines = payload["lines"]
+        else:
+            lines = payload
+        if isinstance(lines, dict):
+            lines = [lines]
+        if not isinstance(lines, list):
+            raise ValueError("Input must be a list of lines or an object with 'lines'.")
+        if expects_single and len(lines) != 1:
+            raise ValueError("Migration requires exactly one payload line.")
+        return [self._coerce_line_dict(line) for line in lines]
+
+    def _coerce_line_dict(self, line: object) -> dict:
+        if isinstance(line, dict):
+            return line
+        raise ValueError("Each line must be a JSON object.")
+
+    def _coerce_csv_row(self, row: dict[str, str]) -> dict:
+        parsed: dict[str, object] = {}
+        for key, value in row.items():
+            if value is None:
+                parsed[key] = None
+                continue
+            trimmed = value.strip()
+            if trimmed == "":
+                parsed[key] = None
+            else:
+                parsed[key] = trimmed
+        if "qty" in parsed and parsed["qty"] is not None:
+            try:
+                parsed["qty"] = int(parsed["qty"])
+            except ValueError:
+                pass
+        if "location_is_vendible" in parsed and parsed["location_is_vendible"] is not None:
+            parsed["location_is_vendible"] = str(parsed["location_is_vendible"]).lower() in {"true", "1", "yes"}
+        return parsed
+
+    def _populate_preview_table(self, table: ttk.Treeview, lines: list[dict]) -> None:
+        for item in table.get_children():
+            table.delete(item)
+        for idx, line in enumerate(lines):
+            data = line.get("data") if isinstance(line.get("data"), dict) else line
+            values = (
+                data.get("sku"),
+                line.get("epc", data.get("epc")),
+                data.get("status"),
+                data.get("location_code"),
+                data.get("qty", line.get("qty")),
+            )
+            table.insert("", "end", iid=str(idx), values=values)
+
+    def _validate_action_lines(self, lines: list[dict], validator) -> list[dict]:
+        normalized: list[dict] = []
+        issues: list[ValidationIssue] = []
+        if not lines:
+            raise ClientValidationError([ValidationIssue(row_index=None, field="lines", reason="lines must not be empty")])
+        for idx, line in enumerate(lines):
+            try:
+                validated = validator(line, idx)
+                normalized.append(validated.model_dump(mode="json", exclude_none=True))
+            except ClientValidationError as exc:
+                issues.extend(exc.issues)
+        if issues:
+            raise ClientValidationError(issues)
+        return normalized
+
+    def _format_validation_issues(self, issues: list[ValidationIssue]) -> str:
+        if not issues:
+            return "Validation failed"
+        return "; ".join(
+            f"row {issue.row_index} {issue.field}: {issue.reason}" if issue.row_index is not None else f"{issue.field}: {issue.reason}"
+            for issue in issues
+        )
+
+    def _submit_stock_import_epc(
+        self,
+        lines: list[dict],
+        *,
+        transaction_id: str,
+        idempotency_key: str,
+        client: StockClient | None = None,
+    ):
+        api_client = client or StockClient(http=self.session._http(), access_token=self.session.token)
+        return api_client.import_epc(lines, transaction_id=transaction_id, idempotency_key=idempotency_key)
+
+    def _submit_stock_import_sku(
+        self,
+        lines: list[dict],
+        *,
+        transaction_id: str,
+        idempotency_key: str,
+        client: StockClient | None = None,
+    ):
+        api_client = client or StockClient(http=self.session._http(), access_token=self.session.token)
+        return api_client.import_sku(lines, transaction_id=transaction_id, idempotency_key=idempotency_key)
+
+    def _submit_stock_migrate(
+        self,
+        lines: list[dict],
+        *,
+        transaction_id: str,
+        idempotency_key: str,
+        client: StockClient | None = None,
+    ):
+        api_client = client or StockClient(http=self.session._http(), access_token=self.session.token)
+        return api_client.migrate_sku_to_epc(lines, transaction_id=transaction_id, idempotency_key=idempotency_key)
+
+    def _handle_stock_action_success(self, response) -> None:
+        processed = getattr(response, "processed", None)
+        migrated = getattr(response, "migrated", None)
+        count = processed if processed is not None else migrated
+        if count is not None:
+            self.stock_action_status_var.set(f"Stock action completed. Count={count}")
+        else:
+            self.stock_action_status_var.set("Stock action completed.")
+        self.stock_action_error_var.set("")
+        self.stock_action_trace_var.set(f"trace_id={response.trace_id}")
+        if getattr(response, "line_results", None):
+            error_lines = [line for line in response.line_results or [] if line.status not in {None, "SUCCESS"}]
+            if error_lines:
+                self.stock_action_error_var.set(f"{len(error_lines)} line(s) failed. See details in logs.")
+        self._fetch_stock(reset_page=False)
+
+    def _handle_stock_action_error(self, exc: ApiError) -> None:
+        self.stock_action_status_var.set("")
+        self.stock_action_error_var.set(str(exc))
+        self.stock_action_trace_var.set(f"trace_id={exc.trace_id}" if exc.trace_id else "")
+
+    def _sample_import_epc_payload(self) -> list[dict]:
+        return [
+            {
+                "sku": "SKU-1",
+                "description": "Blue Jacket",
+                "var1_value": "Blue",
+                "var2_value": "L",
+                "epc": "A" * 24,
+                "location_code": "LOC-1",
+                "pool": "P1",
+                "status": "RFID",
+                "location_is_vendible": True,
+                "image_asset_id": None,
+                "image_url": None,
+                "image_thumb_url": None,
+                "image_source": None,
+                "image_updated_at": None,
+                "qty": 1,
+            }
+        ]
+
+    def _sample_import_sku_payload(self) -> list[dict]:
+        return [
+            {
+                "sku": "SKU-1",
+                "description": "Blue Jacket",
+                "var1_value": "Blue",
+                "var2_value": "L",
+                "epc": None,
+                "location_code": "LOC-1",
+                "pool": "P1",
+                "status": "PENDING",
+                "location_is_vendible": True,
+                "image_asset_id": None,
+                "image_url": None,
+                "image_thumb_url": None,
+                "image_source": None,
+                "image_updated_at": None,
+                "qty": 1,
+            }
+        ]
+
+    def _sample_migrate_payload(self) -> dict:
+        return {
+            "epc": "B" * 24,
+            "data": {
+                "sku": "SKU-1",
+                "description": "Blue Jacket",
+                "var1_value": "Blue",
+                "var2_value": "L",
+                "epc": None,
+                "location_code": "LOC-1",
+                "pool": "P1",
+                "status": "PENDING",
+                "location_is_vendible": True,
+                "image_asset_id": None,
+                "image_url": None,
+                "image_thumb_url": None,
+                "image_source": None,
+                "image_updated_at": None,
+            },
+        }
 
 
 def main() -> None:

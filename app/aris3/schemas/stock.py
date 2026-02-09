@@ -100,3 +100,59 @@ class StockMigrateResponse(BaseModel):
     tenant_id: str
     migrated: int
     trace_id: str
+
+
+class StockActionWriteOffPayload(BaseModel):
+    reason: str | None
+    qty: int = 1
+    data: StockDataBlock
+
+
+class StockActionRepricePayload(BaseModel):
+    data: StockDataBlock
+    price: float | None = None
+    currency: str | None = None
+
+
+class StockActionMarkdownPayload(BaseModel):
+    data: StockDataBlock
+    policy: str | None = None
+
+
+class StockActionReprintPayload(BaseModel):
+    data: StockDataBlock
+
+
+class StockActionReplaceEpcPayload(BaseModel):
+    current_epc: str
+    new_epc: str
+    reason: str | None = None
+
+
+class StockActionEpcLifecyclePayload(BaseModel):
+    epc: str
+    reason: str | None = None
+    epc_type: Literal["NON_REUSABLE_LABEL", "REUSABLE_TAG"] | None = None
+
+
+class StockActionRequest(BaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = None
+    action: Literal[
+        "WRITE_OFF",
+        "REPRICE",
+        "MARKDOWN_BY_AGE",
+        "REPRINT_LABEL",
+        "REPLACE_EPC",
+        "MARK_EPC_DAMAGED",
+        "RETIRE_EPC",
+        "RETURN_EPC_TO_POOL",
+    ]
+    payload: dict
+
+
+class StockActionResponse(BaseModel):
+    tenant_id: str
+    action: str
+    processed: int
+    trace_id: str

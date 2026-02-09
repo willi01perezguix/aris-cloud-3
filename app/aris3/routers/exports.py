@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 import os
 
@@ -28,6 +29,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _resolve_store_id(token_data, store_id: str | None) -> str:
@@ -58,6 +60,7 @@ def _export_response(record: ExportRecord) -> ExportResponse:
         status=record.status,
         row_count=record.row_count,
         checksum_sha256=record.checksum_sha256,
+        failure_reason_code=record.failure_reason_code,
         generated_by_user_id=str(record.generated_by_user_id) if record.generated_by_user_id else None,
         generated_at=record.generated_at,
         trace_id=record.trace_id,
@@ -132,6 +135,7 @@ def create_export(
         status="CREATED",
         row_count=0,
         checksum_sha256=None,
+        failure_reason_code=None,
         file_size_bytes=None,
         content_type=None,
         file_name=None,
@@ -158,6 +162,7 @@ def create_export(
         )
     )
 
+    start_time = datetime.utcnow()
     try:
         dataset = build_report_dataset(
             db=db,
@@ -165,7 +170,17 @@ def create_export(
             store_id=resolved_store_id,
             source_type=payload.source_type,
             filters=payload.filters,
+            max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS,
         )
+        if settings.EXPORTS_MAX_ROWS > 0 and len(dataset.rows) > settings.EXPORTS_MAX_ROWS:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={
+                    "message": "export rows exceed limit",
+                    "reason_code": "EXPORT_ROWS_LIMIT_EXCEEDED",
+                    "max_rows": settings.EXPORTS_MAX_ROWS,
+                },
+            )
         generated_at = datetime.utcnow()
         file_bytes, content_type = _render_export_bytes(
             dataset,
@@ -207,8 +222,24 @@ def create_export(
                 result="success",
             )
         )
-    except Exception as exc:
+        logger.info(
+            "exports_create",
+            extra={
+                "trace_id": export_record.trace_id,
+                "tenant_id": str(store.tenant_id),
+                "store_id": resolved_store_id,
+                "endpoint": "/aris3/exports",
+                "latency_ms": (datetime.utcnow() - start_time).total_seconds() * 1000,
+                "row_count": export_record.row_count,
+                "export_id": str(export_record.id),
+            },
+        )
+    except AppError as exc:
+        reason_code = None
+        if isinstance(exc.details, dict):
+            reason_code = exc.details.get("reason_code")
         export_record.status = "FAILED"
+        export_record.failure_reason_code = reason_code or "EXPORT_FAILED"
         export_record.updated_at = datetime.utcnow()
         repo.update(export_record)
         AuditService(db).record_event(
@@ -223,11 +254,59 @@ def create_export(
                 entity_id=str(export_record.id),
                 before=None,
                 after=_export_response(export_record).model_dump(mode="json"),
-                metadata={"status": "FAILED", "error": str(exc)},
+                metadata={"status": "FAILED", "reason_code": export_record.failure_reason_code},
                 result="failure",
             )
         )
+        logger.info(
+            "exports_failed",
+            extra={
+                "trace_id": export_record.trace_id,
+                "tenant_id": str(store.tenant_id),
+                "store_id": resolved_store_id,
+                "endpoint": "/aris3/exports",
+                "latency_ms": (datetime.utcnow() - start_time).total_seconds() * 1000,
+                "row_count": export_record.row_count,
+                "export_id": str(export_record.id),
+                "reason_code": export_record.failure_reason_code,
+            },
+        )
         raise
+    except Exception as exc:
+        export_record.status = "FAILED"
+        export_record.failure_reason_code = "EXPORT_FAILED"
+        export_record.updated_at = datetime.utcnow()
+        repo.update(export_record)
+        AuditService(db).record_event(
+            AuditEventPayload(
+                tenant_id=str(store.tenant_id),
+                user_id=str(current_user.id),
+                store_id=str(store.id),
+                trace_id=getattr(request.state, "trace_id", "") or None,
+                actor=current_user.username,
+                action="exports.finalize",
+                entity_type="export",
+                entity_id=str(export_record.id),
+                before=None,
+                after=_export_response(export_record).model_dump(mode="json"),
+                metadata={"status": "FAILED", "reason_code": export_record.failure_reason_code},
+                result="failure",
+            )
+        )
+        logger.exception(
+            "exports_failed",
+            extra={
+                "trace_id": export_record.trace_id,
+                "tenant_id": str(store.tenant_id),
+                "store_id": resolved_store_id,
+                "endpoint": "/aris3/exports",
+                "latency_ms": (datetime.utcnow() - start_time).total_seconds() * 1000,
+                "row_count": export_record.row_count,
+                "export_id": str(export_record.id),
+                "reason_code": export_record.failure_reason_code,
+            },
+        )
+        raise AppError(ErrorCatalog.INTERNAL_ERROR, details={"message": "export generation failed"}) from exc
 
     response = _export_response(export_record)
     context.record_success(status_code=201, response_body=response.model_dump(mode="json"))
@@ -238,11 +317,22 @@ def create_export(
 def list_exports(
     token_data=Depends(get_current_token_data),
     _permission=Depends(require_permission("REPORTS_VIEW")),
+    page_size: int | None = Query(None, ge=1),
     db=Depends(get_db),
 ):
     repo = ExportRepository(db)
     store_filter = _store_scope_filter(token_data)
-    rows = repo.list_by_tenant(token_data.tenant_id, store_id=store_filter)
+    if page_size is not None and page_size > settings.EXPORTS_LIST_MAX_PAGE_SIZE:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "page_size exceeds limit",
+                "reason_code": "EXPORTS_PAGE_SIZE_LIMIT_EXCEEDED",
+                "max_page_size": settings.EXPORTS_LIST_MAX_PAGE_SIZE,
+            },
+        )
+    limit = page_size or settings.EXPORTS_LIST_MAX_PAGE_SIZE
+    rows = repo.list_by_tenant(token_data.tenant_id, store_id=store_filter, limit=limit)
     return ExportListResponse(rows=[_export_response(record) for record in rows])
 
 
@@ -295,6 +385,18 @@ def download_export(
         path=record.file_path,
         media_type=record.content_type,
         filename=record.file_name or f"export-{record.id}.{record.format}",
+    )
+    logger.info(
+        "exports_download",
+        extra={
+            "trace_id": getattr(request.state, "trace_id", None),
+            "tenant_id": str(record.tenant_id),
+            "store_id": str(record.store_id),
+            "endpoint": "/aris3/exports/{export_id}/download",
+            "latency_ms": None,
+            "row_count": record.row_count,
+            "export_id": str(record.id),
+        },
     )
     AuditService(db).record_event(
         AuditEventPayload(

@@ -317,6 +317,7 @@ class ExportRecord(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="CREATED")
     row_count: Mapped[int] = mapped_column(nullable=False, default=0)
     checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failure_reason_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -329,6 +330,8 @@ class ExportRecord(Base):
 
     __table_args__ = (
         Index("ix_export_records_tenant_status", "tenant_id", "status"),
+        Index("ix_export_records_tenant_store_created", "tenant_id", "store_id", "created_at"),
+        Index("ix_export_records_tenant_store_source_format", "tenant_id", "store_id", "source_type", "format"),
     )
 
 
@@ -371,6 +374,10 @@ class PosSale(Base):
     canceled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_pos_sales_tenant_store_status_checked", "tenant_id", "store_id", "status", "checked_out_at"),
+    )
 
 
 class PosSaleLine(Base):
@@ -417,6 +424,10 @@ class PosReturnEvent(Base):
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
+    __table_args__ = (
+        Index("ix_pos_return_events_tenant_store_created", "tenant_id", "store_id", "created_at"),
+    )
+
 
 class PosPayment(Base):
     __tablename__ = "pos_payments"
@@ -430,6 +441,10 @@ class PosPayment(Base):
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     voucher_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_pos_payments_tenant_method_sale", "tenant_id", "method", "sale_id"),
+    )
 
 
 class PosCashSession(Base):

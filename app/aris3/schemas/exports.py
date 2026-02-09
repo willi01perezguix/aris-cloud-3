@@ -51,6 +51,7 @@ class ExportResponse(BaseModel):
     status: str
     row_count: int
     checksum_sha256: str | None
+    failure_reason_code: str | None
     generated_by_user_id: str | None
     generated_at: datetime | None
     trace_id: str | None

@@ -24,7 +24,13 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.schemas.exports import ExportFilters, ExportFormat, ExportSourceType
-from app.aris3.services.reports import daily_sales_refunds, iter_dates, resolve_date_range, resolve_timezone
+from app.aris3.services.reports import (
+    daily_sales_refunds,
+    iter_dates,
+    resolve_date_range,
+    resolve_timezone,
+    validate_date_range,
+)
 
 
 @dataclass
@@ -44,8 +50,10 @@ class ExportStorage:
         return os.path.join(self.base_path, filename)
 
     def write_bytes(self, path: str, data: bytes) -> None:
-        with open(path, "wb") as handle:
+        tmp_path = f"{path}.tmp"
+        with open(tmp_path, "wb") as handle:
             handle.write(data)
+        os.replace(tmp_path, path)
 
 
 def sanitize_filename(name: str | None, format: ExportFormat, *, fallback: str) -> str:
@@ -121,9 +129,11 @@ def build_report_dataset(
     store_id: str,
     source_type: ExportSourceType,
     filters: ExportFilters,
+    max_days: int,
 ) -> ExportDataset:
     tz = resolve_timezone(filters.timezone)
     date_range = resolve_date_range(filters.from_value, filters.to_value, tz)
+    validate_date_range(date_range, max_days=max_days)
     sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
         db,
         tenant_id=tenant_id,

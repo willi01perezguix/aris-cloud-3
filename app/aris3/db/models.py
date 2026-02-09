@@ -94,6 +94,8 @@ class StockItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    __table_args__ = (UniqueConstraint("tenant_id", "epc", name="uq_stock_items_tenant_epc"),)
+
 
 class PermissionCatalog(Base):
     __tablename__ = "permission_catalog"

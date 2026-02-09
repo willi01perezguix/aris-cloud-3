@@ -1,0 +1,9 @@
+-e ./aris3_client_sdk
+-e ./aris_core_3_app
+-e ./aris_control_center_app
+pydantic>=2.7
+python-dotenv>=1.0
+platformdirs>=4.2
+requests>=2.32
+pytest>=8.2
+responses>=0.25

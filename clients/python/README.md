@@ -264,3 +264,29 @@ cd clients/python/packaging
 ./build_control_center.ps1 -DryRun
 ```
 
+
+## Sprint 6 Day 3 additions
+- SDK media resolver support via `MediaClient` (`variant -> sku -> placeholder` fallback).
+- Stock/POS screens now expose image source + thumbnail URL text with non-blocking fallback behavior and `Show images` toggles.
+- Control Center now has a read-only **Media Inspector** panel (SKU + var1 + var2 lookup).
+- New media smoke scripts:
+  - `python examples/media_resolve_smoke.py --sku SKU-1 --var1 Blue --var2 L`
+  - `python examples/media_stock_preview_smoke.py --page-size 50`
+  - `python examples/media_pos_item_smoke.py --sku SKU-1`
+- Packaging step-up:
+  - `packaging/build_core.ps1` + `build_control_center.ps1` now run preflight checks and write `build_summary.json`.
+  - Added `packaging/build_all.ps1` and `packaging/installer_placeholder.ps1`.
+  - Dist folders standardized to `packaging/dist/core` and `packaging/dist/control_center`.
+
+### Media fallback rules in UI
+- Prefer backend-provided variant image fields on stock/POS records.
+- If absent and images enabled, resolve by `sku + var1 + var2` via SDK helper.
+- Fallback to SKU-level match, then final placeholder (`placeholder://aris-image`).
+
+### Packaging usage (Windows)
+```powershell
+cd clients/python/packaging
+./build_core.ps1 -DryRun
+./build_control_center.ps1 -DryRun
+./build_all.ps1 -DryRun
+```

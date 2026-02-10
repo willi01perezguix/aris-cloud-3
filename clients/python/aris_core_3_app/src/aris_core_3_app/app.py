@@ -20,7 +20,9 @@ from aris3_client_sdk.clients.exports_client import ExportsClient
 from aris3_client_sdk.clients.pos_sales_client import PosSalesClient
 from aris3_client_sdk.clients.stock_client import StockClient
 from aris3_client_sdk.clients.transfers_client import TransfersClient
+from aris3_client_sdk.clients.media_client import MediaClient
 from aris3_client_sdk.exceptions import ApiError
+from aris3_client_sdk.image_utils import ImageMemoCache, safe_image_url, placeholder_image_ref
 from aris3_client_sdk.models import PermissionEntry
 from aris3_client_sdk.models_pos_cash import (
     PosCashDayCloseResponse,
@@ -240,6 +242,10 @@ class CoreAppShell:
         self.stock_action_trace_var = tk.StringVar(value="")
         self.stock_table: ttk.Treeview | None = None
         self.stock_detail_text: tk.Text | None = None
+        self.stock_show_images_var = tk.BooleanVar(
+            value=os.getenv("MEDIA_ENABLE_IMAGES", "true").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        self.stock_image_cache = ImageMemoCache(ttl_seconds=_default_int_env("MEDIA_CACHE_TTL_SEC", 300))
         self.stock_page_var = tk.StringVar(value=str(self.stock_state.page))
         self.stock_page_size_var = tk.StringVar(value=str(self.stock_state.page_size))
         self.stock_sort_by_var = tk.StringVar(value=self.stock_state.sort_by)
@@ -302,6 +308,11 @@ class CoreAppShell:
         self.pos_transfer_voucher_var = tk.StringVar(value="")
         self.pos_currency = os.getenv("ARIS3_POS_DEFAULT_CURRENCY", "USD")
         self.pos_cart_table: ttk.Treeview | None = None
+        self.pos_show_images_var = tk.BooleanVar(
+            value=os.getenv("MEDIA_ENABLE_IMAGES", "true").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        self.pos_image_preview_var = tk.StringVar(value="Image: placeholder://aris-image")
+        self.pos_image_source_var = tk.StringVar(value="Source: PLACEHOLDER")
         self.pos_cash_opening_amount_var = tk.StringVar(value="0.00")
         self.pos_cash_action_amount_var = tk.StringVar(value="0.00")
         self.pos_cash_counted_cash_var = tk.StringVar(value="0.00")
@@ -792,10 +803,18 @@ class CoreAppShell:
         prev_button.pack(side="left", padx=(0, 6))
         next_button.pack(side="left", padx=(0, 12))
         page_size_select.pack(side="left")
+        ttk.Checkbutton(
+            pagination,
+            text="Show images",
+            variable=self.stock_show_images_var,
+            command=self._populate_stock_table,
+            state=state,
+        ).pack(side="left", padx=(12, 0))
 
         table_frame = ttk.Frame(container)
         table_frame.pack(fill="both", expand=True)
         columns = (
+            "image",
             "sku",
             "epc",
             "description",
@@ -812,7 +831,8 @@ class CoreAppShell:
         )
         for col in columns:
             self.stock_table.heading(col, text=col.replace("_", " ").title())
-            self.stock_table.column(col, width=140, anchor="w")
+            width = 90 if col == "image" else 140
+            self.stock_table.column(col, width=width, anchor="w")
         self.stock_table.bind("<<TreeviewSelect>>", self._on_stock_row_selected)
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.stock_table.yview)
         self.stock_table.configure(yscrollcommand=scrollbar.set)
@@ -931,7 +951,10 @@ class CoreAppShell:
         for item in self.stock_table.get_children():
             self.stock_table.delete(item)
         for idx, row in enumerate(self.stock_state.rows):
+            media = self._resolve_row_media(row)
+            image_value = media.get("thumb_url") if self.stock_show_images_var.get() else "(hidden)"
             values = (
+                image_value,
                 row.get("sku"),
                 row.get("epc"),
                 row.get("description"),
@@ -952,9 +975,44 @@ class CoreAppShell:
         if idx >= len(self.stock_state.rows):
             return
         payload = self.stock_state.rows[idx]
+        media = self._resolve_row_media(payload)
+        payload = {**payload, "ui_media": media}
         pretty = json.dumps(payload, indent=2, default=str)
         self.stock_detail_text.delete("1.0", tk.END)
         self.stock_detail_text.insert(tk.END, pretty)
+
+    def _resolve_row_media(self, row: dict) -> dict[str, str | None]:
+        cache_key = f"stock|{row.get('sku')}|{row.get('var1_value')}|{row.get('var2_value')}"
+        cached = self.stock_image_cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+        source = (row.get("image_source") or "PLACEHOLDER").upper()
+        image_url = safe_image_url(row.get("image_url"))
+        thumb_url = safe_image_url(row.get("image_thumb_url")) or image_url
+        if not image_url and row.get("sku") and self.stock_show_images_var.get():
+            try:
+                resolver = MediaClient(http=self.session._http(), access_token=self.session.token)
+                resolved = resolver.resolve_for_variant(
+                    row.get("sku"),
+                    row.get("var1_value"),
+                    row.get("var2_value"),
+                )
+                image_url = safe_image_url(resolved.resolved.url)
+                thumb_url = safe_image_url(resolved.resolved.thumb_url) or image_url
+                source = resolved.source
+            except Exception:
+                source = source or "PLACEHOLDER"
+        if not thumb_url:
+            thumb_url = placeholder_image_ref()
+            source = "PLACEHOLDER"
+        media = {
+            "image_url": image_url or placeholder_image_ref(),
+            "thumb_url": thumb_url,
+            "source": source,
+            "last_updated": str(row.get("image_updated_at") or ""),
+        }
+        self.stock_image_cache.set(cache_key, media)
+        return media
 
     def _open_import_epc_dialog(self) -> None:
         self._open_stock_action_dialog(
@@ -1768,12 +1826,22 @@ class CoreAppShell:
 
         cart_frame = ttk.LabelFrame(container, text="Cart", padding=10)
         cart_frame.pack(fill="both", expand=True, pady=(0, 10))
-        columns = ("line_type", "sku", "epc", "qty", "unit_price", "line_total")
+        ttk.Checkbutton(
+            cart_frame,
+            text="Show images",
+            variable=self.pos_show_images_var,
+            command=self._refresh_pos_cart_table,
+            state=view_state,
+        ).pack(anchor="w", pady=(0, 6))
+        columns = ("thumb", "line_type", "sku", "epc", "qty", "unit_price", "line_total", "source")
         self.pos_cart_table = ttk.Treeview(cart_frame, columns=columns, show="headings", height=6)
         for col in columns:
             self.pos_cart_table.heading(col, text=col.replace("_", " ").title())
-            self.pos_cart_table.column(col, width=110, anchor="w")
+            self.pos_cart_table.column(col, width=100 if col in {"thumb", "source"} else 110, anchor="w")
+        self.pos_cart_table.bind("<<TreeviewSelect>>", self._on_pos_line_selected)
         self.pos_cart_table.pack(fill="both", expand=True)
+        ttk.Label(cart_frame, textvariable=self.pos_image_preview_var, foreground="gray").pack(anchor="w", pady=(6, 0))
+        ttk.Label(cart_frame, textvariable=self.pos_image_source_var, foreground="gray").pack(anchor="w")
 
         totals_frame = ttk.LabelFrame(container, text="Totals", padding=10)
         totals_frame.pack(fill="x", pady=(0, 10))
@@ -2100,18 +2168,55 @@ class CoreAppShell:
         for line in self.pos_state.lines:
             snapshot = line.snapshot
             line_total = Decimal(str(line.unit_price)) * Decimal(line.qty)
+            media = self._resolve_snapshot_media(snapshot)
             self.pos_cart_table.insert(
                 "",
                 "end",
                 values=(
+                    media["thumb_url"] if self.pos_show_images_var.get() else "(hidden)",
                     line.line_type,
                     snapshot.sku if snapshot else None,
                     snapshot.epc if snapshot else None,
                     line.qty,
                     f"{Decimal(str(line.unit_price)):.2f}",
                     f"{line_total:.2f}",
+                    media["source"],
                 ),
             )
+
+    def _resolve_snapshot_media(self, snapshot: PosSaleLineSnapshot | None) -> dict[str, str]:
+        if snapshot is None:
+            return {"thumb_url": placeholder_image_ref(), "image_url": placeholder_image_ref(), "source": "PLACEHOLDER"}
+        source = (snapshot.image_source or "PLACEHOLDER").upper()
+        image_url = safe_image_url(snapshot.image_url)
+        thumb_url = safe_image_url(snapshot.image_thumb_url) or image_url
+        if not thumb_url and snapshot.sku and self.pos_show_images_var.get():
+            try:
+                resolver = MediaClient(http=self.session._http(), access_token=self.session.token)
+                resolved = resolver.resolve_for_variant(snapshot.sku, snapshot.var1_value, snapshot.var2_value)
+                image_url = safe_image_url(resolved.resolved.url)
+                thumb_url = safe_image_url(resolved.resolved.thumb_url) or image_url
+                source = resolved.source
+            except Exception:
+                source = source or "PLACEHOLDER"
+        if not thumb_url:
+            thumb_url = placeholder_image_ref()
+            image_url = image_url or placeholder_image_ref()
+            source = "PLACEHOLDER"
+        return {"thumb_url": thumb_url, "image_url": image_url or thumb_url, "source": source}
+
+    def _on_pos_line_selected(self, _event: tk.Event) -> None:
+        if self.pos_cart_table is None:
+            return
+        selected = self.pos_cart_table.selection()
+        if not selected:
+            return
+        idx = self.pos_cart_table.index(selected[0])
+        if idx >= len(self.pos_state.lines):
+            return
+        media = self._resolve_snapshot_media(self.pos_state.lines[idx].snapshot)
+        self.pos_image_preview_var.set(f"Image: {media['image_url']}")
+        self.pos_image_source_var.set(f"Source: {media['source']}")
 
     def _refresh_pos_cash_data(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
         if not self._is_pos_cash_allowed():

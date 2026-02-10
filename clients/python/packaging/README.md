@@ -1,37 +1,35 @@
-# Windows Packaging Scaffold
+# Windows Packaging
 
 ## Prerequisites
 - Python 3.11+
-- Visual C++ Redistributable
 - `pip install pyinstaller`
 
-## Setup
-```powershell
-cd clients/python
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pip install pyinstaller
-```
+## Version source
+- `version.json` is default source.
+- Override with `PACKAGING_APP_VERSION` (or `ARIS_APP_VERSION`).
 
-## Build commands
+## Build
 ```powershell
-cd packaging
+cd clients/python/packaging
 ./build_core.ps1
 ./build_control_center.ps1
+# or
+./build_all.ps1
 ```
 
-Batch alternatives:
-```cmd
-build_core.bat
-build_control_center.bat
+Dry-run preflight:
+```powershell
+./build_core.ps1 -DryRun
+./build_control_center.ps1 -DryRun
 ```
 
-## Outputs
-- `clients/python/packaging/dist/ARIS-CORE-3`
-- `clients/python/packaging/dist/ARIS-Control-Center`
+## Output conventions
+- `dist/core/`
+- `dist/control_center/`
+- each build writes `build_summary.json`
 
-## Troubleshooting
-- Missing DLL: add explicit binary/data in spec template.
-- Hidden imports: append modules to `hiddenimports` in the spec template.
-- Antivirus false positives: sign binaries and use reproducible clean build machine.
+## Installer scaffold
+If installer tooling is unavailable, run:
+```powershell
+./installer_placeholder.ps1
+```

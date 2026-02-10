@@ -8,6 +8,7 @@ from aris3_client_sdk import ApiSession, ClientConfig, load_config
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.reports_client import ReportsClient
+from aris3_client_sdk.clients.media_client import MediaClient
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.models import EffectivePermissionsResponse, PermissionEntry
 
@@ -28,6 +29,7 @@ CONTROL_CENTER_MENU = [
     MenuItem("Audit", "audit.view"),
     MenuItem("Permissions Inspector", "rbac.view"),
     MenuItem("Operational Insights", "reports.view"),
+    MenuItem("Media Inspector", "stock.view"),
 ]
 
 
@@ -78,6 +80,11 @@ class ControlCenterAppShell:
         self.insights_status_var = tk.StringVar(value="")
         self.insights_kpi_var = tk.StringVar(value="")
         self.insights_trace_var = tk.StringVar(value="")
+        self.media_sku_var = tk.StringVar(value="")
+        self.media_var1_var = tk.StringVar(value="")
+        self.media_var2_var = tk.StringVar(value="")
+        self.media_result_var = tk.StringVar(value="")
+        self.media_trace_var = tk.StringVar(value="")
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -158,6 +165,8 @@ class ControlCenterAppShell:
                 command = self._show_permissions_inspector
             elif item.label == "Operational Insights":
                 command = self._show_operational_insights
+            elif item.label == "Media Inspector":
+                command = self._show_media_inspector
             else:
                 command = lambda label=item.label: self._show_placeholder(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
@@ -260,6 +269,56 @@ class ControlCenterAppShell:
             self.insights_status_var.set("Failed to load insights")
             self.insights_kpi_var.set(exc.message)
             self.insights_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+
+
+    def _show_media_inspector(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+        container = ttk.Frame(self.content_frame)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="Media Inspector", font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
+        if "stock.view" not in self.allowed_permissions and "STORE_VIEW" not in self.allowed_permissions:
+            ttk.Label(container, text="No media read permission.", foreground="gray").pack(anchor="w", pady=(8, 0))
+            return
+        form = ttk.Frame(container)
+        form.pack(anchor="w", pady=(8, 6))
+        ttk.Label(form, text="SKU").grid(row=0, column=0, sticky="w")
+        ttk.Entry(form, textvariable=self.media_sku_var, width=20).grid(row=0, column=1, padx=(8, 8))
+        ttk.Label(form, text="Var1").grid(row=0, column=2, sticky="w")
+        ttk.Entry(form, textvariable=self.media_var1_var, width=14).grid(row=0, column=3, padx=(8, 8))
+        ttk.Label(form, text="Var2").grid(row=0, column=4, sticky="w")
+        ttk.Entry(form, textvariable=self.media_var2_var, width=14).grid(row=0, column=5, padx=(8, 8))
+        ttk.Button(form, text="Resolve", command=self._load_media_resolution).grid(row=0, column=6)
+        ttk.Label(container, textvariable=self.media_result_var, justify="left").pack(anchor="w", pady=(6, 0))
+        ttk.Label(container, textvariable=self.media_trace_var, foreground="gray").pack(anchor="w")
+
+    def _load_media_resolution(self) -> None:
+        sku = self.media_sku_var.get().strip()
+        self.media_trace_var.set("")
+        if not sku:
+            self.media_result_var.set("sku is required")
+            return
+        try:
+            client = MediaClient(http=self.session._http(), access_token=self.session.token)
+            payload = client.resolve_for_variant(
+                sku,
+                self.media_var1_var.get().strip() or None,
+                self.media_var2_var.get().strip() or None,
+            )
+            self.media_result_var.set(
+                "source={source}\nimage_url={image_url}\nthumb_url={thumb_url}\nasset_id={asset_id}".format(
+                    source=payload.source,
+                    image_url=payload.resolved.url,
+                    thumb_url=payload.resolved.thumb_url,
+                    asset_id=payload.resolved.asset_id,
+                )
+            )
+            self.media_trace_var.set(f"trace_id: {payload.trace_id}" if payload.trace_id else "")
+        except ApiError as exc:
+            self.media_result_var.set(f"{exc.code}: {exc.message}")
+            self.media_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
 
 
 def main() -> None:

@@ -3,8 +3,8 @@
 ## Overview
 This folder contains the shared Python SDK plus two lightweight Tkinter app shells:
 
-- **aris3_client_sdk**: API configuration, auth session, HTTP client, error mapping, idempotency helpers, tracing, and stock mutation helpers.
-- **aris_core_3_app**: Store app shell with login + permission-aware menu placeholders.
+- **aris3_client_sdk**: API configuration, auth session, HTTP client, error mapping, idempotency helpers, tracing, and stock/transfers mutation helpers.
+- **aris_core_3_app**: Store app shell with login + permission-aware menu, stock, POS, and transfers workflows.
 - **aris_control_center_app**: Admin app shell with login + permission-aware menu placeholders.
 
 ## Setup
@@ -30,6 +30,8 @@ Supported config keys:
 - `ARIS3_DEFAULT_PAGE_SIZE`
 - `ARIS3_DEFAULT_SORT_BY`
 - `ARIS3_DEFAULT_SORT_ORDER`
+- `ARIS3_TRANSFER_ORIGIN_STORE_ID`
+- `ARIS3_TRANSFER_DESTINATION_STORE_ID`
 
 ## Run the app shells
 ```bash
@@ -72,6 +74,24 @@ Cash guardrails:
 - Cash out is prevented when it would drive expected cash negative
 - Change is only allowed against the cash portion of payments
 
+### Transfers screen (ARIS CORE 3)
+1) Launch the app shell: `python -m aris_core_3_app.app`
+2) Login with a user that has `TRANSFER_VIEW`
+3) Click **Transfers** to open the Transfers workflow:
+   - Filter and search transfers by status, origin/destination, and date range
+   - View transfer header, line snapshots, and movement summary
+   - Create draft transfers, edit draft data, dispatch, receive, report shortages, resolve shortages, or cancel
+
+Permissions:
+- `TRANSFER_VIEW` to view the transfers list
+- `TRANSFER_MANAGE` to create or mutate transfers
+- LOST_IN_ROUTE resolutions require manager/admin role
+
+Transfers lifecycle:
+- `DRAFT` → `DISPATCHED` → `RECEIVED` or `PARTIAL_RECEIVED`
+- Shortage reporting and resolution can occur while `DISPATCHED` or `PARTIAL_RECEIVED`
+- `CANCELLED` is allowed from `DRAFT` or `DISPATCHED` (policy-dependent)
+
 ## SDK smoke CLI
 ```bash
 python examples/cli_smoke.py health
@@ -107,6 +127,16 @@ python examples/pos_cash_in_smoke.py --store-id <store_id> --amount 20 --reason 
 python examples/pos_cash_out_smoke.py --store-id <store_id> --amount 10 --reason "Safe drop"
 python examples/pos_cash_close_smoke.py --store-id <store_id> --counted-cash 110 --reason "End of shift"
 python examples/pos_day_close_smoke.py --store-id <store_id> --business-date 2024-01-01 --timezone UTC
+```
+
+## Transfers smoke CLIs
+```bash
+python examples/transfers_create_smoke.py --origin-store-id <origin_store_id> --destination-store-id <destination_store_id>
+python examples/transfers_dispatch_smoke.py --transfer-id <transfer_id>
+python examples/transfers_receive_smoke.py --transfer-id <transfer_id> --input /path/to/receive.json
+python examples/transfers_report_shortages_smoke.py --transfer-id <transfer_id> --input /path/to/shortages.json
+python examples/transfers_resolve_shortages_smoke.py --transfer-id <transfer_id> --input /path/to/resolve.json
+python examples/transfers_cancel_smoke.py --transfer-id <transfer_id>
 ```
 
 Payment field requirements:

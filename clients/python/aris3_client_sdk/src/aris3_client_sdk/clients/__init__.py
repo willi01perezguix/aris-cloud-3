@@ -5,6 +5,7 @@ from .pos_cash_client import PosCashClient
 from .pos_sales_client import PosSalesClient
 from .smoke import SmokeClient
 from .stock_client import StockClient
+from .transfers_client import TransfersClient
 
 __all__ = [
     "AccessControlClient",
@@ -14,4 +15,5 @@ __all__ = [
     "PosSalesClient",
     "SmokeClient",
     "StockClient",
+    "TransfersClient",
 ]

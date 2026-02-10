@@ -6,7 +6,7 @@ import os
 import threading
 import tkinter as tk
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from tkinter import filedialog, messagebox, ttk
 
@@ -16,6 +16,7 @@ from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.pos_cash_client import PosCashClient
 from aris3_client_sdk.clients.pos_sales_client import PosSalesClient
 from aris3_client_sdk.clients.stock_client import StockClient
+from aris3_client_sdk.clients.transfers_client import TransfersClient
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.models import PermissionEntry
 from aris3_client_sdk.models_pos_cash import (
@@ -30,6 +31,7 @@ from aris3_client_sdk.models_pos_sales import (
     PosSaleResponse,
 )
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
+from aris3_client_sdk.models_transfers import TransferQuery, TransferResponse
 from aris3_client_sdk.payment_validation import PaymentValidationIssue, validate_checkout_payload
 from aris3_client_sdk.pos_cash_validation import (
     CashValidationIssue,
@@ -45,6 +47,16 @@ from aris3_client_sdk.stock_validation import (
     validate_import_epc_line,
     validate_import_sku_line,
     validate_migration_line,
+)
+from aris3_client_sdk.transfer_state import transfer_action_availability
+from aris3_client_sdk.transfer_validation import (
+    validate_cancel_payload,
+    validate_create_transfer_payload,
+    validate_dispatch_payload,
+    validate_receive_payload,
+    validate_shortage_report_payload,
+    validate_shortage_resolution_payload,
+    validate_update_transfer_payload,
 )
 
 
@@ -90,6 +102,13 @@ class PosCashViewState:
     busy: bool = False
 
 
+@dataclass
+class TransferViewState:
+    rows: list[TransferResponse] = field(default_factory=list)
+    selected: TransferResponse | None = None
+    busy: bool = False
+
+
 def _default_int_env(key: str, fallback: int) -> int:
     raw = os.getenv(key)
     if raw is None:
@@ -98,6 +117,15 @@ def _default_int_env(key: str, fallback: int) -> int:
         return int(raw)
     except ValueError:
         return fallback
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 
@@ -181,6 +209,19 @@ class CoreAppShell:
         self.stock_sort_dir_var = tk.StringVar(value=self.stock_state.sort_dir)
         self.stock_controls: list[tk.Widget] = []
         self.stock_action_controls: list[tk.Widget] = []
+        self.transfer_state = TransferViewState()
+        self.transfer_filter_vars: dict[str, tk.StringVar] = {}
+        self.transfer_meta_var = tk.StringVar(value="")
+        self.transfer_error_var = tk.StringVar(value="")
+        self.transfer_loading_var = tk.StringVar(value="")
+        self.transfer_action_status_var = tk.StringVar(value="")
+        self.transfer_action_error_var = tk.StringVar(value="")
+        self.transfer_action_trace_var = tk.StringVar(value="")
+        self.transfer_table: ttk.Treeview | None = None
+        self.transfer_detail_text: tk.Text | None = None
+        self.transfer_payload_text: tk.Text | None = None
+        self.transfer_selected_id_var = tk.StringVar(value="")
+        self.transfer_action_buttons: dict[str, ttk.Button] = {}
         self.pos_state = PosViewState()
         self.pos_error_var = tk.StringVar(value="")
         self.pos_trace_var = tk.StringVar(value="")
@@ -307,6 +348,8 @@ class CoreAppShell:
                 command = self._show_stock_view
             elif item.label == "POS":
                 command = self._show_pos_view
+            elif item.label == "Transfers":
+                command = self._show_transfers_view
             else:
                 command = lambda label=item.label: self._show_placeholder(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
@@ -336,6 +379,16 @@ class CoreAppShell:
 
     def _can_manage_stock(self) -> bool:
         return self._has_permission("STORE_MANAGE", "stock.manage", "stock.mutations")
+
+    def _is_transfers_allowed(self) -> bool:
+        return self._has_permission("TRANSFER_VIEW", "transfers.view")
+
+    def _can_manage_transfers(self) -> bool:
+        return self._has_permission("TRANSFER_MANAGE")
+
+    def _is_manager_role(self) -> bool:
+        role = (self.session.user.role if self.session.user else None) or ""
+        return role in {"MANAGER", "ADMIN", "SUPERADMIN", "PLATFORM_ADMIN"}
 
     def _is_pos_allowed(self) -> bool:
         return self._has_permission("POS_SALE_VIEW", "POS_SALE_MANAGE")
@@ -926,6 +979,470 @@ class CoreAppShell:
             f"row {issue.row_index} {issue.field}: {issue.reason}" if issue.row_index is not None else f"{issue.field}: {issue.reason}"
             for issue in issues
         )
+
+    def _ensure_transfer_filter_vars(self) -> None:
+        if self.transfer_filter_vars:
+            return
+        keys = [
+            "q",
+            "status",
+            "origin_store_id",
+            "destination_store_id",
+            "from",
+            "to",
+        ]
+        self.transfer_filter_vars = {key: tk.StringVar(value="") for key in keys}
+
+    def _collect_transfer_filters(self) -> dict[str, str | None]:
+        self._ensure_transfer_filter_vars()
+        filters: dict[str, str | None] = {}
+        for key, var in self.transfer_filter_vars.items():
+            value = var.get().strip()
+            filters[key] = value if value else None
+        return filters
+
+    def _clear_transfer_filters(self) -> None:
+        self._ensure_transfer_filter_vars()
+        for var in self.transfer_filter_vars.values():
+            var.set("")
+
+    def _show_transfers_view(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+
+        self._ensure_transfer_filter_vars()
+        allowed = self._is_transfers_allowed()
+        can_manage = self._can_manage_transfers()
+        view_state = tk.NORMAL if allowed else tk.DISABLED
+
+        container = ttk.Frame(self.content_frame)
+        container.pack(fill="both", expand=True)
+
+        header = ttk.Frame(container, padding=(0, 0, 0, 8))
+        header.pack(fill="x")
+        ttk.Label(header, text="Transfers", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+        if not allowed:
+            ttk.Label(
+                header,
+                text="You do not have permission to view transfers.",
+                foreground="red",
+            ).pack(anchor="w", pady=(4, 0))
+
+        summary = ttk.Frame(container)
+        summary.pack(fill="x", pady=(4, 8))
+        ttk.Label(summary, textvariable=self.transfer_meta_var).pack(anchor="w")
+        ttk.Label(summary, textvariable=self.transfer_loading_var, foreground="blue").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.transfer_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.transfer_action_status_var, foreground="blue").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.transfer_action_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.transfer_action_trace_var, foreground="gray").pack(anchor="w")
+
+        filter_frame = ttk.LabelFrame(container, text="Filters", padding=10)
+        filter_frame.pack(fill="x", pady=(0, 10))
+
+        row = 0
+        for idx, key in enumerate(["q", "status", "origin_store_id", "destination_store_id", "from", "to"]):
+            label = key.replace("_", " ").title()
+            ttk.Label(filter_frame, text=label).grid(row=row, column=idx * 2, sticky="w", padx=(0, 6), pady=2)
+            ttk.Entry(filter_frame, textvariable=self.transfer_filter_vars[key], width=18).grid(
+                row=row, column=idx * 2 + 1, sticky="ew", padx=(0, 12), pady=2
+            )
+            if idx == 2:
+                row += 1
+        for col in range(12):
+            filter_frame.columnconfigure(col, weight=1)
+
+        filter_actions = ttk.Frame(filter_frame)
+        filter_actions.grid(row=row + 1, column=0, columnspan=12, sticky="w", pady=(6, 0))
+        ttk.Button(filter_actions, text="Search", state=view_state, command=self._refresh_transfers).pack(
+            side="left", padx=(0, 6)
+        )
+        ttk.Button(filter_actions, text="Clear", state=view_state, command=self._clear_transfer_filters).pack(
+            side="left", padx=(0, 6)
+        )
+
+        body = ttk.Frame(container)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=2)
+        body.columnconfigure(1, weight=3)
+
+        table_frame = ttk.Frame(body)
+        table_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+
+        columns = ("id", "status", "origin", "destination", "created_at", "updated_at")
+        self.transfer_table = ttk.Treeview(table_frame, columns=columns, show="headings", height=14)
+        for col in columns:
+            self.transfer_table.heading(col, text=col.replace("_", " ").title())
+            self.transfer_table.column(col, width=120, stretch=True)
+        self.transfer_table.pack(fill="both", expand=True)
+        if self.transfer_table is not None:
+            self.transfer_table.bind("<<TreeviewSelect>>", self._on_transfer_select)
+
+        detail_frame = ttk.Frame(body)
+        detail_frame.grid(row=0, column=1, sticky="nsew")
+        ttk.Label(detail_frame, text="Details").pack(anchor="w")
+        self.transfer_detail_text = tk.Text(detail_frame, height=12, wrap="word")
+        self.transfer_detail_text.pack(fill="both", expand=True)
+
+        action_frame = ttk.LabelFrame(container, text="Actions", padding=10)
+        action_frame.pack(fill="x", pady=(10, 0))
+
+        ttk.Label(action_frame, text="Payload (JSON)").grid(row=0, column=0, sticky="w")
+        self.transfer_payload_text = tk.Text(action_frame, height=8, width=80)
+        self.transfer_payload_text.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(4, 8))
+
+        self.transfer_action_buttons = {}
+        button_specs = [
+            ("Create", self._submit_transfer_create),
+            ("Update Draft", self._submit_transfer_update),
+            ("Dispatch", self._submit_transfer_dispatch),
+            ("Receive", self._submit_transfer_receive),
+            ("Report Shortages", self._submit_transfer_report_shortages),
+            ("Resolve Shortages", self._submit_transfer_resolve_shortages),
+            ("Cancel", self._submit_transfer_cancel),
+            ("Refresh Detail", self._refresh_transfer_detail),
+        ]
+        for idx, (label, handler) in enumerate(button_specs):
+            button = ttk.Button(action_frame, text=label, command=handler, state=tk.NORMAL if can_manage else tk.DISABLED)
+            button.grid(row=2 + idx // 4, column=idx % 4, padx=4, pady=4, sticky="ew")
+            self.transfer_action_buttons[label] = button
+
+        action_frame.columnconfigure(0, weight=1)
+        action_frame.columnconfigure(1, weight=1)
+        action_frame.columnconfigure(2, weight=1)
+        action_frame.columnconfigure(3, weight=1)
+
+        self._refresh_transfers()
+
+    def _refresh_transfers(self) -> None:
+        if not self._is_transfers_allowed():
+            self.transfer_error_var.set("Permission denied.")
+            return
+        self.transfer_loading_var.set("Loading transfers...")
+        self.transfer_error_var.set("")
+
+        filters = self._collect_transfer_filters()
+        query = TransferQuery(
+            q=filters.get("q"),
+            status=filters.get("status"),
+            origin_store_id=filters.get("origin_store_id"),
+            destination_store_id=filters.get("destination_store_id"),
+            from_date=filters.get("from"),
+            to_date=filters.get("to"),
+        )
+
+        def worker() -> None:
+            client = TransfersClient(http=self.session._http(), access_token=self.session.token)
+            try:
+                response = client.list_transfers(query)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._handle_transfer_error(exc))
+                return
+            if self.root:
+                self.root.after(0, lambda: self._handle_transfer_list_success(response))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_transfer_list_success(self, response) -> None:
+        self.transfer_loading_var.set("")
+        self.transfer_state.rows = self._apply_transfer_filters(response.rows)
+        self.transfer_meta_var.set(f"Transfers: {len(self.transfer_state.rows)}")
+        self._render_transfer_table()
+
+    def _apply_transfer_filters(self, rows: list[TransferResponse]) -> list[TransferResponse]:
+        filters = self._collect_transfer_filters()
+        status = (filters.get("status") or "").upper()
+        origin = filters.get("origin_store_id")
+        destination = filters.get("destination_store_id")
+        query = filters.get("q") or ""
+        from_date = _parse_optional_datetime(filters.get("from"))
+        to_date = _parse_optional_datetime(filters.get("to"))
+        results = []
+        for row in rows:
+            header = row.header
+            if status and header.status.upper() != status:
+                continue
+            if origin and header.origin_store_id != origin:
+                continue
+            if destination and header.destination_store_id != destination:
+                continue
+            if query and query.lower() not in header.id.lower():
+                continue
+            if from_date and header.created_at < from_date:
+                continue
+            if to_date and header.created_at > to_date:
+                continue
+            results.append(row)
+        return results
+
+    def _render_transfer_table(self) -> None:
+        if self.transfer_table is None:
+            return
+        for item in self.transfer_table.get_children():
+            self.transfer_table.delete(item)
+        for row in self.transfer_state.rows:
+            header = row.header
+            values = (
+                header.id,
+                header.status,
+                header.origin_store_id,
+                header.destination_store_id,
+                header.created_at,
+                header.updated_at or "",
+            )
+            self.transfer_table.insert("", "end", iid=header.id, values=values)
+
+    def _on_transfer_select(self, _event=None) -> None:
+        if self.transfer_table is None:
+            return
+        selected = self.transfer_table.selection()
+        if not selected:
+            return
+        transfer_id = selected[0]
+        self.transfer_selected_id_var.set(transfer_id)
+        chosen = next((row for row in self.transfer_state.rows if row.header.id == transfer_id), None)
+        self.transfer_state.selected = chosen
+        self._update_transfer_detail()
+        self._update_transfer_action_buttons()
+
+    def _update_transfer_detail(self) -> None:
+        if self.transfer_detail_text is None:
+            return
+        self.transfer_detail_text.delete("1.0", tk.END)
+        if not self.transfer_state.selected:
+            self.transfer_detail_text.insert(tk.END, "Select a transfer to view details.")
+            return
+        detail = self.transfer_state.selected.model_dump(mode="json")
+        self.transfer_detail_text.insert(tk.END, json.dumps(detail, indent=2, default=str))
+
+    def _update_transfer_action_buttons(self) -> None:
+        if not self.transfer_action_buttons:
+            return
+        selected = self.transfer_state.selected
+        if not selected:
+            for button in self.transfer_action_buttons.values():
+                button.configure(state=tk.DISABLED)
+            return
+        availability = transfer_action_availability(
+            selected.header.status,
+            can_manage=self._can_manage_transfers(),
+            is_destination_user=self._is_destination_user(selected),
+        )
+        mapping = {
+            "Update Draft": availability.can_update,
+            "Dispatch": availability.can_dispatch,
+            "Receive": availability.can_receive,
+            "Report Shortages": availability.can_report_shortages,
+            "Resolve Shortages": availability.can_resolve_shortages,
+            "Cancel": availability.can_cancel,
+        }
+        for label, button in self.transfer_action_buttons.items():
+            if label == "Create":
+                button.configure(state=tk.NORMAL if self._can_manage_transfers() else tk.DISABLED)
+            elif label == "Refresh Detail":
+                button.configure(state=tk.NORMAL if self._is_transfers_allowed() else tk.DISABLED)
+            elif label in mapping:
+                button.configure(state=tk.NORMAL if mapping[label] else tk.DISABLED)
+
+    def _is_destination_user(self, transfer: TransferResponse) -> bool:
+        store_id = self.session.user.store_id if self.session.user else None
+        return bool(store_id and store_id == transfer.header.destination_store_id)
+
+    def _refresh_transfer_detail(self) -> None:
+        if not self.transfer_state.selected:
+            return
+        self.transfer_action_status_var.set("Refreshing transfer...")
+        self.transfer_action_error_var.set("")
+        self.transfer_action_trace_var.set("")
+
+        transfer_id = self.transfer_state.selected.header.id
+
+        def worker() -> None:
+            client = TransfersClient(http=self.session._http(), access_token=self.session.token)
+            try:
+                response = client.get_transfer(transfer_id)
+            except ApiError as exc:
+                if self.root:
+                    self.root.after(0, lambda: self._handle_transfer_error(exc))
+                return
+            if self.root:
+                self.root.after(0, lambda: self._handle_transfer_action_success(response))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _parse_transfer_payload(self) -> dict:
+        if not self.transfer_payload_text:
+            return {}
+        raw = self.transfer_payload_text.get("1.0", tk.END).strip()
+        if not raw:
+            return {}
+        return json.loads(raw)
+
+    def _collect_line_expectations(self, transfer: TransferResponse | None) -> dict[str, int]:
+        if not transfer:
+            return {}
+        return {line.id: line.outstanding_qty for line in transfer.lines}
+
+    def _collect_line_types(self, transfer: TransferResponse | None) -> dict[str, str]:
+        if not transfer:
+            return {}
+        return {line.id: line.line_type for line in transfer.lines}
+
+    def _submit_transfer_create(self) -> None:
+        if not self._can_manage_transfers():
+            return
+        try:
+            payload = validate_create_transfer_payload(self._parse_transfer_payload())
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("create", payload)
+
+    def _submit_transfer_update(self) -> None:
+        if not self._can_manage_transfers() or not self.transfer_state.selected:
+            return
+        try:
+            payload = validate_update_transfer_payload(self._parse_transfer_payload())
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("update", payload)
+
+    def _submit_transfer_dispatch(self) -> None:
+        if not self.transfer_state.selected:
+            return
+        if not messagebox.askyesno("Confirm", "Dispatch this transfer?"):
+            return
+        try:
+            payload = validate_dispatch_payload(self._parse_transfer_payload() or {})
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("dispatch", payload)
+
+    def _submit_transfer_receive(self) -> None:
+        if not self.transfer_state.selected:
+            return
+        try:
+            payload = validate_receive_payload(
+                self._parse_transfer_payload(),
+                line_expectations=self._collect_line_expectations(self.transfer_state.selected),
+                line_types=self._collect_line_types(self.transfer_state.selected),
+            )
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("receive", payload)
+
+    def _submit_transfer_report_shortages(self) -> None:
+        if not self.transfer_state.selected:
+            return
+        try:
+            payload = validate_shortage_report_payload(
+                self._parse_transfer_payload(),
+                line_expectations=self._collect_line_expectations(self.transfer_state.selected),
+                line_types=self._collect_line_types(self.transfer_state.selected),
+            )
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("report_shortages", payload)
+
+    def _submit_transfer_resolve_shortages(self) -> None:
+        if not self.transfer_state.selected:
+            return
+        try:
+            payload = validate_shortage_resolution_payload(
+                self._parse_transfer_payload(),
+                line_expectations=self._collect_line_expectations(self.transfer_state.selected),
+                line_types=self._collect_line_types(self.transfer_state.selected),
+                allow_lost_in_route=self._is_manager_role(),
+            )
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("resolve_shortages", payload)
+
+    def _submit_transfer_cancel(self) -> None:
+        if not self.transfer_state.selected:
+            return
+        if not messagebox.askyesno("Confirm", "Cancel this transfer?"):
+            return
+        try:
+            payload = validate_cancel_payload(self._parse_transfer_payload() or {})
+        except (ValueError, ClientValidationError) as exc:
+            self.transfer_action_error_var.set(str(exc))
+            return
+        self._submit_transfer_request("cancel", payload)
+
+    def _submit_transfer_request(self, action: str, payload) -> None:
+        self.transfer_action_status_var.set(f"Submitting transfer {action}...")
+        self.transfer_action_error_var.set("")
+        self.transfer_action_trace_var.set("")
+
+        transfer_id = self.transfer_state.selected.header.id if self.transfer_state.selected else None
+
+        def worker() -> None:
+            client = TransfersClient(http=self.session._http(), access_token=self.session.token)
+            keys = new_idempotency_keys()
+            try:
+                if action == "create":
+                    response = client.create_transfer(
+                        payload,
+                        transaction_id=keys.transaction_id,
+                        idempotency_key=keys.idempotency_key,
+                    )
+                elif action == "update" and transfer_id:
+                    response = client.update_transfer(
+                        transfer_id,
+                        payload,
+                        transaction_id=keys.transaction_id,
+                        idempotency_key=keys.idempotency_key,
+                    )
+                elif transfer_id:
+                    response = client.transfer_action(
+                        transfer_id,
+                        action,
+                        payload,
+                        transaction_id=keys.transaction_id,
+                        idempotency_key=keys.idempotency_key,
+                        allow_lost_in_route=self._is_manager_role(),
+                        line_expectations=self._collect_line_expectations(self.transfer_state.selected),
+                        line_types=self._collect_line_types(self.transfer_state.selected),
+                    )
+                else:
+                    raise ValueError("transfer_id is required for this action")
+            except (ApiError, ClientValidationError, ValueError) as exc:
+                if isinstance(exc, ApiError):
+                    if self.root:
+                        self.root.after(0, lambda: self._handle_transfer_error(exc))
+                else:
+                    if self.root:
+                        self.root.after(0, lambda: self.transfer_action_error_var.set(str(exc)))
+                return
+            if self.root:
+                self.root.after(0, lambda: self._handle_transfer_action_success(response))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_transfer_action_success(self, response: TransferResponse) -> None:
+        self.transfer_action_status_var.set("Transfer updated successfully.")
+        self.transfer_action_error_var.set("")
+        self.transfer_action_trace_var.set("")
+        self.transfer_state.selected = response
+        self._update_transfer_detail()
+        self._refresh_transfers()
+
+    def _handle_transfer_error(self, exc: ApiError) -> None:
+        self.transfer_loading_var.set("")
+        self.transfer_action_status_var.set("")
+        self.transfer_error_var.set(exc.message)
+        self.transfer_action_error_var.set(exc.message)
+        if exc.trace_id:
+            self.transfer_action_trace_var.set(f"trace_id: {exc.trace_id}")
 
     def _show_pos_view(self) -> None:
         if self.content_frame is None:

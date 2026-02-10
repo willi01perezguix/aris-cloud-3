@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+import pytest
+
 from aris3_client_sdk.models_exports import ExportStatus
-from aris3_client_sdk.models_reports import ReportDailyResponse, ReportFilter
+from aris3_client_sdk.models_reports import (
+    ReportBreakdownRow,
+    ReportDailyResponse,
+    ReportFilter,
+    ReportTrendRow,
+    normalize_report_filters,
+    validate_date_range,
+)
 
 
 def test_report_filter_serialization_aliases() -> None:
@@ -9,6 +18,26 @@ def test_report_filter_serialization_aliases() -> None:
     data = filt.model_dump(by_alias=True, exclude_none=True, mode="json")
     assert data["from"] == "2024-01-01"
     assert data["to"] == "2024-01-07"
+
+
+def test_report_filter_normalization_aliases() -> None:
+    filt = normalize_report_filters(
+        {
+            "store_ids": ["store-99", "store-22"],
+            "date_from": "2024-01-01",
+            "date_to": "2024-01-07",
+            "granularity": "daily",
+        }
+    )
+    assert filt.store_id == "store-99"
+    assert str(filt.from_value) == "2024-01-01"
+    assert str(filt.to_value) == "2024-01-07"
+    assert filt.grouping == "daily"
+
+
+def test_validate_date_range_raises() -> None:
+    with pytest.raises(ValueError):
+        validate_date_range("2024-01-10", "2024-01-01")
 
 
 def test_report_model_parsing_optional_fields() -> None:
@@ -38,6 +67,13 @@ def test_report_model_parsing_optional_fields() -> None:
         }
     )
     assert parsed.meta.query_ms is None
+
+
+def test_report_trend_breakdown_models_allow_unknowns() -> None:
+    trend = ReportTrendRow.model_validate({"label": "2024-01-01", "orders_paid_count": 2, "x_extra": True})
+    breakdown = ReportBreakdownRow.model_validate({"key": "cash", "value": "10.00", "future": "ok"})
+    assert trend.label == "2024-01-01"
+    assert breakdown.key == "cash"
 
 
 def test_export_status_model_and_artifact() -> None:

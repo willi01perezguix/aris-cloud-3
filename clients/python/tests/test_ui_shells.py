@@ -619,3 +619,63 @@ def test_regression_module_imports() -> None:
     import aris3_client_sdk.clients.pos_cash_client
     import aris3_client_sdk.clients.transfers_client
     import aris3_client_sdk.clients.inventory_counts_client
+
+
+def test_reports_filter_apply_reset_flow() -> None:
+    app = CoreAppShell()
+    app.reports_store_id_var.set("store-1")
+    app.reports_from_var.set("2024-01-01")
+    app.reports_to_var.set("2024-01-07")
+    payload = app._report_filter_payload()
+    assert payload.store_id == "store-1"
+    app._reset_report_filters()
+    assert app.reports_from_var.get() == ""
+
+
+def test_export_manager_refresh_flow() -> None:
+    app = CoreAppShell()
+
+    class FakeExports:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def list_recent_exports(self, page_size=None):
+            from aris3_client_sdk.models_exports import ExportListResponse, ExportStatus
+
+            return ExportListResponse(
+                rows=[
+                    ExportStatus.model_validate(
+                        {
+                            "export_id": "exp-1",
+                            "tenant_id": "tenant-1",
+                            "store_id": "store-1",
+                            "source_type": "reports_daily",
+                            "format": "csv",
+                            "filters_snapshot": {},
+                            "status": "READY",
+                            "row_count": 1,
+                            "generated_by_user_id": "u1",
+                            "generated_at": None,
+                            "trace_id": "t1",
+                            "created_at": "2024-01-01T00:00:00Z",
+                            "updated_at": None,
+                        }
+                    )
+                ]
+            )
+
+    import aris_core_3_app.app as core_app_module
+
+    original = core_app_module.ExportsClient
+    core_app_module.ExportsClient = FakeExports
+    try:
+        app._refresh_export_statuses()
+        assert len(app.reports_state.exports) == 1
+    finally:
+        core_app_module.ExportsClient = original
+
+
+def test_control_center_insights_permission_gating() -> None:
+    app = ControlCenterAppShell()
+    app.allowed_permissions = set()
+    assert "reports.view" not in app.allowed_permissions

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +68,32 @@ class ExportStatus(BaseModel):
             file_size_bytes=self.file_size_bytes,
             checksum_sha256=self.checksum_sha256,
         )
+
+
+class ExportTerminalState(str, Enum):
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+    NOT_FOUND = "NOT_FOUND"
+
+
+class ExportWaitResult(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    export_id: str
+    outcome: ExportTerminalState
+    status: ExportStatus
+
+
+class ExportResolvedArtifact(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    export_id: str
+    reference: str | None = None
+    url: str | None = None
+    file_name: str | None = None
+    content_type: str | None = None
+    file_size_bytes: int | None = None
 
 
 class ExportListResponse(BaseModel):

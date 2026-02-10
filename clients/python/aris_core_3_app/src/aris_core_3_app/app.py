@@ -36,8 +36,13 @@ from aris3_client_sdk.models_pos_sales import (
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
 from aris3_client_sdk.models_inventory_counts import CountHeader, ScanBatchRequest
 from aris3_client_sdk.models_transfers import TransferQuery, TransferResponse
-from aris3_client_sdk.models_reports import ReportFilter, ReportDailyResponse, ReportCalendarResponse
-from aris3_client_sdk.models_exports import ExportStatus
+from aris3_client_sdk.models_reports import (
+    ReportCalendarResponse,
+    ReportDailyResponse,
+    ReportFilter,
+    normalize_report_filters,
+)
+from aris3_client_sdk.models_exports import ExportStatus, ExportTerminalState
 from aris3_client_sdk.payment_validation import PaymentValidationIssue, validate_checkout_payload
 from aris3_client_sdk.pos_cash_validation import (
     CashValidationIssue,
@@ -129,6 +134,9 @@ class ReportsViewState:
     calendar: ReportCalendarResponse | None = None
     mode: str = "daily"
     exports: list[ExportStatus] = field(default_factory=list)
+    sort_column: str = "business_date"
+    sort_desc: bool = True
+    auto_poll: bool = False
     busy: bool = False
 
 
@@ -315,8 +323,15 @@ class CoreAppShell:
         self.reports_from_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_FROM", ""))
         self.reports_to_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_TO", ""))
         self.reports_timezone_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_TIMEZONE", "UTC"))
+        self.reports_grouping_var = tk.StringVar(value="")
+        self.reports_payment_method_var = tk.StringVar(value="")
+        self.reports_business_mode_var = tk.BooleanVar(value=False)
+        self.reports_auto_poll_var = tk.BooleanVar(value=False)
         self.reports_format_var = tk.StringVar(value=os.getenv("ARIS3_EXPORT_DEFAULT_FORMAT", "csv"))
         self.reports_type_var = tk.StringVar(value="reports_daily")
+        self.reports_table: ttk.Treeview | None = None
+        self.reports_breakdown_table: ttk.Treeview | None = None
+        self.reports_export_table: ttk.Treeview | None = None
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -2813,26 +2828,75 @@ class CoreAppShell:
 
         filters = ttk.LabelFrame(container, text="Filters", padding=10)
         filters.pack(fill="x", pady=(8, 8))
+        row1 = ttk.Frame(filters)
+        row1.pack(fill="x")
         for label, var in (("Store", self.reports_store_id_var), ("From", self.reports_from_var), ("To", self.reports_to_var), ("Timezone", self.reports_timezone_var)):
-            ttk.Label(filters, text=label).pack(anchor="w")
-            ttk.Entry(filters, textvariable=var, width=28).pack(anchor="w", pady=(0, 4))
-        ttk.Button(filters, text="Today", command=lambda: self._apply_report_preset(0)).pack(side="left", padx=(0, 6))
-        ttk.Button(filters, text="7d", command=lambda: self._apply_report_preset(6)).pack(side="left", padx=(0, 6))
-        ttk.Button(filters, text="30d", command=lambda: self._apply_report_preset(29)).pack(side="left", padx=(0, 6))
-        ttk.Button(filters, text="Load", command=self._load_reports).pack(side="left", padx=(12, 0))
+            cell = ttk.Frame(row1)
+            cell.pack(side="left", padx=(0, 8))
+            ttk.Label(cell, text=label).pack(anchor="w")
+            ttk.Entry(cell, textvariable=var, width=16).pack(anchor="w")
+
+        row2 = ttk.Frame(filters)
+        row2.pack(fill="x", pady=(8, 0))
+        for label, var in (("Grouping", self.reports_grouping_var), ("Payment", self.reports_payment_method_var)):
+            cell = ttk.Frame(row2)
+            cell.pack(side="left", padx=(0, 8))
+            ttk.Label(cell, text=label).pack(anchor="w")
+            ttk.Entry(cell, textvariable=var, width=16).pack(anchor="w")
+
+        ttk.Checkbutton(row2, text="Business date mode", variable=self.reports_business_mode_var).pack(side="left", padx=(8, 8))
+        ttk.Button(filters, text="Today", command=lambda: self._apply_report_preset(0)).pack(side="left", padx=(0, 6), pady=(8, 0))
+        ttk.Button(filters, text="7d", command=lambda: self._apply_report_preset(6)).pack(side="left", padx=(0, 6), pady=(8, 0))
+        ttk.Button(filters, text="30d", command=lambda: self._apply_report_preset(29)).pack(side="left", padx=(0, 6), pady=(8, 0))
+        ttk.Button(filters, text="Apply Filters", command=self._load_reports).pack(side="left", padx=(12, 6), pady=(8, 0))
+        ttk.Button(filters, text="Reset", command=self._reset_report_filters).pack(side="left", pady=(8, 0))
 
         ttk.Label(container, textvariable=self.reports_loading_var, foreground="gray").pack(anchor="w")
         ttk.Label(container, textvariable=self.reports_error_var, foreground="red").pack(anchor="w")
         ttk.Label(container, textvariable=self.reports_trace_var, foreground="gray").pack(anchor="w")
-        ttk.Label(container, textvariable=self.reports_kpi_var).pack(anchor="w", pady=(6, 0))
-        ttk.Label(container, textvariable=self.reports_table_var, justify="left").pack(anchor="w", pady=(4, 8))
+        ttk.Label(container, textvariable=self.reports_kpi_var).pack(anchor="w", pady=(6, 4))
 
-        export_panel = ttk.LabelFrame(container, text="Export", padding=10)
-        export_panel.pack(fill="x")
+        table_frame = ttk.LabelFrame(container, text="Daily Results", padding=8)
+        table_frame.pack(fill="both", expand=True)
+        self.reports_table = ttk.Treeview(table_frame, columns=("business_date", "net_sales", "orders_paid_count", "net_profit"), show="headings", height=8)
+        for col, title in (("business_date", "Date"), ("net_sales", "Net Sales"), ("orders_paid_count", "Orders"), ("net_profit", "Net Profit")):
+            self.reports_table.heading(col, text=title, command=lambda c=col: self._sort_reports_rows(c))
+            self.reports_table.column(col, width=120, anchor="center")
+        self.reports_table.pack(fill="x")
+
+        breakdown = ttk.LabelFrame(container, text="Calendar Breakdown", padding=8)
+        breakdown.pack(fill="both", expand=True, pady=(8, 0))
+        self.reports_breakdown_table = ttk.Treeview(breakdown, columns=("business_date", "net_sales", "orders_paid_count"), show="headings", height=6)
+        for col, title in (("business_date", "Date"), ("net_sales", "Net Sales"), ("orders_paid_count", "Orders")):
+            self.reports_breakdown_table.heading(col, text=title)
+            self.reports_breakdown_table.column(col, width=120, anchor="center")
+        self.reports_breakdown_table.pack(fill="x")
+
+        export_panel = ttk.LabelFrame(container, text="Export Manager", padding=10)
+        export_panel.pack(fill="x", pady=(8, 0))
         ttk.Entry(export_panel, textvariable=self.reports_type_var, width=18).pack(side="left", padx=(0, 8))
         ttk.Entry(export_panel, textvariable=self.reports_format_var, width=8).pack(side="left", padx=(0, 8))
-        ttk.Button(export_panel, text="Request Export", command=self._request_report_export).pack(side="left")
+        ttk.Button(export_panel, text="Request Export", command=self._request_report_export).pack(side="left", padx=(0, 8))
+        ttk.Button(export_panel, text="Refresh", command=self._refresh_export_statuses).pack(side="left", padx=(0, 8))
+        ttk.Button(export_panel, text="Retry Failed", command=self._retry_failed_export).pack(side="left", padx=(0, 8))
+        ttk.Button(export_panel, text="Open Artifact", command=self._open_latest_export_artifact).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(export_panel, text="Auto poll", variable=self.reports_auto_poll_var).pack(side="left")
+
+        self.reports_export_table = ttk.Treeview(container, columns=("export_id", "status", "created", "source", "format"), show="headings", height=5)
+        for col, title in (("export_id", "Export ID"), ("status", "Status"), ("created", "Created"), ("source", "Type"), ("format", "Format")):
+            self.reports_export_table.heading(col, text=title)
+            self.reports_export_table.column(col, width=120, anchor="center")
+        self.reports_export_table.pack(fill="x", pady=(6, 0))
         ttk.Label(container, textvariable=self.reports_export_status_var, justify="left").pack(anchor="w", pady=(8, 0))
+
+    def _reset_report_filters(self) -> None:
+        self.reports_store_id_var.set(os.getenv("ARIS3_REPORTS_DEFAULT_STORE_ID", ""))
+        self.reports_from_var.set("")
+        self.reports_to_var.set("")
+        self.reports_timezone_var.set(os.getenv("ARIS3_REPORTS_DEFAULT_TIMEZONE", "UTC"))
+        self.reports_grouping_var.set("")
+        self.reports_payment_method_var.set("")
+        self.reports_business_mode_var.set(False)
 
     def _apply_report_preset(self, days_back: int) -> None:
         end_date = date.today()
@@ -2841,11 +2905,16 @@ class CoreAppShell:
         self.reports_to_var.set(end_date.isoformat())
 
     def _report_filter_payload(self) -> ReportFilter:
-        payload = ReportFilter(
-            store_id=self.reports_store_id_var.get().strip() or None,
-            from_value=self.reports_from_var.get().strip() or None,
-            to_value=self.reports_to_var.get().strip() or None,
-            timezone=self.reports_timezone_var.get().strip() or None,
+        payload = normalize_report_filters(
+            {
+                "store_id": self.reports_store_id_var.get().strip() or None,
+                "from": self.reports_from_var.get().strip() or None,
+                "to": self.reports_to_var.get().strip() or None,
+                "timezone": self.reports_timezone_var.get().strip() or None,
+                "payment_method": self.reports_payment_method_var.get().strip() or None,
+                "grouping": self.reports_grouping_var.get().strip() or None,
+                "business_date_mode": "business" if self.reports_business_mode_var.get() else None,
+            }
         )
         self.reports_state.filter = payload
         return payload
@@ -2864,26 +2933,80 @@ class CoreAppShell:
                 self.reports_state.daily = daily
                 self.reports_state.calendar = calendar
                 self.root and self.root.after(0, self._render_reports_loaded)
-            except ApiError as exc:
+            except Exception as exc:
                 def _err():
                     self.reports_loading_var.set("")
-                    self.reports_error_var.set(exc.message)
-                    self.reports_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+                    if isinstance(exc, ApiError):
+                        self.reports_error_var.set(exc.message)
+                        self.reports_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+                    else:
+                        self.reports_error_var.set(str(exc))
                 self.root and self.root.after(0, _err)
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def _sort_reports_rows(self, column: str) -> None:
+        self.reports_state.sort_desc = not self.reports_state.sort_desc if self.reports_state.sort_column == column else False
+        self.reports_state.sort_column = column
+        self._render_reports_loaded()
+
     def _render_reports_loaded(self) -> None:
         self.reports_loading_var.set("")
         daily = self.reports_state.daily
+        calendar = self.reports_state.calendar
         if daily is None:
             return
         totals = daily.totals
         self.reports_kpi_var.set(
             f"net={totals.net_sales} gross={totals.gross_sales} returns={totals.refunds_total} orders={totals.orders_paid_count} avg={totals.average_ticket}"
         )
-        lines = [f"{row.business_date}: net={row.net_sales} orders={row.orders_paid_count}" for row in daily.rows[:14]]
-        self.reports_table_var.set("\n".join(lines) if lines else "No rows")
+        rows = list(daily.rows)
+        key = self.reports_state.sort_column
+        rows.sort(key=lambda item: getattr(item, key), reverse=self.reports_state.sort_desc)
+        if self.reports_table is not None:
+            for item in self.reports_table.get_children():
+                self.reports_table.delete(item)
+            for row in rows:
+                self.reports_table.insert("", "end", values=(row.business_date.isoformat(), str(row.net_sales), row.orders_paid_count, str(row.net_profit)))
+        if self.reports_breakdown_table is not None:
+            for item in self.reports_breakdown_table.get_children():
+                self.reports_breakdown_table.delete(item)
+            for row in (calendar.rows if calendar else []):
+                self.reports_breakdown_table.insert("", "end", values=(row.business_date.isoformat(), str(row.net_sales), row.orders_paid_count))
+
+    def _render_exports(self) -> None:
+        if self.reports_export_table is not None:
+            for item in self.reports_export_table.get_children():
+                self.reports_export_table.delete(item)
+            for status in self.reports_state.exports[:20]:
+                self.reports_export_table.insert(
+                    "",
+                    "end",
+                    values=(status.export_id, status.status, status.created_at.isoformat(), status.source_type, status.format),
+                )
+        self.reports_export_status_var.set("\n".join([f"{it.export_id} {it.status} {it.format}" for it in self.reports_state.exports[:5]]))
+
+    def _refresh_export_statuses(self) -> None:
+        client = ExportsClient(http=self.session._http(), access_token=self.session.token)
+        rows = client.list_recent_exports(page_size=20).rows
+        self.reports_state.exports = rows
+        self._render_exports()
+
+    def _retry_failed_export(self) -> None:
+        failed = next((x for x in self.reports_state.exports if x.status.upper() == "FAILED"), None)
+        if failed is None:
+            self.reports_error_var.set("No failed export to retry.")
+            return
+        self.reports_type_var.set(failed.source_type)
+        self.reports_format_var.set(failed.format)
+        self._request_report_export()
+
+    def _open_latest_export_artifact(self) -> None:
+        if not self.reports_state.exports:
+            return
+        client = ExportsClient(http=self.session._http(), access_token=self.session.token)
+        artifact = client.resolve_export_artifact(self.reports_state.exports[0])
+        self.reports_export_status_var.set(f"artifact: {artifact.url or artifact.reference or 'n/a'}")
 
     def _request_report_export(self) -> None:
         payload = self._report_filter_payload()
@@ -2897,12 +3020,23 @@ class CoreAppShell:
                 idempotency_key=keys.idempotency_key,
             )
             self.reports_state.exports.insert(0, status)
-            self.reports_export_status_var.set("\n".join([f"{it.export_id} {it.status} {it.format}" for it in self.reports_state.exports[:5]]))
+            if self.reports_auto_poll_var.get():
+                result = client.wait_for_export_ready(
+                    status.export_id,
+                    timeout_sec=float(os.getenv("EXPORT_WAIT_TIMEOUT_SEC", "30")),
+                    poll_interval_sec=float(os.getenv("EXPORT_POLL_INTERVAL_SEC", "2")),
+                )
+                status = result.status
+                if result.outcome != ExportTerminalState.COMPLETED:
+                    self.reports_error_var.set(f"Export not completed: {result.outcome.value}")
+            self.reports_state.exports = [status] + [it for it in self.reports_state.exports if it.export_id != status.export_id]
+            self._render_exports()
             self.reports_error_var.set("")
             self.reports_trace_var.set(f"trace_id: {status.trace_id}" if status.trace_id else "")
         except ApiError as exc:
             self.reports_error_var.set(exc.message)
             self.reports_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+
 
 def main() -> None:
     app = CoreAppShell()

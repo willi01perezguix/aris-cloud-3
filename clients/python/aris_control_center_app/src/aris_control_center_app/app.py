@@ -8,7 +8,7 @@ from aris3_client_sdk import ApiSession, ClientConfig, load_config
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.exceptions import ApiError
-from aris3_client_sdk.models import PermissionEntry
+from aris3_client_sdk.models import EffectivePermissionsResponse, PermissionEntry
 
 
 @dataclass
@@ -25,6 +25,7 @@ CONTROL_CENTER_MENU = [
     MenuItem("RBAC", "rbac.view"),
     MenuItem("Settings", "settings.view"),
     MenuItem("Audit", "audit.view"),
+    MenuItem("Permissions Inspector", "rbac.view"),
 ]
 
 
@@ -37,6 +38,14 @@ def build_menu_items(allowed_permissions: set[str]) -> list[MenuItem]:
 
 def allowed_permission_set(decisions: list[PermissionEntry]) -> set[str]:
     return {entry.key for entry in decisions if entry.allowed}
+
+
+def group_permissions(entries: list[PermissionEntry]) -> dict[str, list[PermissionEntry]]:
+    grouped: dict[str, list[PermissionEntry]] = {}
+    for entry in sorted(entries, key=lambda x: x.key):
+        module = entry.key.split(".")[0] if "." in entry.key else entry.key.split("_")[0].lower()
+        grouped.setdefault(module, []).append(entry)
+    return grouped
 
 
 def _ensure_default_root() -> None:
@@ -58,6 +67,12 @@ class ControlCenterAppShell:
         self.root: tk.Tk | None = tk._default_root if isinstance(tk._default_root, tk.Tk) else None
         self.menu_buttons: list[ttk.Button] = []
         self.error_var = tk.StringVar(value="")
+        self.allowed_permissions: set[str] = set()
+        self.content_frame: ttk.Frame | None = None
+        self.inspector_user_id_var = tk.StringVar(value="")
+        self.inspector_error_var = tk.StringVar(value="")
+        self.inspector_trace_var = tk.StringVar(value="")
+        self.inspector_matrix_var = tk.StringVar(value="")
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -111,9 +126,10 @@ class ControlCenterAppShell:
             self.error_var.set(str(exc))
             return
 
-        allowed = allowed_permission_set(permissions.permissions)
+        self.allowed_permissions = allowed_permission_set(permissions.permissions)
+        self.inspector_user_id_var.set(user.id)
         self._show_main_ui(user.username, user.role or "")
-        self._apply_menu_state(build_menu_items(allowed))
+        self._apply_menu_state(build_menu_items(self.allowed_permissions))
 
     def _show_main_ui(self, username: str, role: str) -> None:
         if self.root is None:
@@ -127,17 +143,76 @@ class ControlCenterAppShell:
         ttk.Label(frame, text=status_text).pack(anchor="w")
 
         menu_frame = ttk.LabelFrame(frame, text="Main Menu", padding=10)
-        menu_frame.pack(fill="both", expand=True, pady=(10, 0))
+        menu_frame.pack(fill="x", pady=(10, 0))
+        self.content_frame = ttk.Frame(frame)
+        self.content_frame.pack(fill="both", expand=True, pady=(10, 0))
 
         self.menu_buttons = []
         for item in CONTROL_CENTER_MENU:
-            button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED)
+            command = self._show_permissions_inspector if item.label == "Permissions Inspector" else (lambda label=item.label: self._show_placeholder(label))
+            button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
             button.pack(fill="x", pady=2)
             self.menu_buttons.append(button)
+        self._show_placeholder("Select a menu option.")
 
     def _apply_menu_state(self, menu_items: list[MenuItem]) -> None:
         for button, item in zip(self.menu_buttons, menu_items):
             button.configure(state=tk.NORMAL if item.enabled else tk.DISABLED)
+
+    def _show_placeholder(self, message: str) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+        ttk.Label(self.content_frame, text=message, foreground="gray").pack(anchor="w")
+
+    def _show_permissions_inspector(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+
+        container = ttk.Frame(self.content_frame)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="Effective Permissions Inspector", font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
+        if "rbac.view" not in self.allowed_permissions:
+            ttk.Label(container, text="No RBAC view permission.", foreground="gray").pack(anchor="w", pady=(8, 0))
+            return
+
+        row = ttk.Frame(container)
+        row.pack(fill="x", pady=(8, 4))
+        ttk.Label(row, text="User ID").pack(side="left")
+        ttk.Entry(row, textvariable=self.inspector_user_id_var, width=40).pack(side="left", padx=(8, 8))
+        ttk.Button(row, text="Load", command=self._load_permissions_inspector).pack(side="left")
+        ttk.Label(container, text="DENY overrides highlighted with !", foreground="gray").pack(anchor="w")
+        ttk.Label(container, textvariable=self.inspector_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(container, textvariable=self.inspector_trace_var, foreground="gray").pack(anchor="w")
+        ttk.Label(container, textvariable=self.inspector_matrix_var, justify="left").pack(anchor="w", pady=(8, 0))
+
+    def _load_permissions_inspector(self) -> None:
+        user_id = self.inspector_user_id_var.get().strip()
+        self.inspector_error_var.set("")
+        self.inspector_trace_var.set("")
+        try:
+            client = AccessControlClient(http=self.session._http(), access_token=self.session.token)
+            payload = client.effective_permissions_for_user(user_id) if user_id else client.effective_permissions()
+            self._render_permission_matrix(payload)
+        except ApiError as exc:
+            self.inspector_error_var.set(exc.message)
+            self.inspector_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+
+    def _render_permission_matrix(self, payload: EffectivePermissionsResponse) -> None:
+        grouped = group_permissions(payload.permissions)
+        lines: list[str] = []
+        denies = set(payload.denies_applied)
+        for module, entries in grouped.items():
+            lines.append(f"[{module}]")
+            for entry in entries:
+                deny_marker = " !DENY" if entry.key in denies else ""
+                decision = "ALLOW" if entry.allowed else "DENY"
+                lines.append(f"  - {entry.key}: {decision}{deny_marker}")
+        self.inspector_matrix_var.set("\n".join(lines) if lines else "No permissions returned")
+        self.inspector_trace_var.set(f"trace_id: {payload.trace_id}" if payload.trace_id else "")
 
 
 def main() -> None:

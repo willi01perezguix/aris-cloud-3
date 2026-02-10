@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from .auth_store import AuthStore
 from .clients.access_control import AccessControlClient
 from .clients.auth import AuthClient
+from .clients.exports_client import ExportsClient
 from .clients.health import HealthClient
 from .clients.smoke import SmokeClient
 from .clients.pos_cash_client import PosCashClient
+from .clients.reports_client import ReportsClient
 from .clients.pos_sales_client import PosSalesClient
 from .clients.stock_client import StockClient
 from .clients.transfers_client import TransfersClient
@@ -59,6 +61,12 @@ class ApiSession:
 
     def transfers_client(self) -> TransfersClient:
         return TransfersClient(http=self._http(), access_token=self.token)
+
+    def reports_client(self) -> ReportsClient:
+        return ReportsClient(http=self._http(), access_token=self.token)
+
+    def exports_client(self) -> ExportsClient:
+        return ExportsClient(http=self._http(), access_token=self.token)
 
     def establish(self, token: TokenResponse, user: UserResponse | None) -> None:
         self.token = token.access_token

@@ -15,6 +15,8 @@ from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.pos_cash_client import PosCashClient
 from aris3_client_sdk.clients.inventory_counts_client import InventoryCountsClient
+from aris3_client_sdk.clients.reports_client import ReportsClient
+from aris3_client_sdk.clients.exports_client import ExportsClient
 from aris3_client_sdk.clients.pos_sales_client import PosSalesClient
 from aris3_client_sdk.clients.stock_client import StockClient
 from aris3_client_sdk.clients.transfers_client import TransfersClient
@@ -34,6 +36,8 @@ from aris3_client_sdk.models_pos_sales import (
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
 from aris3_client_sdk.models_inventory_counts import CountHeader, ScanBatchRequest
 from aris3_client_sdk.models_transfers import TransferQuery, TransferResponse
+from aris3_client_sdk.models_reports import ReportFilter, ReportDailyResponse, ReportCalendarResponse
+from aris3_client_sdk.models_exports import ExportStatus
 from aris3_client_sdk.payment_validation import PaymentValidationIssue, validate_checkout_payload
 from aris3_client_sdk.pos_cash_validation import (
     CashValidationIssue,
@@ -113,6 +117,18 @@ class PosCashViewState:
 class TransferViewState:
     rows: list[TransferResponse] = field(default_factory=list)
     selected: TransferResponse | None = None
+    busy: bool = False
+
+
+
+
+@dataclass
+class ReportsViewState:
+    filter: ReportFilter = field(default_factory=ReportFilter)
+    daily: ReportDailyResponse | None = None
+    calendar: ReportCalendarResponse | None = None
+    mode: str = "daily"
+    exports: list[ExportStatus] = field(default_factory=list)
     busy: bool = False
 
 
@@ -287,6 +303,20 @@ class CoreAppShell:
         self.pos_cash_timezone_var = tk.StringVar(value=os.getenv("ARIS3_POS_DEFAULT_TIMEZONE", "UTC"))
         self.pos_cash_force_day_close_var = tk.BooleanVar(value=False)
         self.pos_cash_movements_table: ttk.Treeview | None = None
+        self.reports_state = ReportsViewState()
+        self.reports_error_var = tk.StringVar(value="")
+        self.reports_trace_var = tk.StringVar(value="")
+        self.reports_loading_var = tk.StringVar(value="")
+        self.reports_kpi_var = tk.StringVar(value="")
+        self.reports_filters_var = tk.StringVar(value="")
+        self.reports_table_var = tk.StringVar(value="")
+        self.reports_export_status_var = tk.StringVar(value="")
+        self.reports_store_id_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_STORE_ID", ""))
+        self.reports_from_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_FROM", ""))
+        self.reports_to_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_TO", ""))
+        self.reports_timezone_var = tk.StringVar(value=os.getenv("ARIS3_REPORTS_DEFAULT_TIMEZONE", "UTC"))
+        self.reports_format_var = tk.StringVar(value=os.getenv("ARIS3_EXPORT_DEFAULT_FORMAT", "csv"))
+        self.reports_type_var = tk.StringVar(value="reports_daily")
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -377,6 +407,8 @@ class CoreAppShell:
                 command = self._show_transfers_view
             elif item.label == "Inventory Counts":
                 command = self._show_inventory_counts_view
+            elif item.label == "Reports":
+                command = self._show_reports_view
             else:
                 command = lambda label=item.label: self._show_placeholder(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
@@ -575,6 +607,9 @@ class CoreAppShell:
 
     def _is_pos_cash_allowed(self) -> bool:
         return self._has_permission("POS_CASH_VIEW", "POS_CASH_MANAGE", "POS_CASH_DAY_CLOSE")
+
+    def _is_reports_allowed(self) -> bool:
+        return self._has_permission("REPORTS_VIEW", "reports.view")
 
     def _can_manage_pos_cash(self) -> bool:
         return self._has_permission("POS_CASH_MANAGE")
@@ -2762,6 +2797,112 @@ class CoreAppShell:
             },
         }
 
+
+
+    def _show_reports_view(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+        container = ttk.Frame(self.content_frame, padding=16)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="Reports", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+        if not self._is_reports_allowed():
+            ttk.Label(container, text="Missing REPORTS_VIEW permission. Request access from an administrator.", foreground="gray").pack(anchor="w", pady=(8, 0))
+            return
+
+        filters = ttk.LabelFrame(container, text="Filters", padding=10)
+        filters.pack(fill="x", pady=(8, 8))
+        for label, var in (("Store", self.reports_store_id_var), ("From", self.reports_from_var), ("To", self.reports_to_var), ("Timezone", self.reports_timezone_var)):
+            ttk.Label(filters, text=label).pack(anchor="w")
+            ttk.Entry(filters, textvariable=var, width=28).pack(anchor="w", pady=(0, 4))
+        ttk.Button(filters, text="Today", command=lambda: self._apply_report_preset(0)).pack(side="left", padx=(0, 6))
+        ttk.Button(filters, text="7d", command=lambda: self._apply_report_preset(6)).pack(side="left", padx=(0, 6))
+        ttk.Button(filters, text="30d", command=lambda: self._apply_report_preset(29)).pack(side="left", padx=(0, 6))
+        ttk.Button(filters, text="Load", command=self._load_reports).pack(side="left", padx=(12, 0))
+
+        ttk.Label(container, textvariable=self.reports_loading_var, foreground="gray").pack(anchor="w")
+        ttk.Label(container, textvariable=self.reports_error_var, foreground="red").pack(anchor="w")
+        ttk.Label(container, textvariable=self.reports_trace_var, foreground="gray").pack(anchor="w")
+        ttk.Label(container, textvariable=self.reports_kpi_var).pack(anchor="w", pady=(6, 0))
+        ttk.Label(container, textvariable=self.reports_table_var, justify="left").pack(anchor="w", pady=(4, 8))
+
+        export_panel = ttk.LabelFrame(container, text="Export", padding=10)
+        export_panel.pack(fill="x")
+        ttk.Entry(export_panel, textvariable=self.reports_type_var, width=18).pack(side="left", padx=(0, 8))
+        ttk.Entry(export_panel, textvariable=self.reports_format_var, width=8).pack(side="left", padx=(0, 8))
+        ttk.Button(export_panel, text="Request Export", command=self._request_report_export).pack(side="left")
+        ttk.Label(container, textvariable=self.reports_export_status_var, justify="left").pack(anchor="w", pady=(8, 0))
+
+    def _apply_report_preset(self, days_back: int) -> None:
+        end_date = date.today()
+        start_date = end_date.fromordinal(end_date.toordinal() - days_back)
+        self.reports_from_var.set(start_date.isoformat())
+        self.reports_to_var.set(end_date.isoformat())
+
+    def _report_filter_payload(self) -> ReportFilter:
+        payload = ReportFilter(
+            store_id=self.reports_store_id_var.get().strip() or None,
+            from_value=self.reports_from_var.get().strip() or None,
+            to_value=self.reports_to_var.get().strip() or None,
+            timezone=self.reports_timezone_var.get().strip() or None,
+        )
+        self.reports_state.filter = payload
+        return payload
+
+    def _load_reports(self) -> None:
+        payload = self._report_filter_payload()
+        self.reports_loading_var.set("Loading reports…")
+        self.reports_error_var.set("")
+        self.reports_trace_var.set("")
+
+        def _run() -> None:
+            try:
+                client = ReportsClient(http=self.session._http(), access_token=self.session.token)
+                daily = client.get_sales_daily(payload)
+                calendar = client.get_sales_calendar(payload)
+                self.reports_state.daily = daily
+                self.reports_state.calendar = calendar
+                self.root and self.root.after(0, self._render_reports_loaded)
+            except ApiError as exc:
+                def _err():
+                    self.reports_loading_var.set("")
+                    self.reports_error_var.set(exc.message)
+                    self.reports_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+                self.root and self.root.after(0, _err)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _render_reports_loaded(self) -> None:
+        self.reports_loading_var.set("")
+        daily = self.reports_state.daily
+        if daily is None:
+            return
+        totals = daily.totals
+        self.reports_kpi_var.set(
+            f"net={totals.net_sales} gross={totals.gross_sales} returns={totals.refunds_total} orders={totals.orders_paid_count} avg={totals.average_ticket}"
+        )
+        lines = [f"{row.business_date}: net={row.net_sales} orders={row.orders_paid_count}" for row in daily.rows[:14]]
+        self.reports_table_var.set("\n".join(lines) if lines else "No rows")
+
+    def _request_report_export(self) -> None:
+        payload = self._report_filter_payload()
+        fmt = (self.reports_format_var.get().strip() or "csv").lower()
+        source = (self.reports_type_var.get().strip() or "reports_daily").lower()
+        keys = new_idempotency_keys()
+        try:
+            client = ExportsClient(http=self.session._http(), access_token=self.session.token)
+            status = client.request_export(
+                {"source_type": source, "format": fmt, "filters": payload.model_dump(by_alias=True, mode="json", exclude_none=True), "transaction_id": keys.transaction_id},
+                idempotency_key=keys.idempotency_key,
+            )
+            self.reports_state.exports.insert(0, status)
+            self.reports_export_status_var.set("\n".join([f"{it.export_id} {it.status} {it.format}" for it in self.reports_state.exports[:5]]))
+            self.reports_error_var.set("")
+            self.reports_trace_var.set(f"trace_id: {status.trace_id}" if status.trace_id else "")
+        except ApiError as exc:
+            self.reports_error_var.set(exc.message)
+            self.reports_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
 
 def main() -> None:
     app = CoreAppShell()

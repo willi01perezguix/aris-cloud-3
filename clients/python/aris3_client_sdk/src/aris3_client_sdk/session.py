@@ -10,6 +10,7 @@ from .clients.smoke import SmokeClient
 from .clients.pos_cash_client import PosCashClient
 from .clients.pos_sales_client import PosSalesClient
 from .clients.stock_client import StockClient
+from .clients.transfers_client import TransfersClient
 from .config import ClientConfig
 from .http_client import HttpClient
 from .models import SessionData, TokenResponse, UserResponse
@@ -55,6 +56,9 @@ class ApiSession:
 
     def pos_cash_client(self) -> PosCashClient:
         return PosCashClient(http=self._http(), access_token=self.token)
+
+    def transfers_client(self) -> TransfersClient:
+        return TransfersClient(http=self._http(), access_token=self.token)
 
     def establish(self, token: TokenResponse, user: UserResponse | None) -> None:
         self.token = token.access_token

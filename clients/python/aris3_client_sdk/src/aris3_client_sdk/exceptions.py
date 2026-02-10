@@ -41,3 +41,15 @@ class CashDrawerNegativeError(ApiError):
 
 class CashPermissionDeniedError(ForbiddenError):
     pass
+
+
+class TransferStateError(ValidationError):
+    pass
+
+
+class TransferTenantMismatchError(ForbiddenError):
+    pass
+
+
+class TransferActionForbiddenError(ForbiddenError):
+    pass

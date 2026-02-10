@@ -4,6 +4,7 @@ import pytest
 
 from aris_core_3_app.app import CoreAppShell, build_menu_items as build_core_menu, build_stock_query
 from aris_control_center_app.app import ControlCenterAppShell, build_menu_items as build_control_menu
+from aris3_client_sdk.models import UserResponse
 from aris3_client_sdk.models_stock import StockMeta, StockTableResponse, StockTotals
 from aris3_client_sdk.models_pos_cash import (
     PosCashMovementListResponse,
@@ -12,6 +13,13 @@ from aris3_client_sdk.models_pos_cash import (
     PosCashSessionSummary,
 )
 from aris3_client_sdk.models_pos_sales import PosSaleHeader, PosSaleResponse
+from aris3_client_sdk.models_transfers import (
+    TransferHeader,
+    TransferLineResponse,
+    TransferLineSnapshot,
+    TransferMovementSummary,
+    TransferResponse,
+)
 from aris3_client_sdk.stock_validation import ValidationIssue
 
 
@@ -196,6 +204,111 @@ def test_pos_checkout_validation_and_call() -> None:
     fake_client = FakePosClient()
     app._checkout_pos_sale(client=fake_client, cash_client=FakeCashClient())
     assert fake_client.called is True
+
+
+def _sample_transfer(status: str = "DRAFT") -> TransferResponse:
+    return TransferResponse(
+        header=TransferHeader(
+            id="transfer-1",
+            tenant_id="tenant-1",
+            origin_store_id="origin-1",
+            destination_store_id="dest-1",
+            status=status,
+            created_at="2024-01-01T00:00:00Z",
+        ),
+        lines=[
+            TransferLineResponse(
+                id="line-1",
+                line_type="SKU",
+                qty=2,
+                received_qty=0,
+                outstanding_qty=2,
+                shortage_status=None,
+                resolution_status=None,
+                snapshot=TransferLineSnapshot(
+                    sku="SKU-1",
+                    location_code="LOC",
+                    pool="P1",
+                    location_is_vendible=True,
+                ),
+                created_at="2024-01-01T00:00:00Z",
+            )
+        ],
+        movement_summary=TransferMovementSummary(
+            dispatched_lines=0,
+            dispatched_qty=0,
+            pending_reception=False,
+            shortages_possible=False,
+        ),
+    )
+
+
+def test_transfer_permission_gating() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = set()
+    assert app._is_transfers_allowed() is False
+    app.allowed_permissions = {"TRANSFER_VIEW"}
+    assert app._is_transfers_allowed() is True
+    app.allowed_permissions = {"TRANSFER_MANAGE"}
+    assert app._can_manage_transfers() is True
+
+
+def test_transfer_action_visibility_by_state() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"TRANSFER_MANAGE"}
+    app.session.user = UserResponse(id="user-1", username="u", store_id="dest-1", role="USER")
+    app.transfer_state.selected = _sample_transfer(status="DISPATCHED")
+
+    class FakeButton:
+        def __init__(self) -> None:
+            self.state = None
+
+        def configure(self, state=None):
+            self.state = state
+
+    app.transfer_action_buttons = {
+        "Create": FakeButton(),
+        "Update Draft": FakeButton(),
+        "Dispatch": FakeButton(),
+        "Receive": FakeButton(),
+        "Report Shortages": FakeButton(),
+        "Resolve Shortages": FakeButton(),
+        "Cancel": FakeButton(),
+        "Refresh Detail": FakeButton(),
+    }
+    app._update_transfer_action_buttons()
+    assert app.transfer_action_buttons["Dispatch"].state == "disabled"
+    assert app.transfer_action_buttons["Receive"].state == "normal"
+
+
+def test_transfer_action_calls_sdk(monkeypatch) -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"TRANSFER_MANAGE"}
+    app.session.user = UserResponse(id="user-1", username="u", store_id="dest-1", role="MANAGER")
+    app.transfer_state.selected = _sample_transfer(status="DRAFT")
+
+    called = {}
+
+    class FakeTransfersClient:
+        def __init__(self, http, access_token=None) -> None:
+            pass
+
+        def transfer_action(self, transfer_id, action, payload, **kwargs):
+            called["action"] = action
+            return _sample_transfer(status="DISPATCHED")
+
+    class ImmediateThread:
+        def __init__(self, target, daemon=None) -> None:
+            self.target = target
+
+        def start(self) -> None:
+            self.target()
+
+    monkeypatch.setattr("aris_core_3_app.app.TransfersClient", FakeTransfersClient)
+    monkeypatch.setattr("aris_core_3_app.app.threading.Thread", ImmediateThread)
+
+    app._submit_transfer_request("dispatch", payload={})
+    assert called["action"] == "dispatch"
 
 
 def test_pos_checkout_validation_errors_rendered() -> None:

@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from tkinter import filedialog, messagebox, ttk
 
-from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempotency_keys
+from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempotency_keys, to_user_facing_error
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.pos_cash_client import PosCashClient
@@ -924,8 +924,10 @@ class CoreAppShell:
         return api_client.get_stock(query)
 
     def _handle_stock_error(self, exc: ApiError) -> None:
+        user_error = to_user_facing_error(exc)
         self.stock_loading_var.set("")
-        self.stock_error_var.set(str(exc))
+        self.stock_error_var.set(user_error.message)
+        self.stock_action_trace_var.set(f"trace_id: {user_error.trace_id}" if user_error.trace_id else "")
         self._set_stock_controls_state(tk.NORMAL)
 
     def _update_stock_results(self, response: StockTableResponse) -> None:
@@ -1722,12 +1724,12 @@ class CoreAppShell:
         self._refresh_transfers()
 
     def _handle_transfer_error(self, exc: ApiError) -> None:
+        user_error = to_user_facing_error(exc)
         self.transfer_loading_var.set("")
         self.transfer_action_status_var.set("")
-        self.transfer_error_var.set(exc.message)
-        self.transfer_action_error_var.set(exc.message)
-        if exc.trace_id:
-            self.transfer_action_trace_var.set(f"trace_id: {exc.trace_id}")
+        self.transfer_error_var.set(user_error.message)
+        self.transfer_action_error_var.set(user_error.message)
+        self.transfer_action_trace_var.set(f"trace_id: {user_error.trace_id}" if user_error.trace_id else "")
 
     def _show_pos_view(self) -> None:
         if self.content_frame is None:
@@ -2260,8 +2262,9 @@ class CoreAppShell:
             worker()
 
     def _set_pos_cash_api_error(self, exc: ApiError) -> None:
-        self.pos_cash_error_var.set(f"{exc.code}: {exc.message}")
-        self.pos_cash_trace_var.set(f"trace_id: {exc.trace_id}")
+        user_error = to_user_facing_error(exc)
+        self.pos_cash_error_var.set(user_error.message)
+        self.pos_cash_trace_var.set(f"trace_id: {user_error.trace_id}" if user_error.trace_id else "")
 
     def _open_cash_session(self, *, client: PosCashClient | None = None, async_mode: bool = True) -> None:
         if not self._can_manage_pos_cash():
@@ -2645,7 +2648,11 @@ class CoreAppShell:
     def _create_pos_sale(self) -> None:
         if not self._can_manage_pos():
             return
+        if self.pos_state.busy:
+            self.pos_validation_var.set("Checkout already in progress.")
+            return
         self._reset_pos_messages()
+        self.pos_state.busy = True
         if not self.pos_state.lines:
             self.pos_validation_var.set("Add at least one line before creating a sale.")
             return
@@ -2679,7 +2686,11 @@ class CoreAppShell:
     def _update_pos_sale(self) -> None:
         if not self._can_manage_pos():
             return
+        if self.pos_state.busy:
+            self.pos_validation_var.set("Checkout already in progress.")
+            return
         self._reset_pos_messages()
+        self.pos_state.busy = True
         sale = self.pos_state.sale
         if sale is None:
             self.pos_validation_var.set("Create a sale before updating items.")
@@ -2714,7 +2725,11 @@ class CoreAppShell:
     ) -> None:
         if not self._can_manage_pos():
             return
+        if self.pos_state.busy:
+            self.pos_validation_var.set("Checkout already in progress.")
+            return
         self._reset_pos_messages()
+        self.pos_state.busy = True
         sale = self.pos_state.sale
         if sale is None:
             self.pos_validation_var.set("Create a sale before checkout.")
@@ -2751,11 +2766,17 @@ class CoreAppShell:
             self._apply_sale_response(response)
         except ApiError as exc:
             self._set_pos_api_error(exc)
+        finally:
+            self.pos_state.busy = False
 
     def _cancel_pos_sale(self, *, client: PosSalesClient | None = None) -> None:
         if not self._can_manage_pos():
             return
+        if self.pos_state.busy:
+            self.pos_validation_var.set("Checkout already in progress.")
+            return
         self._reset_pos_messages()
+        self.pos_state.busy = True
         sale = self.pos_state.sale
         if sale is None:
             self.pos_validation_var.set("Create a sale before cancel.")
@@ -2768,6 +2789,8 @@ class CoreAppShell:
             self._apply_sale_response(response)
         except ApiError as exc:
             self._set_pos_api_error(exc)
+        finally:
+            self.pos_state.busy = False
 
     def _refresh_pos_sale(self) -> None:
         if not self._is_pos_allowed():

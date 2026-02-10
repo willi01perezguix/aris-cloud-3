@@ -131,7 +131,7 @@ class ExportsClient(BaseClient):
             method="GET",
             url=self.http._build_url(f"/aris3/exports/{export_id}/download"),
             headers=headers,
-            timeout=self.http.config.timeout_seconds,
+            timeout=(self.http.config.connect_timeout_seconds, self.http.config.read_timeout_seconds),
             verify=self.http.config.verify_ssl,
         )
         if trace_context:

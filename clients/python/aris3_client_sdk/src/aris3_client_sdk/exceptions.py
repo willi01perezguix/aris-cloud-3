@@ -12,7 +12,8 @@ class ApiError(Exception):
     status_code: int
 
     def __str__(self) -> str:
-        return f"[{self.status_code}] {self.code}: {self.message}"
+        trace = f" trace_id={self.trace_id}" if self.trace_id else ""
+        return f"[{self.status_code}] {self.code}: {self.message}{trace}"
 
 
 class UnauthorizedError(ApiError):

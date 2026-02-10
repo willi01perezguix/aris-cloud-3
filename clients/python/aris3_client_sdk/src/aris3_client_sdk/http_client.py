@@ -27,9 +27,9 @@ class HttpClient:
             self.session = requests.Session()
             retry = Retry(
                 total=self.config.retries,
-                backoff_factor=0.3,
+                backoff_factor=self.config.retry_backoff_seconds,
                 status_forcelist=(502, 503, 504),
-                allowed_methods=("GET", "POST", "PUT", "PATCH", "DELETE"),
+                allowed_methods=("GET", "HEAD", "OPTIONS"),
             )
             adapter = HTTPAdapter(max_retries=retry)
             self.session.mount("http://", adapter)
@@ -63,7 +63,7 @@ class HttpClient:
             headers=request_headers,
             json=json_body,
             params=params,
-            timeout=self.config.timeout_seconds,
+            timeout=(self.config.connect_timeout_seconds, self.config.read_timeout_seconds),
             verify=self.config.verify_ssl,
         )
         trace_context.update_from_headers(response.headers)

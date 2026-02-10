@@ -182,6 +182,7 @@ from .pos_cash_validation import (
     validate_open_session_payload,
 )
 from .tracing import TraceContext
+from .ui_errors import UserFacingError, to_user_facing_error
 
 __all__ = [
     "ApiError",
@@ -295,6 +296,7 @@ __all__ = [
     "TransferStateError",
     "TransferStatus",
     "TransferTenantMismatchError",
+    "UserFacingError",
     "TransferUpdateRequest",
     "UnauthorizedError",
     "UserResponse",
@@ -346,4 +348,5 @@ __all__ = [
     "validate_scan_batch_payload",
     "validate_start_payload",
     "validate_update_transfer_payload",
+    "to_user_facing_error",
 ]

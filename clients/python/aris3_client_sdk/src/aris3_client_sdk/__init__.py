@@ -101,6 +101,13 @@ from .models_reports import (
     ReportProfitSummaryResponse,
     ReportTotals,
 )
+from .models_media import (
+    MediaAsset,
+    MediaMapping,
+    MediaResolveRequest,
+    MediaResolveResponse,
+)
+from .image_utils import ImageMemoCache, choose_best_image, placeholder_image_ref, safe_image_url
 from .models_exports import (
     ExportArtifact,
     ExportFormat,
@@ -190,6 +197,7 @@ __all__ = [
     "EffectivePermissionsResponse",
     "ForbiddenError",
     "HttpClient",
+    "ImageMemoCache",
     "InventoryCountActionAvailability",
     "InventoryCountActionForbiddenError",
     "InventoryCountClosedError",
@@ -199,6 +207,13 @@ __all__ = [
     "InventoryCountValidationIssue",
     "IdempotencyKeys",
     "NotFoundError",
+    "safe_image_url",
+    "placeholder_image_ref",
+    "choose_best_image",
+    "MediaResolveResponse",
+    "MediaResolveRequest",
+    "MediaMapping",
+    "MediaAsset",
     "PermissionEntry",
     "PaymentTotals",
     "PaymentValidationIssue",

@@ -14,6 +14,7 @@ from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempote
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.pos_cash_client import PosCashClient
+from aris3_client_sdk.clients.inventory_counts_client import InventoryCountsClient
 from aris3_client_sdk.clients.pos_sales_client import PosSalesClient
 from aris3_client_sdk.clients.stock_client import StockClient
 from aris3_client_sdk.clients.transfers_client import TransfersClient
@@ -31,6 +32,7 @@ from aris3_client_sdk.models_pos_sales import (
     PosSaleResponse,
 )
 from aris3_client_sdk.models_stock import StockQuery, StockTableResponse
+from aris3_client_sdk.models_inventory_counts import CountHeader, ScanBatchRequest
 from aris3_client_sdk.models_transfers import TransferQuery, TransferResponse
 from aris3_client_sdk.payment_validation import PaymentValidationIssue, validate_checkout_payload
 from aris3_client_sdk.pos_cash_validation import (
@@ -49,6 +51,11 @@ from aris3_client_sdk.stock_validation import (
     validate_migration_line,
 )
 from aris3_client_sdk.transfer_state import transfer_action_availability
+from aris3_client_sdk.inventory_count_state import inventory_count_action_availability
+from aris3_client_sdk.inventory_counts_validation import (
+    ClientValidationError as InventoryValidationError,
+    validate_scan_batch_payload,
+)
 from aris3_client_sdk.transfer_validation import (
     validate_cancel_payload,
     validate_create_transfer_payload,
@@ -106,6 +113,12 @@ class PosCashViewState:
 class TransferViewState:
     rows: list[TransferResponse] = field(default_factory=list)
     selected: TransferResponse | None = None
+    busy: bool = False
+
+
+@dataclass
+class InventoryCountViewState:
+    selected: CountHeader | None = None
     busy: bool = False
 
 
@@ -222,6 +235,18 @@ class CoreAppShell:
         self.transfer_payload_text: tk.Text | None = None
         self.transfer_selected_id_var = tk.StringVar(value="")
         self.transfer_action_buttons: dict[str, ttk.Button] = {}
+        self.inventory_state = InventoryCountViewState()
+        self.inventory_status_var = tk.StringVar(value="")
+        self.inventory_error_var = tk.StringVar(value="")
+        self.inventory_trace_var = tk.StringVar(value="")
+        self.inventory_count_id_var = tk.StringVar(value="")
+        self.inventory_store_id_var = tk.StringVar(value=os.getenv("ARIS3_INVENTORY_DEFAULT_STORE_ID", ""))
+        self.inventory_state_var = tk.StringVar(value="")
+        self.inventory_scan_epc_var = tk.StringVar(value="")
+        self.inventory_scan_sku_var = tk.StringVar(value="")
+        self.inventory_scan_qty_var = tk.StringVar(value="1")
+        self.inventory_lock_var = tk.StringVar(value="")
+        self.inventory_action_buttons: dict[str, ttk.Button] = {}
         self.pos_state = PosViewState()
         self.pos_error_var = tk.StringVar(value="")
         self.pos_trace_var = tk.StringVar(value="")
@@ -350,6 +375,8 @@ class CoreAppShell:
                 command = self._show_pos_view
             elif item.label == "Transfers":
                 command = self._show_transfers_view
+            elif item.label == "Inventory Counts":
+                command = self._show_inventory_counts_view
             else:
                 command = lambda label=item.label: self._show_placeholder(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
@@ -389,6 +416,156 @@ class CoreAppShell:
     def _is_manager_role(self) -> bool:
         role = (self.session.user.role if self.session.user else None) or ""
         return role in {"MANAGER", "ADMIN", "SUPERADMIN", "PLATFORM_ADMIN"}
+
+    def _is_inventory_counts_allowed(self) -> bool:
+        return self._has_permission("inventory.counts.view", "INVENTORY_COUNT_VIEW", "INVENTORY_COUNT_MANAGE")
+
+    def _can_manage_inventory_counts(self) -> bool:
+        return self._has_permission("inventory.counts.manage", "INVENTORY_COUNT_MANAGE")
+
+    def _show_inventory_counts_view(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+        container = ttk.Frame(self.content_frame, padding=16)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="Inventory Counts", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+        if not self._is_inventory_counts_allowed():
+            ttk.Label(container, text="You do not have permission to access inventory counts.", foreground="gray").pack(
+                anchor="w", pady=(8, 0)
+            )
+            return
+
+        status = ttk.LabelFrame(container, text="Active Count", padding=10)
+        status.pack(fill="x", pady=(8, 8))
+        ttk.Entry(status, textvariable=self.inventory_store_id_var, width=24).grid(row=0, column=0, padx=(0, 8))
+        ttk.Entry(status, textvariable=self.inventory_count_id_var, width=36).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(status, text="Start", command=lambda: self._submit_inventory_action("START")).grid(row=0, column=2)
+        ttk.Button(status, text="Refresh", command=self._refresh_inventory_count).grid(row=0, column=3, padx=(8, 0))
+        ttk.Label(status, textvariable=self.inventory_lock_var).grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        ttk.Label(status, textvariable=self.inventory_status_var).grid(row=2, column=0, columnspan=4, sticky="w")
+        ttk.Label(status, textvariable=self.inventory_error_var, foreground="red").grid(row=3, column=0, columnspan=4, sticky="w")
+        ttk.Label(status, textvariable=self.inventory_trace_var, foreground="gray").grid(row=4, column=0, columnspan=4, sticky="w")
+
+        actions = ttk.LabelFrame(container, text="Lifecycle", padding=10)
+        actions.pack(fill="x")
+        for idx, action in enumerate(["PAUSE", "RESUME", "CLOSE", "CANCEL", "RECONCILE"]):
+            btn = ttk.Button(actions, text=action.title(), command=lambda a=action: self._submit_inventory_action(a))
+            btn.grid(row=0, column=idx, padx=(0, 8))
+            self.inventory_action_buttons[action] = btn
+
+        scan = ttk.LabelFrame(container, text="Scan batch", padding=10)
+        scan.pack(fill="x", pady=(8, 0))
+        ttk.Entry(scan, textvariable=self.inventory_scan_epc_var, width=26).grid(row=0, column=0, padx=(0, 8))
+        ttk.Entry(scan, textvariable=self.inventory_scan_sku_var, width=18).grid(row=0, column=1, padx=(0, 8))
+        ttk.Entry(scan, textvariable=self.inventory_scan_qty_var, width=8).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(scan, text="Submit Scan", command=self._submit_inventory_scan_batch).grid(row=0, column=3)
+        self._update_inventory_action_buttons()
+
+    def _update_inventory_action_buttons(self) -> None:
+        state = self.inventory_state.selected.state if self.inventory_state.selected else ""
+        availability = inventory_count_action_availability(state, can_manage=self._can_manage_inventory_counts())
+        mapping = {
+            "PAUSE": availability.can_pause,
+            "RESUME": availability.can_resume,
+            "CLOSE": availability.can_close,
+            "CANCEL": availability.can_cancel,
+            "RECONCILE": availability.can_reconcile,
+        }
+        for action, button in self.inventory_action_buttons.items():
+            button.configure(state=tk.NORMAL if mapping.get(action, False) else tk.DISABLED)
+
+    def _refresh_inventory_count(self) -> None:
+        count_id = self.inventory_count_id_var.get().strip()
+        if not count_id:
+            return
+        try:
+            client = InventoryCountsClient(http=self.session._http(), access_token=self.session.token)
+            response = client.get_count(count_id)
+            self.inventory_state.selected = response
+            self.inventory_state_var.set(response.state)
+            self.inventory_lock_var.set("Store lock active" if response.lock_active else "Store lock inactive")
+            self.inventory_status_var.set(f"Count {response.id} state={response.state}")
+            self.inventory_error_var.set("")
+            self.inventory_trace_var.set("")
+        except ApiError as exc:
+            self.inventory_error_var.set(exc.message)
+            self.inventory_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+        self._update_inventory_action_buttons()
+
+    def _submit_inventory_action(self, action: str) -> None:
+        count_id = self.inventory_count_id_var.get().strip()
+        store_id = self.inventory_store_id_var.get().strip()
+        if action == "START" and not store_id:
+            self.inventory_error_var.set("store_id is required to start")
+            return
+        client = InventoryCountsClient(http=self.session._http(), access_token=self.session.token)
+        try:
+            if action == "START":
+                keys = new_idempotency_keys()
+                response = client.create_or_start_count(
+                    {"store_id": store_id},
+                    transaction_id=keys.transaction_id,
+                    idempotency_key=keys.idempotency_key,
+                )
+            else:
+                if not count_id:
+                    self.inventory_error_var.set("count_id is required")
+                    return
+                keys = new_idempotency_keys()
+                response = client.count_action(
+                    count_id,
+                    action,
+                    {"action": action},
+                    transaction_id=keys.transaction_id,
+                    idempotency_key=keys.idempotency_key,
+                    current_state=self.inventory_state.selected.state if self.inventory_state.selected else None,
+                )
+            self.inventory_state.selected = response
+            self.inventory_count_id_var.set(response.id)
+            self.inventory_lock_var.set("Store lock active" if response.lock_active else "Store lock inactive")
+            self.inventory_status_var.set(f"Action {action} completed. state={response.state}")
+            self.inventory_error_var.set("")
+            self.inventory_trace_var.set("")
+        except ApiError as exc:
+            self.inventory_error_var.set(exc.message)
+            self.inventory_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
+            if "lock" in (exc.message or "").lower():
+                self.inventory_status_var.set("Store is locked by an active inventory count.")
+        except InventoryValidationError as exc:
+            self.inventory_error_var.set(self._format_validation_issues(exc.issues))
+        self._update_inventory_action_buttons()
+
+    def _submit_inventory_scan_batch(self) -> None:
+        count_id = self.inventory_count_id_var.get().strip()
+        if not count_id:
+            self.inventory_error_var.set("count_id is required")
+            return
+        try:
+            qty = int((self.inventory_scan_qty_var.get() or "1").strip())
+        except ValueError:
+            self.inventory_error_var.set("qty must be an integer")
+            return
+        payload = ScanBatchRequest(items=[{"epc": self.inventory_scan_epc_var.get(), "sku": self.inventory_scan_sku_var.get(), "qty": qty}])
+        try:
+            validated = validate_scan_batch_payload(payload)
+            keys = new_idempotency_keys()
+            client = InventoryCountsClient(http=self.session._http(), access_token=self.session.token)
+            response = client.submit_scan_batch(
+                count_id,
+                validated,
+                transaction_id=keys.transaction_id,
+                idempotency_key=keys.idempotency_key,
+            )
+            self.inventory_status_var.set(f"Scan submitted accepted={response.accepted} rejected={response.rejected}")
+            self.inventory_error_var.set("")
+            self.inventory_trace_var.set("")
+        except InventoryValidationError as exc:
+            self.inventory_error_var.set(self._format_validation_issues(exc.issues))
+        except ApiError as exc:
+            self.inventory_error_var.set(exc.message)
+            self.inventory_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
 
     def _is_pos_allowed(self) -> bool:
         return self._has_permission("POS_SALE_VIEW", "POS_SALE_MANAGE")

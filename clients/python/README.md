@@ -1,4 +1,4 @@
-# ARIS 3 Python Clients (Sprint 5 Day 1)
+# ARIS 3 Python Clients (Sprint 5 Day 7)
 
 ## Overview
 This folder contains the shared Python SDK plus two lightweight Tkinter app shells:
@@ -74,6 +74,20 @@ Cash guardrails:
 - Cash out is prevented when it would drive expected cash negative
 - Change is only allowed against the cash portion of payments
 
+
+### Inventory Counts screen (ARIS CORE 3)
+1) Launch the app shell: `python -m aris_core_3_app.app`
+2) Login with a user that has `inventory.counts.view`
+3) Click **Inventory Counts** to open the inventory count workflow:
+   - Start a count for a store (Option A lock awareness)
+   - Execute lifecycle actions (Pause/Resume/Close/Cancel/Reconcile) with state-aware controls
+   - Submit EPC/SKU scan batches with client-side validation
+   - Refresh count status and lock indicator
+
+Permissions:
+- `inventory.counts.view` (or `INVENTORY_COUNT_VIEW`) to view
+- `inventory.counts.manage` (or `INVENTORY_COUNT_MANAGE`) to mutate lifecycle and scans
+
 ### Transfers screen (ARIS CORE 3)
 1) Launch the app shell: `python -m aris_core_3_app.app`
 2) Login with a user that has `TRANSFER_VIEW`
@@ -127,6 +141,18 @@ python examples/pos_cash_in_smoke.py --store-id <store_id> --amount 20 --reason 
 python examples/pos_cash_out_smoke.py --store-id <store_id> --amount 10 --reason "Safe drop"
 python examples/pos_cash_close_smoke.py --store-id <store_id> --counted-cash 110 --reason "End of shift"
 python examples/pos_day_close_smoke.py --store-id <store_id> --business-date 2024-01-01 --timezone UTC
+```
+
+
+## Inventory Counts smoke CLIs
+```bash
+python examples/inv_count_start_smoke.py --store-id <store_id>
+python examples/inv_count_scan_batch_smoke.py --count-id <count_id> --epc <epc_hex24>
+python examples/inv_count_pause_resume_smoke.py --count-id <count_id>
+python examples/inv_count_close_smoke.py --count-id <count_id>
+python examples/inv_count_reconcile_smoke.py --count-id <count_id>
+python examples/inv_count_summary_diff_smoke.py --count-id <count_id>
+python examples/inv_count_export_smoke.py --count-id <count_id>
 ```
 
 ## Transfers smoke CLIs
@@ -197,3 +223,9 @@ pytest
 
 ## Windows storage
 Sessions are stored under the user data directory (via `platformdirs`) in `session.json`.
+
+
+Sprint 5 client capabilities summary:
+- Stock, POS Sales, POS Cash, Transfers, and Inventory Counts workflows are now available in SDK, CLI, and ARIS CORE 3 shell.
+- All critical inventory count mutations include transaction_id + idempotency support.
+- Backend failures surface trace_id in CLI and UI for operational troubleshooting.

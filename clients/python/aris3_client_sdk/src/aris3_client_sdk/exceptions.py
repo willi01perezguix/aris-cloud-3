@@ -53,3 +53,19 @@ class TransferTenantMismatchError(ForbiddenError):
 
 class TransferActionForbiddenError(ForbiddenError):
     pass
+
+
+class InventoryCountStateError(ValidationError):
+    pass
+
+
+class InventoryCountLockConflictError(ValidationError):
+    pass
+
+
+class InventoryCountActionForbiddenError(ForbiddenError):
+    pass
+
+
+class InventoryCountClosedError(ValidationError):
+    pass

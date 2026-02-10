@@ -13,6 +13,7 @@ from aris3_client_sdk.models_pos_cash import (
     PosCashSessionSummary,
 )
 from aris3_client_sdk.models_pos_sales import PosSaleHeader, PosSaleResponse
+from aris3_client_sdk.models_inventory_counts import CountHeader
 from aris3_client_sdk.models_transfers import (
     TransferHeader,
     TransferLineResponse,
@@ -482,3 +483,81 @@ def test_pos_cash_day_close_permission_gate() -> None:
     fake_client = FakeCashClient()
     app._day_close_cash(client=fake_client, async_mode=False)
     assert fake_client.called is False
+
+
+def test_inventory_permission_gating() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = set()
+    assert app._is_inventory_counts_allowed() is False
+    app.allowed_permissions = {"inventory.counts.view"}
+    assert app._is_inventory_counts_allowed() is True
+
+
+def test_inventory_action_visibility_by_state() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"INVENTORY_COUNT_MANAGE"}
+    app.inventory_state.selected = CountHeader(id="c1", store_id="s1", state="ACTIVE")
+
+    class FakeButton:
+        def __init__(self) -> None:
+            self.state = None
+
+        def configure(self, state=None):
+            self.state = state
+
+    app.inventory_action_buttons = {
+        "PAUSE": FakeButton(),
+        "RESUME": FakeButton(),
+        "CLOSE": FakeButton(),
+        "CANCEL": FakeButton(),
+        "RECONCILE": FakeButton(),
+    }
+    app._update_inventory_action_buttons()
+    assert app.inventory_action_buttons["PAUSE"].state == "normal"
+    assert app.inventory_action_buttons["RESUME"].state == "disabled"
+
+
+def test_inventory_scan_submit_invokes_sdk(monkeypatch) -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"INVENTORY_COUNT_MANAGE"}
+    app.inventory_count_id_var.set("c1")
+    app.inventory_scan_sku_var.set("SKU-1")
+
+    called = {}
+
+    class FakeClient:
+        def __init__(self, http=None, access_token=None) -> None:
+            pass
+
+        def submit_scan_batch(self, count_id, payload, **kwargs):
+            called["count_id"] = count_id
+            called["payload"] = payload
+
+            class Resp:
+                accepted = 1
+                rejected = 0
+
+            return Resp()
+
+    monkeypatch.setattr("aris_core_3_app.app.InventoryCountsClient", FakeClient)
+    app._submit_inventory_scan_batch()
+    assert called["count_id"] == "c1"
+
+
+def test_inventory_trace_id_shown_on_error(monkeypatch) -> None:
+    from aris3_client_sdk.exceptions import ApiError
+
+    app = CoreAppShell()
+    app.inventory_count_id_var.set("c1")
+    app.inventory_scan_sku_var.set("SKU-1")
+
+    class FakeClient:
+        def __init__(self, http=None, access_token=None) -> None:
+            pass
+
+        def submit_scan_batch(self, count_id, payload, **kwargs):
+            raise ApiError(code="ERR", message="boom", details=None, trace_id="trace-x", status_code=500)
+
+    monkeypatch.setattr("aris_core_3_app.app.InventoryCountsClient", FakeClient)
+    app._submit_inventory_scan_batch()
+    assert "trace-x" in app.inventory_trace_var.get()

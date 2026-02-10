@@ -10,6 +10,7 @@ from ..models_reports import (
     ReportFilter,
     ReportOverviewResponse,
     ReportProfitSummaryResponse,
+    normalize_report_filters,
 )
 from .base import BaseClient
 
@@ -33,15 +34,18 @@ class ReportsClient(BaseClient):
     def _fetch_report(self, path: str, model_type: type[Any], filters: ReportFilter | Mapping[str, Any] | None) -> Any:
         query = None
         if filters is not None:
-            payload = _coerce_model(filters, ReportFilter)
+            payload = normalize_report_filters(_coerce_model(filters, ReportFilter))
             query = payload.model_dump(by_alias=True, exclude_none=True, mode="json")
         try:
             data = self._request("GET", path, params=query)
         except ValidationError as exc:
             if exc.code == "VALIDATION_ERROR":
+                message = exc.message
+                if isinstance(exc.details, Mapping):
+                    message = str(exc.details.get("message") or message)
                 raise ValidationError(
                     code="REPORT_INVALID_DATE_RANGE",
-                    message=exc.message,
+                    message=message,
                     details=exc.details,
                     trace_id=exc.trace_id,
                     status_code=exc.status_code,

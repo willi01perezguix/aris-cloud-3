@@ -247,3 +247,20 @@ Permissions notes:
 - Reports/Exports require `REPORTS_VIEW` (or `reports.view`).
 - Control Center inspector requires `rbac.view`.
 - API failures always display `trace_id`; include it in support/audit tickets.
+
+
+## Sprint 6 Day 2 additions
+- Advanced reports filter normalization (`store_id`, date range, timezone, payment method, grouping/granularity aliases).
+- Export manager flow with request, status refresh/history, retry failed, artifact resolution, and robust wait helper (`COMPLETED`/`FAILED`/`EXPIRED`/`NOT_FOUND`).
+- ARIS CORE 3 Reports screen now includes Apply/Reset filters, sortable primary table, and export manager panel.
+- Control Center includes a read-only **Operational Insights** panel (permission-gated).
+- Windows packaging scaffold under `clients/python/packaging` with spec templates and build scripts.
+
+### Packaging quickstart
+```bash
+cd clients/python/packaging
+# PowerShell
+./build_core.ps1 -DryRun
+./build_control_center.ps1 -DryRun
+```
+

@@ -7,6 +7,7 @@ from tkinter import ttk
 from aris3_client_sdk import ApiSession, ClientConfig, load_config
 from aris3_client_sdk.clients.access_control import AccessControlClient
 from aris3_client_sdk.clients.auth import AuthClient
+from aris3_client_sdk.clients.reports_client import ReportsClient
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.models import EffectivePermissionsResponse, PermissionEntry
 
@@ -26,6 +27,7 @@ CONTROL_CENTER_MENU = [
     MenuItem("Settings", "settings.view"),
     MenuItem("Audit", "audit.view"),
     MenuItem("Permissions Inspector", "rbac.view"),
+    MenuItem("Operational Insights", "reports.view"),
 ]
 
 
@@ -73,6 +75,9 @@ class ControlCenterAppShell:
         self.inspector_error_var = tk.StringVar(value="")
         self.inspector_trace_var = tk.StringVar(value="")
         self.inspector_matrix_var = tk.StringVar(value="")
+        self.insights_status_var = tk.StringVar(value="")
+        self.insights_kpi_var = tk.StringVar(value="")
+        self.insights_trace_var = tk.StringVar(value="")
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -149,7 +154,12 @@ class ControlCenterAppShell:
 
         self.menu_buttons = []
         for item in CONTROL_CENTER_MENU:
-            command = self._show_permissions_inspector if item.label == "Permissions Inspector" else (lambda label=item.label: self._show_placeholder(label))
+            if item.label == "Permissions Inspector":
+                command = self._show_permissions_inspector
+            elif item.label == "Operational Insights":
+                command = self._show_operational_insights
+            else:
+                command = lambda label=item.label: self._show_placeholder(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
             button.pack(fill="x", pady=2)
             self.menu_buttons.append(button)
@@ -213,6 +223,43 @@ class ControlCenterAppShell:
                 lines.append(f"  - {entry.key}: {decision}{deny_marker}")
         self.inspector_matrix_var.set("\n".join(lines) if lines else "No permissions returned")
         self.inspector_trace_var.set(f"trace_id: {payload.trace_id}" if payload.trace_id else "")
+
+
+    def _show_operational_insights(self) -> None:
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+
+        container = ttk.Frame(self.content_frame)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="Operational Insights", font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
+        if "reports.view" not in self.allowed_permissions and "REPORTS_VIEW" not in self.allowed_permissions:
+            ttk.Label(container, text="No report visibility permission.", foreground="gray").pack(anchor="w", pady=(8, 0))
+            return
+        row = ttk.Frame(container)
+        row.pack(fill="x", pady=(8, 6))
+        ttk.Button(row, text="Refresh", command=self._load_operational_insights).pack(side="left")
+        ttk.Label(container, textvariable=self.insights_status_var, foreground="gray").pack(anchor="w")
+        ttk.Label(container, textvariable=self.insights_kpi_var, justify="left").pack(anchor="w", pady=(6, 0))
+        ttk.Label(container, textvariable=self.insights_trace_var, foreground="gray").pack(anchor="w")
+
+    def _load_operational_insights(self) -> None:
+        self.insights_status_var.set("Loading…")
+        self.insights_trace_var.set("")
+        try:
+            client = ReportsClient(http=self.session._http(), access_token=self.session.token)
+            payload = client.get_sales_overview()
+            totals = payload.totals
+            self.insights_kpi_var.set(
+                f"store={payload.meta.store_id}\nnet={totals.net_sales} gross={totals.gross_sales} orders={totals.orders_paid_count} avg={totals.average_ticket}"
+            )
+            self.insights_status_var.set(f"Last update: {payload.meta.to_datetime.isoformat()}")
+            self.insights_trace_var.set(f"trace_id: {payload.meta.trace_id}" if payload.meta.trace_id else "")
+        except ApiError as exc:
+            self.insights_status_var.set("Failed to load insights")
+            self.insights_kpi_var.set(exc.message)
+            self.insights_trace_var.set(f"trace_id: {exc.trace_id}" if exc.trace_id else "")
 
 
 def main() -> None:

@@ -229,3 +229,21 @@ Sprint 5 client capabilities summary:
 - Stock, POS Sales, POS Cash, Transfers, and Inventory Counts workflows are now available in SDK, CLI, and ARIS CORE 3 shell.
 - All critical inventory count mutations include transaction_id + idempotency support.
 - Backend failures surface trace_id in CLI and UI for operational troubleshooting.
+
+
+## Sprint 6 Day 1 additions
+- SDK: new ReportsClient and ExportsClient with typed models for report/expor payloads.
+- ARIS CORE 3: Reports screen (filters, KPI summary, daily rows preview, export trigger/history).
+- Control Center: read-only Effective Permissions Inspector with grouped matrix and deny markers.
+- New smoke scripts:
+  - `python examples/reports_overview_smoke.py --store-id <store_id> --from-date YYYY-MM-DD --to-date YYYY-MM-DD`
+  - `python examples/reports_daily_smoke.py --store-id <store_id> --from-date YYYY-MM-DD --to-date YYYY-MM-DD`
+  - `python examples/reports_calendar_smoke.py --store-id <store_id> --from-date YYYY-MM-DD --to-date YYYY-MM-DD`
+  - `python examples/exports_request_smoke.py --source-type reports_daily --format csv --store-id <store_id>`
+  - `python examples/exports_status_smoke.py --export-id <export_id>`
+  - `python examples/exports_download_smoke.py --export-id <export_id> --out ./export.bin`
+
+Permissions notes:
+- Reports/Exports require `REPORTS_VIEW` (or `reports.view`).
+- Control Center inspector requires `rbac.view`.
+- API failures always display `trace_id`; include it in support/audit tickets.

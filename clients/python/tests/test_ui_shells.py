@@ -4,7 +4,7 @@ import pytest
 
 from aris_core_3_app.app import CoreAppShell, build_menu_items as build_core_menu, build_stock_query
 from aris_control_center_app.app import ControlCenterAppShell, build_menu_items as build_control_menu
-from aris3_client_sdk.models import UserResponse
+from aris3_client_sdk.models import PermissionEntry, UserResponse
 from aris3_client_sdk.models_stock import StockMeta, StockTableResponse, StockTotals
 from aris3_client_sdk.models_pos_cash import (
     PosCashMovementListResponse,
@@ -561,3 +561,61 @@ def test_inventory_trace_id_shown_on_error(monkeypatch) -> None:
     monkeypatch.setattr("aris_core_3_app.app.InventoryCountsClient", FakeClient)
     app._submit_inventory_scan_batch()
     assert "trace-x" in app.inventory_trace_var.get()
+
+
+def test_reports_permission_gating() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = set()
+    assert app._is_reports_allowed() is False
+    app.allowed_permissions = {"REPORTS_VIEW"}
+    assert app._is_reports_allowed() is True
+
+
+def test_reports_filter_state_initializes() -> None:
+    app = CoreAppShell()
+    app.reports_store_id_var.set("store-1")
+    payload = app._report_filter_payload()
+    assert payload.store_id == "store-1"
+
+
+def test_reports_export_action_triggers_client_call() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"REPORTS_VIEW"}
+    app.reports_store_id_var.set("store-1")
+
+    class FakeClient:
+        def request_export(self, payload, idempotency_key=None):
+            from aris3_client_sdk.models_exports import ExportStatus
+            return ExportStatus.model_validate({
+                "export_id": "exp-1", "tenant_id": "tenant-1", "store_id": "store-1",
+                "source_type": "reports_daily", "format": "csv", "filters_snapshot": {}, "status": "READY",
+                "row_count": 1, "checksum_sha256": "abc", "failure_reason_code": None, "generated_by_user_id": "u1",
+                "generated_at": None, "trace_id": "trace-1", "file_size_bytes": 10, "content_type": "text/csv",
+                "file_name": "report.csv", "created_at": "2024-01-01T00:00:00Z", "updated_at": None
+            })
+
+    import aris_core_3_app.app as core_app_mod
+    original = core_app_mod.ExportsClient
+    core_app_mod.ExportsClient = lambda http, access_token: FakeClient()
+    try:
+        app._request_report_export()
+    finally:
+        core_app_mod.ExportsClient = original
+    assert "exp-1" in app.reports_export_status_var.get()
+
+
+def test_control_center_permissions_grouping() -> None:
+    from aris_control_center_app.app import group_permissions
+    grouped = group_permissions([
+        PermissionEntry(key="inventory.view", allowed=True),
+        PermissionEntry(key="inventory.manage", allowed=False),
+    ])
+    assert "inventory" in grouped
+
+
+def test_regression_module_imports() -> None:
+    import aris3_client_sdk.clients.stock_client
+    import aris3_client_sdk.clients.pos_sales_client
+    import aris3_client_sdk.clients.pos_cash_client
+    import aris3_client_sdk.clients.transfers_client
+    import aris3_client_sdk.clients.inventory_counts_client

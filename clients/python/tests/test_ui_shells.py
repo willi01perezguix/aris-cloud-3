@@ -679,3 +679,19 @@ def test_control_center_insights_permission_gating() -> None:
     app = ControlCenterAppShell()
     app.allowed_permissions = set()
     assert "reports.view" not in app.allowed_permissions
+
+
+def test_pos_cash_error_includes_trace() -> None:
+    app = CoreAppShell()
+    from aris3_client_sdk.exceptions import ApiError
+
+    app._set_pos_cash_api_error(ApiError(code="ERR", message="boom", details=None, trace_id="trace-x", status_code=500))
+    assert "trace_id: trace-x" == app.pos_cash_trace_var.get()
+
+
+def test_duplicate_checkout_prevented() -> None:
+    app = CoreAppShell()
+    app.allowed_permissions = {"POS_SALE_MANAGE"}
+    app.pos_state.busy = True
+    app._checkout_pos_sale(client=None, cash_client=None)
+    assert "already in progress" in app.pos_validation_var.get()

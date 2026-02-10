@@ -12,3 +12,12 @@ def test_error_mapper_classes() -> None:
     assert isinstance(err, ForbiddenError)
     err = map_error(400, {"code": "VALIDATION_ERROR", "message": "bad"}, "trace")
     assert isinstance(err, ValidationError)
+
+
+def test_error_mapper_common_failures() -> None:
+    conflict = map_error(409, {"code": "CONFLICT", "message": "duplicate"}, "trace-409")
+    assert conflict.status_code == 409
+    assert conflict.trace_id == "trace-409"
+    server = map_error(500, {"code": "SERVER_ERROR", "message": "oops"}, "trace-500")
+    assert server.status_code == 500
+    assert "trace_id=trace-500" in str(server)

@@ -32,3 +32,11 @@ def test_build_scripts_include_preflight_checks() -> None:
     script = (root / "build_core.ps1").read_text()
     assert "entrypoint" in script
     assert "build_summary.json" in script
+
+
+def test_build_scripts_include_runtime_checks() -> None:
+    root = Path("clients/python/packaging")
+    script = (root / "build_control_center.ps1").read_text()
+    assert "pyinstaller" in script
+    assert "venv" in script
+    assert "artifact_prefix" in script

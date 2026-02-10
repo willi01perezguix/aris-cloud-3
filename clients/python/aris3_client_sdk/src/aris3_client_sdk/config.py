@@ -15,8 +15,10 @@ class ConfigError(ValueError):
 class ClientConfig:
     env_name: str
     api_base_url: str
-    timeout_seconds: float = 10.0
+    connect_timeout_seconds: float = 5.0
+    read_timeout_seconds: float = 15.0
     retries: int = 3
+    retry_backoff_seconds: float = 0.3
     verify_ssl: bool = True
 
     @property
@@ -43,7 +45,10 @@ def load_config(env_file: str | None = None) -> ClientConfig:
     env_key = env_name.upper()
     api_base_url = os.getenv(f"ARIS3_API_BASE_URL_{env_key}") or os.getenv("ARIS3_API_BASE_URL")
     timeout_seconds = float(os.getenv("ARIS3_TIMEOUT_SECONDS", "10"))
+    connect_timeout_seconds = float(os.getenv("ARIS3_CONNECT_TIMEOUT_SECONDS", str(min(timeout_seconds, 5.0))))
+    read_timeout_seconds = float(os.getenv("ARIS3_READ_TIMEOUT_SECONDS", str(max(timeout_seconds, connect_timeout_seconds))))
     retries = int(os.getenv("ARIS3_RETRIES", "3"))
+    retry_backoff_seconds = float(os.getenv("ARIS3_RETRY_BACKOFF_SECONDS", "0.3"))
     verify_ssl = _coerce_bool(os.getenv("ARIS3_VERIFY_SSL"), True)
 
     values = {
@@ -54,7 +59,9 @@ def load_config(env_file: str | None = None) -> ClientConfig:
     return ClientConfig(
         env_name=env_name,
         api_base_url=api_base_url.rstrip("/"),
-        timeout_seconds=timeout_seconds,
+        connect_timeout_seconds=connect_timeout_seconds,
+        read_timeout_seconds=read_timeout_seconds,
         retries=retries,
+        retry_backoff_seconds=retry_backoff_seconds,
         verify_ssl=verify_ssl,
     )

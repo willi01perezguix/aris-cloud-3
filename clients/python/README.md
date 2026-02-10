@@ -290,3 +290,40 @@ cd clients/python/packaging
 ./build_control_center.ps1 -DryRun
 ./build_all.ps1 -DryRun
 ```
+
+## Sprint 6 Day 4 release hardening
+
+### HTTP timeout/retry defaults
+- `ARIS3_CONNECT_TIMEOUT_SECONDS` (default `5`)
+- `ARIS3_READ_TIMEOUT_SECONDS` (default `15`)
+- `ARIS3_RETRIES` (default `3`, read-only retries)
+- `ARIS3_RETRY_BACKOFF_SECONDS` (default `0.3`)
+
+### QA matrix runner
+```bash
+python clients/python/tools/qa_matrix_runner.py --env clients/python/.env --store <store_id> --fail-on critical --quick
+```
+Outputs:
+- `artifacts/qa/client_qa_matrix_<timestamp>.json`
+- `artifacts/qa/client_qa_matrix_<timestamp>.md`
+
+### Support bundle
+```bash
+python clients/python/tools/create_support_bundle.py --output-dir artifacts/support
+```
+Output:
+- `artifacts/support/support_bundle_<timestamp>.zip`
+
+### Packaging verification flow
+```bash
+python clients/python/tools/packaging_verify.py --packaging-root clients/python/packaging
+```
+Outputs:
+- `artifacts/packaging/build_manifest_<timestamp>.json`
+- `artifacts/packaging/packaging_verify_<timestamp>.md`
+
+### Launch checks
+```bash
+python -m aris_core_3_app.app
+python -m aris_control_center_app.app
+```

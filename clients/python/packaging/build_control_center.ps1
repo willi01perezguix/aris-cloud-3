@@ -56,11 +56,26 @@ try {
   Fail "Preflight failed: output directory is not writable: $resolvedOutDir"
 }
 
+# scaffold test guardrail: venv runtime check
+$venvActive = [bool]$env:VIRTUAL_ENV
+if (-not $venvActive) {
+  $msg = "venv is not active."
+  if ($CiMode) { Write-Warning "$msg CI mode enabled; continuing." }
+  else { Fail "$msg Activate your venv before packaging." }
+} else {
+  Write-Host "venv active: $($env:VIRTUAL_ENV)"
+}
+
 $gitSha = (git -C $repoRoot rev-parse --short HEAD 2>$null)
 if (-not $gitSha) { $gitSha = "unknown" }
 
 $pythonVersion = & python --version 2>&1
 $buildTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$buildStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+$artifactPrefix = "aris-control-center-$version-$buildStamp"
+$artifact_prefix = $artifactPrefix
+
+$metadataPath = Resolve-NormalizedPath -Path (Join-Path $resolvedOutDir "control_center_packaging_metadata.json")
 $metadata = [ordered]@{
   app_name = "aris-control-center-app"
   version = $version
@@ -69,12 +84,13 @@ $metadata = [ordered]@{
   python_version = "$pythonVersion".Trim()
   os = "windows"
   dry_run = [bool]$DryRun
+  ci_mode = [bool]$CiMode
+  artifact_prefix = $artifactPrefix
+  metadata_path = $metadataPath
 }
-
-$metadataPath = Join-Path $resolvedOutDir "control_center_packaging_metadata.json"
 $metadata | ConvertTo-Json -Depth 3 | Set-Content -Path $metadataPath -Encoding utf8
 
-$renderedSpecPath = Join-Path $resolvedOutDir "control_center.rendered.spec"
+$renderedSpecPath = Resolve-NormalizedPath -Path (Join-Path $resolvedOutDir "control_center.rendered.spec")
 $specContent = Get-Content -Path $specTemplate -Raw
 $specContent | Set-Content -Path $renderedSpecPath -Encoding utf8
 
@@ -82,15 +98,32 @@ if (-not (Test-Path $renderedSpecPath -PathType Leaf)) {
   Fail "Preflight failed: rendered spec could not be written to $renderedSpecPath"
 }
 
-$distPath = Join-Path $resolvedOutDir "dist"
+$distPath = Resolve-NormalizedPath -Path (Join-Path $resolvedOutDir "dist")
+$buildSummaryPath = Resolve-NormalizedPath -Path (Join-Path $resolvedOutDir "build_summary.json")
+$buildSummary = [ordered]@{
+  app_name = "aris-control-center-app"
+  version = $version
+  git_sha = $gitSha.Trim()
+  build_time_utc = $buildTimeUtc
+  python_version = "$pythonVersion".Trim()
+  os = "windows"
+  dry_run = [bool]$DryRun
+  ci_mode = [bool]$CiMode
+  artifact_prefix = $artifactPrefix
+  metadata_path = $metadataPath
+}
+$buildSummary | ConvertTo-Json -Depth 6 | Set-Content -Path $buildSummaryPath -Encoding utf8
+
 if ($DryRun) {
   Write-Host "[DRY-RUN] control center packaging summary"
-  Write-Host "  app_name=$($metadata.app_name)"
-  Write-Host "  version=$($metadata.version)"
-  Write-Host "  git_sha=$($metadata.git_sha)"
+  Write-Host "  app_name=$($buildSummary.app_name)"
+  Write-Host "  version=$($buildSummary.version)"
+  Write-Host "  git_sha=$($buildSummary.git_sha)"
   Write-Host "  output_dir=$resolvedOutDir"
   Write-Host "  rendered_spec=$renderedSpecPath"
   Write-Host "  metadata=$metadataPath"
+  Write-Host "  build_summary=$buildSummaryPath"
+  Write-Host "  artifact_prefix=$artifactPrefix"
   Write-Host "  ci_mode=$([bool]$CiMode)"
   Write-Host "  installer_skipped=true"
   exit 0
@@ -100,39 +133,5 @@ $pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$r
 Write-Host "Running: $pyinstallerCmd"
 Invoke-Expression $pyinstallerCmd
 Write-Host "Build complete. metadata=$metadataPath"
-
-# scaffold test guardrail: venv runtime check
-$venvActive = [bool]$env:VIRTUAL_ENV
-if (-not $venvActive) {
-  $msg = "venv is not active."
-  if ($CiMode) { Write-Warning "$msg CI mode enabled; continuing." }
-  else { throw "$msg Activate your venv before packaging." }
-} else {
-  Write-Host "venv active: $($env:VIRTUAL_ENV)"
-}
-
-# --- scaffold runtime markers (contract tests) ---
-if (-not $version) { $version = "0.0.0-dev" }
-if (-not $buildStamp) { $buildStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss") }
-
-$artifactPrefix = "aris-control-center-$version-$buildStamp"
-$artifact_prefix = $artifactPrefix  # required by tests
-
-if (-not $resolvedOutDir -or $resolvedOutDir -eq "") {
-  $resolvedOutDir = Join-Path $PSScriptRoot "temp/artifacts/control_center"
-}
-New-Item -ItemType Directory -Path $resolvedOutDir -Force | Out-Null
-
-$buildSummaryPath = Join-Path $resolvedOutDir "build_summary.json"
-$summary = [ordered]@{
-  app_name        = "aris-control-center-app"
-  artifact_prefix = $artifactPrefix
-  dry_run         = [bool]$DryRun
-  ci_mode         = [bool]$CiMode
-  venv            = [bool]$env:VIRTUAL_ENV
-}
-$summary | ConvertTo-Json -Depth 6 | Set-Content -Path $buildSummaryPath -Encoding utf8
-
 Write-Host "artifact_prefix=$artifactPrefix"
 Write-Host "build_summary=$buildSummaryPath"
-# --- end scaffold runtime markers ---

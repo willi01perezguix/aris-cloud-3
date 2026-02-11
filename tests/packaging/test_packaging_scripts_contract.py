@@ -68,6 +68,36 @@ def test_no_duplicate_join_of_absolute_outdir() -> None:
 
         assert "[System.IO.Path]::GetFullPath((Join-Path $root $targetOutDir))" not in text
 
+
+
+def test_runtime_contract_keywords_present() -> None:
+    core_text = _script_text("build_core.ps1")
+    cc_text = _script_text("build_control_center.ps1")
+
+    for token in ("pyinstaller", "venv", "artifact_prefix", "build_summary.json"):
+        assert token in core_text, f"build_core.ps1 missing runtime contract token {token}"
+        assert token in cc_text, f"build_control_center.ps1 missing runtime contract token {token}"
+
+    assert "entrypoint" in core_text
+
+
+def test_build_summary_contract_keys_present() -> None:
+    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+        text = _script_text(script_name)
+        for key in (
+            "app_name",
+            "version",
+            "git_sha",
+            "build_time_utc",
+            "python_version",
+            "os",
+            "dry_run",
+            "ci_mode",
+            "artifact_prefix",
+            "metadata_path",
+        ):
+            assert re.search(rf"\b{re.escape(key)}\s*=", text), f"{script_name} missing build summary key '{key}'"
+
 def test_build_all_orchestrates_both_and_propagates_failures() -> None:
     text = _script_text("build_all.ps1")
 

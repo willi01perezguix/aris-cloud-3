@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-rc.7 - Sprint 7 Day 3 (ARIS-CORE-3 app shell foundation)
+
+### Added
+- ARIS-CORE-3 Day 3 app shell foundation under `clients/python/apps/core_app/` with bootstrap, state, navigation skeleton, auth/profile/permissions services, and UI placeholder widgets/views.
+- Authentication bootstrap flow covering session check, login routing, `/aris3/me` profile hydration, must-change-password route, permission load, and logout/session clear behaviors.
+- Effective-permissions default-deny gate (deny-over-allow) wired to module-level navigation rendering for Stock, Transfers, POS Sales, POS Cash, Inventory Counts, Reports, Exports, and Admin/Settings.
+- Core app shell auth/permission tests in `clients/python/tests/core_app/test_bootstrap.py`.
+- CI workflow `.github/workflows/clients-python-core-app.yml` for lint, type checks, and core app tests on PRs.
+
+### Notes
+- Scope remains app-shell/auth/permissions foundation only; module panels are placeholders for upcoming sprint days.
+- No contract-breaking API changes were introduced, and no new backend endpoints were added.
+
 ## 0.1.0-rc.6 - Sprint 7 Day 2 (Python SDK hardening)
 
 ### Added

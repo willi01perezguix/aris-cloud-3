@@ -1,0 +1,78 @@
+name: sprint7-day7-e2e-uat
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/python/**'
+      - 'docs/qa/**'
+      - 'docs/releases/**'
+      - 'docs/planning/SPRINT7_DAY7_CLOSURE.md'
+      - '.github/workflows/sprint7-day7-e2e-uat.yml'
+  workflow_dispatch:
+    inputs:
+      run_staging_e2e:
+        description: 'Run staging-backed e2e checks (RUN_STAGING_E2E=1)'
+        required: false
+        default: 'false'
+
+defaults:
+  run:
+    working-directory: clients/python
+
+jobs:
+  deterministic-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e aris3_client_sdk[dev]
+          pip install -e aris_core_3_app
+          pip install -e aris_control_center_app
+      - name: Run Sprint 7 Day 7 deterministic suite
+        run: |
+          pytest tests/e2e tests/integration -q \
+            --maxfail=1 \
+            --junitxml=sprint7-day7-test-report.xml | tee sprint7-day7-summary.txt
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sprint7-day7-deterministic
+          path: |
+            clients/python/sprint7-day7-test-report.xml
+            clients/python/sprint7-day7-summary.txt
+
+  staging-e2e:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_staging_e2e == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e aris3_client_sdk[dev]
+      - name: Run staging e2e smoke
+        env:
+          RUN_STAGING_E2E: '1'
+        run: |
+          pytest tests/e2e -q --maxfail=1 \
+            --junitxml=sprint7-day7-staging-report.xml | tee sprint7-day7-staging-summary.txt
+      - name: Upload staging artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sprint7-day7-staging
+          path: |
+            clients/python/sprint7-day7-staging-report.xml
+            clients/python/sprint7-day7-staging-summary.txt

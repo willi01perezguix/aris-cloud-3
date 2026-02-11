@@ -33,3 +33,15 @@ If installer tooling is unavailable, run:
 ```powershell
 ./installer_placeholder.ps1
 ```
+
+## Sprint 7 Day 7 internal alpha naming
+- Core artifact: `aris-core3-alpha-s7d7-<build>`
+- Control Center artifact: `control-center-alpha-s7d7-<build>`
+
+Recommended sequence:
+```powershell
+./build_core.ps1 -DryRun
+./build_control_center.ps1 -DryRun
+./build_core.ps1
+./build_control_center.ps1
+```

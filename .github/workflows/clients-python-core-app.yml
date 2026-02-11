@@ -26,12 +26,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e aris3_client_sdk[dev]
-      - name: Lint core app shell files
+      - name: Lint core app files
         run: |
           ruff check \
             apps/core_app \
-            tests/core_app/test_bootstrap.py
-      - name: Type check core app shell files
+            tests/core_app/test_bootstrap.py \
+            tests/core_app/stock/test_stock_module.py
+      - name: Type check core app files
         run: |
           mypy --follow-imports=skip --disable-error-code=import-untyped \
             apps/core_app/app/bootstrap.py \
@@ -39,6 +40,14 @@ jobs:
             apps/core_app/app/state.py \
             apps/core_app/services/auth_service.py \
             apps/core_app/services/profile_service.py \
-            apps/core_app/services/permissions_service.py
+            apps/core_app/services/permissions_service.py \
+            apps/core_app/services/stock_service.py \
+            apps/core_app/ui/stock/stock_list_view.py \
+            apps/core_app/ui/stock/stock_filters_panel.py \
+            apps/core_app/ui/stock/import_epc_view.py \
+            apps/core_app/ui/stock/import_sku_view.py \
+            apps/core_app/ui/stock/migrate_sku_to_epc_view.py \
+            apps/core_app/ui/stock/components/stock_table.py \
+            apps/core_app/ui/stock/components/stock_totals_bar.py
       - name: Run core app tests
         run: pytest tests/core_app -q

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-rc.8 - Sprint 7 Day 4 (ARIS-CORE-3 Stock module integration)
+
+### Added
+- ARIS-CORE-3 stock integration service and UI view-models for official full-table stock query, totals rendering, EPC import, SKU import, and SKU→EPC migration under `clients/python/apps/core_app/`.
+- Stock module tests under `clients/python/tests/core_app/stock/` covering list rendering, filter pass-through, EPC/SKU validation enforcement, migration payload + idempotency wiring, permission gating, and error mapping.
+
+### Changed
+- Core-app CI workflow now lints/types/tests stock module files in addition to Day 3 shell scope.
+- Core app README now documents stock list/filter behavior, import/migration flows, permission requirements, and current limitations.
+
+### Notes
+- Stock mutations include transaction and idempotency metadata wiring through SDK critical operations.
+- No contract-breaking API changes were introduced, and no new backend endpoints were added.
+
 ## 0.1.0-rc.7 - Sprint 7 Day 3 (ARIS-CORE-3 app shell foundation)
 
 ### Added

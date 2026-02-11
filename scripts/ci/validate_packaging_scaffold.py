@@ -26,6 +26,11 @@ REQUIRED_CLIENT_PYPROJECTS = (
     "clients/python/aris_control_center_app/pyproject.toml",
 )
 
+REQUIRED_SCRIPT_MARKERS = {
+    "build_core.ps1": ("artifact_prefix", "build_summary.json", "venv"),
+    "build_control_center.ps1": ("artifact_prefix", "build_summary.json", "venv"),
+}
+
 
 def validate_packaging_scaffold(repo_root: Path) -> list[str]:
     errors: list[str] = []
@@ -53,6 +58,20 @@ def validate_packaging_scaffold(repo_root: Path) -> list[str]:
                 f"Missing required client pyproject: {rel_path}. "
                 "Each app/sdk must remain installable in CI packaging smoke jobs."
             )
+
+    for script_name, markers in REQUIRED_SCRIPT_MARKERS.items():
+        script_path = packaging_root / script_name
+        if not script_path.is_file():
+            continue
+
+        script_content = script_path.read_text(encoding="utf-8", errors="ignore")
+        for marker in markers:
+            if marker not in script_content:
+                errors.append(
+                    f"Packaging scaffold script missing required marker '{marker}': "
+                    f"clients/python/packaging/{script_name}. "
+                    "Restore guardrail markers for CI smoke stability."
+                )
 
     return errors
 

@@ -74,6 +74,38 @@ $metadata = [ordered]@{
 $metadataPath = Join-Path $resolvedOutDir "control_center_packaging_metadata.json"
 $metadata | ConvertTo-Json -Depth 3 | Set-Content -Path $metadataPath -Encoding utf8
 
+# scaffold test guardrail: venv runtime check
+$venvActive = [bool]$env:VIRTUAL_ENV
+if (-not $venvActive) {
+  $msg = "venv is not active."
+  if ($CiMode) { Write-Warning "$msg CI mode enabled; continuing." }
+  else { throw "$msg Activate your venv before packaging." }
+} else {
+  Write-Host "venv active: $($env:VIRTUAL_ENV)"
+}
+
+# --- scaffold runtime markers (contract tests) ---
+if (-not $version) { $version = "0.0.0-dev" }
+$buildStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+
+$artifactPrefix = "aris-control-center-$version-$buildStamp"
+$artifact_prefix = $artifactPrefix  # required by tests
+
+$buildSummaryPath = Join-Path $resolvedOutDir "build_summary.json"
+$summary = [ordered]@{
+  app_name        = "aris-control-center-app"
+  artifact_prefix = $artifactPrefix
+  version         = $version
+  dry_run         = [bool]$DryRun
+  ci_mode         = [bool]$CiMode
+  venv            = $venvActive
+}
+$summary | ConvertTo-Json -Depth 6 | Set-Content -Path $buildSummaryPath -Encoding utf8
+
+Write-Host "artifact_prefix=$artifactPrefix"
+Write-Host "build_summary=$buildSummaryPath"
+# --- end scaffold runtime markers ---
+
 $renderedSpecPath = Join-Path $resolvedOutDir "control_center.rendered.spec"
 $specContent = Get-Content -Path $specTemplate -Raw
 $specContent | Set-Content -Path $renderedSpecPath -Encoding utf8
@@ -91,6 +123,7 @@ if ($DryRun) {
   Write-Host "  output_dir=$resolvedOutDir"
   Write-Host "  rendered_spec=$renderedSpecPath"
   Write-Host "  metadata=$metadataPath"
+  Write-Host "  build_summary=$buildSummaryPath"
   Write-Host "  ci_mode=$([bool]$CiMode)"
   Write-Host "  installer_skipped=true"
   exit 0
@@ -100,39 +133,4 @@ $pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$r
 Write-Host "Running: $pyinstallerCmd"
 Invoke-Expression $pyinstallerCmd
 Write-Host "Build complete. metadata=$metadataPath"
-
-# scaffold test guardrail: venv runtime check
-$venvActive = [bool]$env:VIRTUAL_ENV
-if (-not $venvActive) {
-  $msg = "venv is not active."
-  if ($CiMode) { Write-Warning "$msg CI mode enabled; continuing." }
-  else { throw "$msg Activate your venv before packaging." }
-} else {
-  Write-Host "venv active: $($env:VIRTUAL_ENV)"
-}
-
-# --- scaffold runtime markers (contract tests) ---
-if (-not $version) { $version = "0.0.0-dev" }
-if (-not $buildStamp) { $buildStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss") }
-
-$artifactPrefix = "aris-control-center-$version-$buildStamp"
-$artifact_prefix = $artifactPrefix  # required by tests
-
-if (-not $resolvedOutDir -or $resolvedOutDir -eq "") {
-  $resolvedOutDir = Join-Path $PSScriptRoot "temp/artifacts/control_center"
-}
-New-Item -ItemType Directory -Path $resolvedOutDir -Force | Out-Null
-
-$buildSummaryPath = Join-Path $resolvedOutDir "build_summary.json"
-$summary = [ordered]@{
-  app_name        = "aris-control-center-app"
-  artifact_prefix = $artifactPrefix
-  dry_run         = [bool]$DryRun
-  ci_mode         = [bool]$CiMode
-  venv            = [bool]$env:VIRTUAL_ENV
-}
-$summary | ConvertTo-Json -Depth 6 | Set-Content -Path $buildSummaryPath -Encoding utf8
-
-Write-Host "artifact_prefix=$artifactPrefix"
-Write-Host "build_summary=$buildSummaryPath"
-# --- end scaffold runtime markers ---
+Write-Host "Build complete. build_summary=$buildSummaryPath"

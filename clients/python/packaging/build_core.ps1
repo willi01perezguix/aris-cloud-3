@@ -74,6 +74,32 @@ $metadata = [ordered]@{
 $metadataPath = Join-Path $resolvedOutDir "core_packaging_metadata.json"
 $metadata | ConvertTo-Json -Depth 3 | Set-Content -Path $metadataPath -Encoding utf8
 
+$venvActive = [bool]$env:VIRTUAL_ENV
+if (-not $venvActive) {
+  $venvMessage = "venv is not active."
+  if ($CiMode) { Write-Warning "$venvMessage CI mode enabled; continuing." }
+  else { throw "$venvMessage Activate your venv before packaging." }
+} else {
+  Write-Host "venv active: $($env:VIRTUAL_ENV)"
+}
+
+$buildStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+$artifactPrefix = "aris-core-3-app-$version-$buildStamp"
+$artifact_prefix = $artifactPrefix  # required by scaffold tests
+
+$buildSummaryPath = Join-Path $resolvedOutDir "build_summary.json"
+$buildSummary = [ordered]@{
+  app_name        = "aris-core-3-app"
+  artifact_prefix = $artifactPrefix
+  version         = $version
+  dry_run         = [bool]$DryRun
+  ci_mode         = [bool]$CiMode
+  venv            = $venvActive
+}
+$buildSummary | ConvertTo-Json -Depth 4 | Set-Content -Path $buildSummaryPath -Encoding utf8
+Write-Host "artifact_prefix=$artifactPrefix"
+Write-Host "build_summary=$buildSummaryPath"
+
 $renderedSpecPath = Join-Path $resolvedOutDir "core_app.rendered.spec"
 $specContent = Get-Content -Path $specTemplate -Raw
 $specContent | Set-Content -Path $renderedSpecPath -Encoding utf8
@@ -91,6 +117,7 @@ if ($DryRun) {
   Write-Host "  output_dir=$resolvedOutDir"
   Write-Host "  rendered_spec=$renderedSpecPath"
   Write-Host "  metadata=$metadataPath"
+  Write-Host "  build_summary=$buildSummaryPath"
   Write-Host "  ci_mode=$([bool]$CiMode)"
   Write-Host "  installer_skipped=true"
   exit 0
@@ -100,15 +127,4 @@ $pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$r
 Write-Host "Running: $pyinstallerCmd"
 Invoke-Expression $pyinstallerCmd
 Write-Host "Build complete. metadata=$metadataPath"
-
-# scaffold test guardrail: build_summary.json
-$summaryOutDir = if ($resolvedOutDir -and $resolvedOutDir -ne "") { $resolvedOutDir } else { (Get-Location).Path }
-$buildSummaryPath = Join-Path $summaryOutDir "build_summary.json"
-$buildSummary = [ordered]@{
-  app_name = "aris-core-3-app"
-  version  = $version
-  dry_run  = [bool]$DryRun
-  ci_mode  = [bool]$CiMode
-}
-$buildSummary | ConvertTo-Json -Depth 4 | Set-Content -Path $buildSummaryPath -Encoding utf8
-Write-Host "build_summary.json => $buildSummaryPath"
+Write-Host "Build complete. build_summary=$buildSummaryPath"

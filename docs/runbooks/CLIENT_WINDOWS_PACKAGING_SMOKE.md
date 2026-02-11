@@ -69,6 +69,13 @@ Workflow: `.github/workflows/clients-packaging-smoke.yml`
 - Executes scaffold and client layout validators before dry-run packaging.
 - Does **not** publish installers.
 
+### Diagnostics upload guardrail
+
+- The workflow always pre-creates `clients/python/packaging/temp/artifacts` and app subfolders.
+- A placeholder log (`diagnostics-placeholder.log`) is written before dry-runs start.
+- A post-run diagnostics collection step writes `_tree.txt` and creates `diagnostics-empty.log` if no other files are present.
+- Artifact upload uses `if: always()` so logs are collected even when dry-run commands fail early.
+
 ## Artifact locations
 
 Uploaded artifact bundle: `windows-packaging-smoke-diagnostics`
@@ -81,3 +88,12 @@ Generated metadata JSON per app (even in dry-run):
 
 - `clients/python/packaging/temp/artifacts/core/core_packaging_metadata.json`
 - `clients/python/packaging/temp/artifacts/control_center/control_center_packaging_metadata.json`
+
+## Common failure patterns (quick fix map)
+
+- **Upload-artifact says path/files are missing**
+  - Confirm the prepare/collect diagnostics steps ran; they should create placeholder and tree logs under `clients/python/packaging/temp/artifacts`.
+- **Scaffold validation fails on `artifact_prefix`, `build_summary.json`, or `venv` markers**
+  - Restore these markers in both PowerShell scripts (`build_core.ps1`, `build_control_center.ps1`) and keep their emitted summary JSON deterministic.
+- **Dry-run exits immediately outside CI with venv warning/error**
+  - Activate a virtual environment locally (`.venv`/`venv`) or run with `-CiMode` when using CI smoke behavior intentionally.

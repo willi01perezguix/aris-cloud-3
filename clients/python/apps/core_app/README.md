@@ -1,4 +1,4 @@
-# ARIS-CORE-3 App Shell (Sprint 7 Day 3/4)
+# ARIS-CORE-3 App Shell (Sprint 7 Day 3/4/5)
 
 ## Purpose
 This app-track deliverable establishes the ARIS-CORE-3 desktop shell foundation for:
@@ -100,3 +100,37 @@ Core inputs:
 - Module is represented as view-model/state classes (not yet bound to a GUI toolkit).
 - Permission aliases may vary by tenant policy templates; the gate remains default-deny.
 - Server-side uniqueness and tenant rules are enforced by backend contracts and surfaced via mapped errors.
+
+## POS module (Sprint 7 Day 5)
+
+### Sales lifecycle
+- `SaleEditorView` supports draft creation, draft loading, line add/edit/remove, draft patch updates, checkout action, and cancel action.
+- Draft edits use PATCH-only semantics through `PosSalesService.update_draft(...)`; state transitions are action-based (`checkout`, `cancel`) through `/actions`.
+- `SalesListView` loads sales rows and exposes permission-aware checkout/cancel action flags.
+
+### Payment method rules
+- Supported methods: `CASH`, `CARD`, `TRANSFER`, and mixed combinations.
+- `CARD` requires `authorization_code`.
+- `TRANSFER` requires `bank_name` and `voucher_number`.
+- `paid_total` must cover `total_due` for checkout; otherwise `missing_amount` is shown and checkout is blocked.
+- `change_amount` is only valid against the cash contribution (`CASH` line total).
+
+### CASH checkout precondition
+- Any checkout containing `CASH` verifies `PosCashService.current_session()` first.
+- Checkout is blocked unless the current session status is `OPEN`.
+
+### POS Cash operations
+- `CashSessionView` integrates: current session load, `OPEN`, `CASH_IN`, `CASH_OUT`, and `CLOSE` actions.
+- `CashMovementsView` integrates movement history (`GET /aris3/pos/cash/movements`).
+- Cash state chip and per-action enable/disable logic prevent invalid state transitions (e.g. no `CASH_IN` when drawer is closed).
+
+### Permission requirements
+- POS module visibility: requires one of `pos.sales.view`/`POS_SALE_VIEW` or `pos.cash.view`/`POS_CASH_VIEW`.
+- Sales draft write/edit: `pos.sales.write` / `POS_SALE_WRITE`.
+- Sales checkout/cancel: `pos.sales.checkout`/`pos.sales.cancel`/`pos.sales.action` aliases (default deny on missing keys).
+- Cash operations: `pos.cash.write` / `POS_CASH_WRITE`.
+
+### Known limitations
+- Current POS integration is model/view-state oriented (no final UI toolkit binding yet).
+- Final cash balancing/day-close flows remain backend-owned and are not redesigned in the core app.
+- Action availability assumes canonical backend status values (`OPEN`, `CLOSED`, etc.) and surfaces backend trace/error details when available.

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-rc.6 - Sprint 7 Day 2 (Python SDK hardening)
+
+### Added
+- Python SDK transport hardening with explicit retries/backoff/connection-pool controls and deterministic transport error mapping.
+- Centralized idempotency helper utilities for transaction and idempotency key propagation in critical mutations.
+- New SDK CI workflow for lint, type-check, and tests: `.github/workflows/clients-python-sdk.yml`.
+- Sprint 7 app-team quickstart example: `clients/python/examples/sdk_quickstart.py`.
+
+### Changed
+- Auth/session handling hardened (must-change-password structured exception, safe auth store read/clear behavior, explicit logout utility).
+- Error mapping normalized to stable SDK exception families with preserved server payload debug fields.
+- Base client metadata propagation for trace/tenant/app/device headers without bypassing RBAC constraints.
+- Stock client idempotency helper exposure for safer critical mutation calls while preserving stock full-table contract handling.
+- Python SDK packaging/tooling updated with dev quality gates (ruff, mypy, pytest).
+
+### Notes
+- Python SDK hardening completed with resilience/error/idempotency improvements, tests and CI reinforced.
+- No contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.5 - Sprint 7 Day 1 (Kickoff, backlog, contract safety baseline)
 
 ### Added

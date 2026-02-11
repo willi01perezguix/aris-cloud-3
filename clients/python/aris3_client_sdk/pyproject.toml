@@ -11,9 +11,37 @@ dependencies = [
   "platformdirs>=4.2",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.10",
+  "pytest>=8.2",
+  "responses>=0.25",
+  "ruff>=0.5",
+  "types-requests>=2.32",
+]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+strict_optional = true
+ignore_missing_imports = true
+files = ["src/aris3_client_sdk"]

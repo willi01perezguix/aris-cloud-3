@@ -327,3 +327,32 @@ Outputs:
 python -m aris_core_3_app.app
 python -m aris_control_center_app.app
 ```
+
+## Sprint 7 Day 2 SDK hardening (Python)
+
+### Quickstart (SDK-focused)
+```bash
+cd clients/python
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e ./aris3_client_sdk[dev]
+python examples/sdk_quickstart.py
+```
+
+### SDK hardening highlights
+- Resilient HTTP transport with configurable base URL/timeouts/retries/backoff/connection pool.
+- Retry defaults are safe for reads (`GET`/`HEAD`) with explicit per-call mutation retry opt-in.
+- Structured SDK exceptions now normalize `status_code`, `code`, `message`, `details`, `trace_id`, and `raw_payload`.
+- `AuthStore` now safely handles corrupted session files and supports clean session clear/logout flows.
+- Centralized idempotency helpers (`transaction_id`, `idempotency_key`, header helper) for critical mutations.
+- Trace context propagation via `X-Trace-ID` plus optional tenant/app/device metadata headers in base clients.
+
+### Runnable examples for app teams
+- Login + me: `python examples/cli_smoke.py login --username <user> --password <pass>` then `python examples/cli_smoke.py me`
+- Stock full-table query (`meta/rows/totals`): `python examples/stock_smoke.py stock --sku <sku> --page 1 --page-size 50`
+- Idempotent mutation helper usage: `python examples/sdk_quickstart.py`
+- Structured error handling example: `python examples/sdk_quickstart.py`
+
+### Compatibility statement
+All Sprint 7 Day 2 SDK changes are non-breaking with the frozen ARIS API contract.

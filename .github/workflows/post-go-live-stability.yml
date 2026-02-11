@@ -1,0 +1,48 @@
+name: Post Go-Live Stability
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '30 2 * * *'
+
+jobs:
+  stability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: sqlite+pysqlite:///./post-go-live-stability.db
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+
+      - name: Apply migrations
+        run: |
+          alembic upgrade head
+
+      - name: Run post-go-live smoke (fail-fast)
+        run: |
+          pytest -q tests/smoke/test_post_go_live_stability.py
+
+      - name: Run integrity checks (strict + json)
+        run: |
+          mkdir -p artifacts
+          python scripts/post_go_live_integrity_check.py --strict --json > artifacts/post_go_live_integrity_report.json
+
+      - name: Upload stability artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-go-live-stability-artifacts
+          path: |
+            artifacts/post_go_live_integrity_report.json

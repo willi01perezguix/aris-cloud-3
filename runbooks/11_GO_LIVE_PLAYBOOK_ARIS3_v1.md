@@ -120,3 +120,12 @@ Trigger immediate rollback when any condition is met:
 
 ### D) Abort / rollback
 > `ARIS3 rollout aborted due to <reason>. Rollback in progress to <previous_release_tag>. Next status in 10 min.`
+
+## Validated Commands (Sprint 6 Day 8)
+```bash
+python scripts/go_live_checklist.py --dry-run
+python scripts/go_live_checklist.py
+pytest -q tests/smoke/test_go_live_validation.py
+pytest -q tests/smoke/test_post_go_live_stability.py
+python scripts/post_go_live_integrity_check.py --strict
+```

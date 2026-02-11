@@ -83,3 +83,12 @@ Asegurar recuperación operativa y preparación de release con evidencia verific
 - salida del gate `scripts/release_readiness_gate.py`
 - salida de smoke `tests/smoke/test_post_merge_readiness.py`
 - bitácora de rollback (si aplica)
+
+## Validated Commands (Sprint 6 Day 8)
+```bash
+python scripts/release_readiness_gate.py --pytest-target tests/smoke/test_post_merge_readiness.py
+python scripts/ops/backup_create.py --name pre_deploy_YYYYMMDD_HHMM
+python scripts/ops/backup_manifest_validate.py <ruta_manifest.json>
+python scripts/ops/backup_restore_verify.py <ruta_manifest.json>
+python scripts/post_go_live_integrity_check.py --strict
+```

@@ -76,3 +76,11 @@ RCA follow-up ticket:
 - [ ] Checkout and transfer success rates meet targets.
 - [ ] No frozen-rule violations observed in monitoring/smoke.
 - [ ] Final closure notes published and acknowledged by Engineering + Product/Ops.
+
+## Validated Commands (Sprint 6 Day 8)
+```bash
+python scripts/post_go_live_integrity_check.py
+python scripts/post_go_live_integrity_check.py --strict --json
+pytest -q tests/smoke/test_post_go_live_stability.py
+python scripts/hotfix_readiness_check.py
+```

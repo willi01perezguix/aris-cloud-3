@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$DryRun,
   [switch]$CiMode,
   [string]$OutDir,
@@ -100,3 +100,15 @@ $pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$r
 Write-Host "Running: $pyinstallerCmd"
 Invoke-Expression $pyinstallerCmd
 Write-Host "Build complete. metadata=$metadataPath"
+
+# scaffold test guardrail: build_summary.json
+$summaryOutDir = if ($resolvedOutDir -and $resolvedOutDir -ne "") { $resolvedOutDir } else { (Get-Location).Path }
+$buildSummaryPath = Join-Path $summaryOutDir "build_summary.json"
+$buildSummary = [ordered]@{
+  app_name = "aris-core-3-app"
+  version  = $version
+  dry_run  = [bool]$DryRun
+  ci_mode  = [bool]$CiMode
+}
+$buildSummary | ConvertTo-Json -Depth 4 | Set-Content -Path $buildSummaryPath -Encoding utf8
+Write-Host "build_summary.json => $buildSummaryPath"

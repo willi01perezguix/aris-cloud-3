@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$DryRun,
   [switch]$CiMode,
   [string]$OutDir,
@@ -100,3 +100,13 @@ $pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$r
 Write-Host "Running: $pyinstallerCmd"
 Invoke-Expression $pyinstallerCmd
 Write-Host "Build complete. metadata=$metadataPath"
+
+# scaffold test guardrail: venv runtime check
+$venvActive = [bool]$env:VIRTUAL_ENV
+if (-not $venvActive) {
+  $msg = "venv is not active."
+  if ($CiMode) { Write-Warning "$msg CI mode enabled; continuing." }
+  else { throw "$msg Activate your venv before packaging." }
+} else {
+  Write-Host "venv active: $($env:VIRTUAL_ENV)"
+}

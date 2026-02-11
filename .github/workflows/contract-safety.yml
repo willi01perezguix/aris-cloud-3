@@ -1,0 +1,31 @@
+name: Contract Safety
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run contract safety check (strict, fail fast)
+        run: |
+          mkdir -p artifacts
+          python scripts/contract_safety_check.py --strict --json > artifacts/contract_safety_report.json
+
+      - name: Upload contract safety artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-safety-artifacts
+          path: artifacts/contract_safety_report.json

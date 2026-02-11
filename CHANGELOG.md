@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-rc.12 - Sprint 8 Day 1 (beta-readiness kickoff, feedback triage, baseline guardrails)
+
+### Added
+- Sprint 8 Day 1 kickoff/baseline artifacts: `docs/planning/SPRINT8_DAY1_KICKOFF.md`, `docs/qa/ALPHA_FEEDBACK_CONSOLIDATED_S8D1.md`, `docs/qa/DEFECT_TRIAGE_BOARD_S8D1.md`, `docs/planning/SPRINT8_BACKLOG_MASTER.md`, and `docs/planning/SPRINT8_EXECUTION_PLAN_D2_D7.md`.
+- Shared client telemetry scaffold under `clients/python/shared/telemetry/` with non-PII event schema, local file sink, optional stdout sink, and environment toggle.
+- Shared feature-flag scaffold under `clients/python/shared/feature_flags/` with provider-based flags and default-safe OFF behavior.
+- Sprint 8 beta readiness gate script `scripts/beta_readiness_gate.py` and CI workflow `.github/workflows/sprint8-day1-beta-baseline.yml`.
+- Unit tests for telemetry, feature flags, and gate summary/status behavior under `clients/python/tests/shared/` and `clients/python/tests/planning_or_ops/`.
+
+### Notes
+- Sprint 8 Day 1 baseline established for kickoff, alpha feedback triage, prioritized hardening backlog, and executable Day 2–Day 7 plan.
+- Explicitly no contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.11 - Sprint 7 Day 7 (E2E/UAT, internal alpha release, sprint closure)
 
 ### Added

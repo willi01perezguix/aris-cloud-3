@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0-rc.4 - Sprint 6 Day 8 (Post-go-live stabilization and closure)
+
+### Added
+- Stabilization/defect triage log: `docs/releases/STABILIZATION_LOG_S6D8.md`.
+- Final release closure package: `docs/releases/FINAL_RELEASE_CLOSURE_S6D8.md`.
+- SLI/SLO baseline lock artifact: `docs/ops/SLI_SLO_BASELINE_S6D8.md`.
+- Non-destructive integrity CLI with strict/json modes: `scripts/post_go_live_integrity_check.py`.
+- Post-go-live smoke regression suite: `tests/smoke/test_post_go_live_stability.py`.
+- Hotfix protocol runbook and readiness helper: `runbooks/13_HOTFIX_PROTOCOL_ARIS3_v1.md`, `scripts/hotfix_readiness_check.py`.
+- Stability CI workflow for PRs and nightly schedule: `.github/workflows/post-go-live-stability.yml`.
+
+### Changed
+- Go-live, hypercare, and recovery runbooks synced with Day 8 validated command blocks.
+
+### Notes
+- No contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.2 - Sprint 6 Day 6 (Post-merge stabilization)
 
 ### Added

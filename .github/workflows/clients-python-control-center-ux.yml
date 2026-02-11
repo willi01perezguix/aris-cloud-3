@@ -11,39 +11,51 @@ on:
 jobs:
   control-center-ux:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: clients/python
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Packaging preflight
+        run: |
+          test -f clients/python/requirements.txt || (echo "Missing clients/python/requirements.txt" && exit 1)
+          test -f clients/python/aris3_client_sdk/pyproject.toml || (echo "Missing SDK pyproject at clients/python/aris3_client_sdk/pyproject.toml" && exit 1)
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -r clients/python/requirements.txt
+          pip install -e ./clients/python/aris3_client_sdk[dev]
+
       - name: Lint (fail fast)
-        run: ruff check . --output-format=github
+        run: ruff check clients/python/apps/control_center clients/python/tests/control_center --output-format=github
+
       - name: Type check (fail fast)
-        run: mypy apps/control_center shared
+        run: |
+          cd clients/python
+          mypy apps/control_center shared
+
       - name: Control Center UX/access/users/settings tests
         run: |
+          cd clients/python
           pytest -q \
             tests/control_center/ux \
             tests/control_center/access \
             tests/control_center/users \
             tests/control_center/settings
+
       - name: Build concise summary artifact
         if: always()
         run: |
-          mkdir -p artifacts
+          mkdir -p clients/python/artifacts
           {
             echo "workflow=clients-python-control-center-ux"
-            echo "lint=ruff"
+            echo "lint=ruff clients/python/apps/control_center clients/python/tests/control_center"
             echo "types=mypy apps/control_center shared"
             echo "tests=control_center/{ux,access,users,settings}"
-          } > artifacts/control_center_ux_summary.txt
+          } > clients/python/artifacts/control_center_ux_summary.txt
+
       - name: Upload summary artifact
         if: always()
         uses: actions/upload-artifact@v4

@@ -32,8 +32,16 @@ class AuthStore:
         path = self._path()
         if not path.exists():
             return None
-        data = json.loads(path.read_text())
-        return SessionData(**data)
+        try:
+            data = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            self.clear()
+            return None
+        try:
+            return SessionData(**data)
+        except Exception:
+            self.clear()
+            return None
 
     def clear(self) -> None:
         path = self._path()

@@ -19,6 +19,7 @@ class ClientConfig:
     read_timeout_seconds: float = 15.0
     retries: int = 3
     retry_backoff_seconds: float = 0.3
+    max_connections: int = 20
     verify_ssl: bool = True
 
     @property
@@ -45,16 +46,22 @@ def load_config(env_file: str | None = None) -> ClientConfig:
     env_key = env_name.upper()
     api_base_url = os.getenv(f"ARIS3_API_BASE_URL_{env_key}") or os.getenv("ARIS3_API_BASE_URL")
     timeout_seconds = float(os.getenv("ARIS3_TIMEOUT_SECONDS", "10"))
-    connect_timeout_seconds = float(os.getenv("ARIS3_CONNECT_TIMEOUT_SECONDS", str(min(timeout_seconds, 5.0))))
-    read_timeout_seconds = float(os.getenv("ARIS3_READ_TIMEOUT_SECONDS", str(max(timeout_seconds, connect_timeout_seconds))))
+    connect_timeout_seconds = float(
+        os.getenv("ARIS3_CONNECT_TIMEOUT_SECONDS", str(min(timeout_seconds, 5.0)))
+    )
+    read_timeout_seconds = float(
+        os.getenv("ARIS3_READ_TIMEOUT_SECONDS", str(max(timeout_seconds, connect_timeout_seconds)))
+    )
     retries = int(os.getenv("ARIS3_RETRIES", "3"))
     retry_backoff_seconds = float(os.getenv("ARIS3_RETRY_BACKOFF_SECONDS", "0.3"))
+    max_connections = int(os.getenv("ARIS3_MAX_CONNECTIONS", "20"))
     verify_ssl = _coerce_bool(os.getenv("ARIS3_VERIFY_SSL"), True)
 
     values = {
         "ARIS3_API_BASE_URL": api_base_url,
     }
     _require(values, ["ARIS3_API_BASE_URL"])
+    assert api_base_url is not None
 
     return ClientConfig(
         env_name=env_name,
@@ -63,5 +70,6 @@ def load_config(env_file: str | None = None) -> ClientConfig:
         read_timeout_seconds=read_timeout_seconds,
         retries=retries,
         retry_backoff_seconds=retry_backoff_seconds,
+        max_connections=max_connections,
         verify_ssl=verify_ssl,
     )

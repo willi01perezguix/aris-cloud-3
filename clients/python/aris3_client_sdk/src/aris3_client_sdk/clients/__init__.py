@@ -1,4 +1,5 @@
 from .access_control import AccessControlClient
+from .admin_client import AdminClient
 from .auth import AuthClient
 from .exports_client import ExportsClient
 from .health import HealthClient
@@ -13,6 +14,7 @@ from .transfers_client import TransfersClient
 
 __all__ = [
     "AccessControlClient",
+    "AdminClient",
     "AuthClient",
     "ExportsClient",
     "HealthClient",

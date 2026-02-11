@@ -2,11 +2,17 @@ from .auth_store import AuthStore
 from .config import ClientConfig, ConfigError, load_config
 from .exceptions import (
     ApiError,
+    AuthError,
     CashDrawerNegativeError,
     CashPermissionDeniedError,
     CashSessionNotOpenError,
     ForbiddenError,
+    MustChangePasswordError,
     NotFoundError,
+    PermissionError,
+    RateLimitError,
+    ServerError,
+    TransportError,
     UnauthorizedError,
     ValidationError,
     TransferActionForbiddenError,
@@ -18,7 +24,7 @@ from .exceptions import (
     InventoryCountStateError,
 )
 from .http_client import HttpClient
-from .idempotency import IdempotencyKeys, new_idempotency_keys
+from .idempotency import IdempotencyKeys, idempotency_headers, new_idempotency_keys, resolve_idempotency_keys
 from .models import (
     EffectivePermissionsResponse,
     PermissionEntry,
@@ -186,6 +192,7 @@ from .ui_errors import UserFacingError, to_user_facing_error
 
 __all__ = [
     "ApiError",
+    "AuthError",
     "ApiSession",
     "AuthStore",
     "CashDrawerNegativeError",
@@ -194,6 +201,7 @@ __all__ = [
     "CashValidationIssue",
     "CashValidationResult",
     "ClientConfig",
+    "ConflictError",
     "ConfigError",
     "EffectivePermissionsResponse",
     "ForbiddenError",
@@ -215,7 +223,9 @@ __all__ = [
     "MediaResolveRequest",
     "MediaMapping",
     "MediaAsset",
+    "MustChangePasswordError",
     "PermissionEntry",
+    "PermissionError",
     "PaymentTotals",
     "PaymentValidationIssue",
     "PaymentValidationResult",
@@ -279,7 +289,9 @@ __all__ = [
     "ReportTotals",
     "TraceContext",
     "ReconcileRequest",
+    "RateLimitError",
     "ReconcileResponse",
+    "ServerError",
     "TransferActionAvailability",
     "TransferActionForbiddenError",
     "TransferActionRequest",
@@ -298,6 +310,7 @@ __all__ = [
     "TransferTenantMismatchError",
     "UserFacingError",
     "TransferUpdateRequest",
+    "TransportError",
     "UnauthorizedError",
     "UserResponse",
     "ValidationError",
@@ -306,8 +319,10 @@ __all__ = [
     "ReportShortagesRequest",
     "ResolveShortagesRequest",
     "compute_payment_totals",
+    "idempotency_headers",
     "load_config",
     "new_idempotency_keys",
+    "resolve_idempotency_keys",
     "ClientValidationError",
     "StockMeta",
     "StockDataBlock",

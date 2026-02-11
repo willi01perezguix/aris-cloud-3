@@ -4,13 +4,16 @@ from dataclasses import dataclass
 
 from .auth_store import AuthStore
 from .clients.access_control import AccessControlClient
+from .clients.admin_client import AdminClient
 from .clients.auth import AuthClient
 from .clients.exports_client import ExportsClient
 from .clients.health import HealthClient
-from .clients.smoke import SmokeClient
+from .clients.inventory_counts_client import InventoryCountsClient
+from .clients.media_client import MediaClient
 from .clients.pos_cash_client import PosCashClient
-from .clients.reports_client import ReportsClient
 from .clients.pos_sales_client import PosSalesClient
+from .clients.reports_client import ReportsClient
+from .clients.smoke import SmokeClient
 from .clients.stock_client import StockClient
 from .clients.transfers_client import TransfersClient
 from .config import ClientConfig
@@ -44,6 +47,9 @@ class ApiSession:
     def access_control_client(self) -> AccessControlClient:
         return AccessControlClient(http=self._http(), access_token=self.token)
 
+    def admin_client(self) -> AdminClient:
+        return AdminClient(http=self._http(), access_token=self.token)
+
     def health_client(self) -> HealthClient:
         return HealthClient(http=self._http(), access_token=self.token)
 
@@ -68,13 +74,24 @@ class ApiSession:
     def exports_client(self) -> ExportsClient:
         return ExportsClient(http=self._http(), access_token=self.token)
 
+    def media_client(self) -> MediaClient:
+        return MediaClient(http=self._http(), access_token=self.token)
+
+    def inventory_counts_client(self) -> InventoryCountsClient:
+        return InventoryCountsClient(http=self._http(), access_token=self.token)
+
     def establish(self, token: TokenResponse, user: UserResponse | None) -> None:
         self.token = token.access_token
         self.user = user
-        self.auth_store.save(SessionData(access_token=self.token, user=self.user, env_name=self.config.env_name))
+        if self.auth_store:
+            self.auth_store.save(SessionData(access_token=self.token, user=self.user, env_name=self.config.env_name))
 
     def clear(self) -> None:
         self.token = None
         self.user = None
         if self.auth_store:
             self.auth_store.clear()
+
+    def logout(self) -> None:
+        """Clear in-memory and persisted auth/session state."""
+        self.clear()

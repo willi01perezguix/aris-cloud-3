@@ -4,9 +4,12 @@ from typing import Mapping
 
 from .exceptions import (
     ApiError,
-    ForbiddenError,
+    AuthError,
+    ConflictError,
     NotFoundError,
-    UnauthorizedError,
+    PermissionError,
+    RateLimitError,
+    ServerError,
     ValidationError,
 )
 
@@ -18,13 +21,26 @@ def map_error(status_code: int, payload: Mapping[str, object] | None, trace_id: 
     details = payload.get("details")
     mapped: type[ApiError]
     if status_code in {401}:
-        mapped = UnauthorizedError
+        mapped = AuthError
     elif status_code in {403}:
-        mapped = ForbiddenError
+        mapped = PermissionError
     elif status_code in {404}:
         mapped = NotFoundError
     elif status_code in {400, 422}:
         mapped = ValidationError
+    elif status_code == 409:
+        mapped = ConflictError
+    elif status_code == 429:
+        mapped = RateLimitError
+    elif status_code >= 500:
+        mapped = ServerError
     else:
         mapped = ApiError
-    return mapped(code=code, message=message, details=details, trace_id=trace_id, status_code=status_code)
+    return mapped(
+        code=code,
+        message=message,
+        details=details,
+        trace_id=trace_id,
+        status_code=status_code,
+        raw_payload=dict(payload),
+    )

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-rc.14 - Sprint 8 Day 3 (Control Center UX hardening, RBAC clarity, admin safety rails)
+
+### Added
+- Control Center UX audit artifact `docs/ux/CONTROL_CENTER_UX_AUDIT_S8D3.md` and operator runbook `docs/ops/CONTROL_CENTER_OPERATOR_GUIDE_S8D3.md`.
+- Unified admin shared UX modules for error presenter, notification center, view state, and safe retry panel under `clients/python/apps/control_center/ui/shared/`.
+- New Control Center UX/access/users/settings test suites under `clients/python/tests/control_center/`.
+- Dedicated workflow `.github/workflows/clients-python-control-center-ux.yml` for PR lint/type/test + summary artifact upload.
+
+### Changed
+- RBAC policy editor hardening with change preview, precedence messaging, deny-over-allow warning, and admin ceiling feedback.
+- Effective-permissions rendering upgraded with source-layer explainability and explicit deny origin labels.
+- High-impact user actions hardened with confirmation/in-flight/duplicate-submit safety rails and refresh-required mutation result behavior.
+- Settings forms hardened with richer validation, unsaved-change detection, restore-last-saved flow, and save timestamp tracking.
+- Users table behavior improved with stable sorting, filter persistence model, pagination clarity, focus order, and selected-row context summary.
+
+### Notes
+- Control Center Sprint 8 Day 3 hardening completed with telemetry + feature-flag integration using default-safe/off behavior.
+- Explicitly no contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.13 - Sprint 8 Day 2 (Core App UX hardening + unified error-state polish)
 
 ### Added

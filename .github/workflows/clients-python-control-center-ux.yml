@@ -1,0 +1,52 @@
+name: clients-python-control-center-ux
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/python/apps/control_center/**'
+      - 'clients/python/tests/control_center/**'
+      - '.github/workflows/clients-python-control-center-ux.yml'
+
+jobs:
+  control-center-ux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Lint (fail fast)
+        run: ruff check . --output-format=github
+      - name: Type check (fail fast)
+        run: mypy apps/control_center shared
+      - name: Control Center UX/access/users/settings tests
+        run: |
+          pytest -q \
+            tests/control_center/ux \
+            tests/control_center/access \
+            tests/control_center/users \
+            tests/control_center/settings
+      - name: Build concise summary artifact
+        if: always()
+        run: |
+          mkdir -p artifacts
+          {
+            echo "workflow=clients-python-control-center-ux"
+            echo "lint=ruff"
+            echo "types=mypy apps/control_center shared"
+            echo "tests=control_center/{ux,access,users,settings}"
+          } > artifacts/control_center_ux_summary.txt
+      - name: Upload summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-center-ux-summary
+          path: clients/python/artifacts/control_center_ux_summary.txt

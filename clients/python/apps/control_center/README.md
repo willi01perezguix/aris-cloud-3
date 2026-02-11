@@ -1,69 +1,64 @@
-# ARIS Control Center (Sprint 7 Day 6)
+# ARIS Control Center (Sprint 8 Day 3)
 
 ## Purpose and scope
-Control Center integrates Day 6 operational admin workflows in the Python client app:
-- Users management (list/search/create/edit and actions)
-- Access-control governance (tenant/store/user policy layers)
-- Effective permissions preview + RBAC UI gating (default deny)
-- Settings integration (variant labels + return policy)
-- Session-level recent operations trace for operator confidence
+Control Center Sprint 8 Day 3 hardens admin-critical UX for beta readiness while preserving existing API contracts and RBAC semantics.
 
-This implementation keeps backend contracts intact and uses existing `/aris3/admin/*` and `/aris3/access-control/*` routes.
+## UX state model
+Control Center now uses a standardized admin state model:
+- loading
+- empty
+- success
+- no-permission
+- fatal
 
-## Run instructions
-From `clients/python`:
+Errors are normalized into validation/permission/conflict/network/server/fatal categories with safe-retry gating and expandable technical details (`trace_id`, `code`, `action`, `timestamp`).
 
-```bash
-python -m apps.control_center.main
-```
+## RBAC editor safety model
+- Precedence is explicitly shown as:
+  1. global template
+  2. tenant policy
+  3. store policy
+  4. user override
+- Explicit DENY-overrides-ALLOW warning is displayed whenever deny rules exist.
+- Policy change preview exposes allow/deny adds/removes before submit.
+- ADMIN ceiling enforcement blocks grants beyond actor-effective permissions with clear reasons.
+- High-impact policy changes require confirmation.
 
-Required environment variables:
-- `ARIS3_API_BASE_URL`
-- `ARIS3_ENV_NAME` (optional label)
-- `ARIS3_ACCESS_TOKEN` (for pre-auth usage) or login credentials via UI flow
+## Effective-permissions explainer usage
+- Supports selected user and optional store context.
+- Displays final decision (`ALLOW`/`DENY`) plus contributing policy layers.
+- Highlights explicit deny sources causing blocked access.
 
-## Users and actions flow
-- Load/list users from `GET /aris3/admin/users`
-- Create user via `POST /aris3/admin/users` with `Idempotency-Key`
-- Edit profile fields via `PATCH /aris3/admin/users/{user_id}`
-- High-impact actions via `POST /aris3/admin/users/{user_id}/actions`:
-  - `set_status`
-  - `set_role`
-  - `reset_password`
-- All action posts include confirmation + de-duplication key in the UI layer.
+## High-impact user action safeguards
+Actions covered: `set_status`, `set_role`, `reset_password`.
+- Confirmation with target summary
+- Optional reason/note context
+- In-flight disable and duplicate-submit protection
+- Success/failure toasts with trace detail payloads
+- Mandatory refresh signal after mutation
 
-## RBAC governance and effective permissions preview
-- Clear layer visibility:
-  1. Global role template
-  2. Tenant policy
-  3. Store policy
-  4. User override
-- DENY precedence is rendered explicitly over ALLOW.
-- ADMIN ceiling protection blocks grants not in actor-effective permissions.
-- Effective permissions preview supports targeted user + store context.
+## Settings validation and unsaved-change behavior
+Variant fields and return policy forms provide:
+- field-level validation + summary banner model
+- unsaved-change detection
+- restore-last-saved action
+- save status timestamps
+- PATCH saves with idempotency metadata where required by contract
 
-## Settings pages behavior
-### Variant fields
-- `var1_label`
-- `var2_label`
+## Telemetry and feature flags
+Default-safe (off) feature flags:
+- `cc_rbac_editor_v2`
+- `cc_permission_explainer_v1`
+- `cc_safe_actions_v1`
 
-### Return policy
-- `return_window_days`
-- `require_receipt`
-- `allow_refund_cash/card/transfer`
-- `allow_exchange`
-- `require_manager_for_exceptions`
-- `accepted_conditions`
-- `non_reusable_label_strategy`
-- `restocking_fee_pct`
+Telemetry events (non-PII payloads):
+- `cc_screen_view`
+- `cc_policy_edit_attempt` / `cc_policy_edit_result`
+- `cc_user_action_attempt` / `cc_user_action_result`
+- `cc_permission_denied`
+- `cc_validation_failed`
 
-Both settings screens:
-- Load current values on open
-- Validate inputs before save
-- Save through PATCH endpoints with idempotency metadata
-- Refresh and expose trace/audit references in operation history
+Flags never bypass permission checks; default deny remains authoritative.
 
-## Permission requirements and known limitations
-- UI uses effective-permission keys and defaults to deny if key is absent.
-- Unauthorized responses are expected and surfaced as actionable errors.
-- This scope focuses on integration/service/view-model logic; desktop shell rendering stays lightweight.
+## Contract safety note
+No backend contracts were changed. Existing routes are reused under `/aris3/admin/*` and `/aris3/access-control/*`.

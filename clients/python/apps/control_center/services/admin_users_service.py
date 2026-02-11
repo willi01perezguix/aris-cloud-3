@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aris3_client_sdk.clients.admin_client import AdminClient
+from shared.feature_flags.flags import FeatureFlagStore
+from shared.feature_flags.provider import DictFlagProvider
+from shared.telemetry.events import build_event
+from shared.telemetry.logger import TelemetryLogger
 
 from apps.control_center.app.state import OperationRecord, SessionState
 
@@ -14,12 +18,22 @@ class UserMutationResult:
     user: dict[str, Any]
     trace_id: str | None
     operation: OperationRecord
+    refresh_required: bool = True
 
 
 class AdminUsersService:
-    def __init__(self, client: AdminClient, state: SessionState) -> None:
+    def __init__(
+        self,
+        client: AdminClient,
+        state: SessionState,
+        *,
+        flags: FeatureFlagStore | None = None,
+        telemetry: TelemetryLogger | None = None,
+    ) -> None:
         self.client = client
         self.state = state
+        self.flags = flags or FeatureFlagStore(provider=DictFlagProvider(values={}))
+        self.telemetry = telemetry or TelemetryLogger(app_name="control_center", enabled=False)
 
     def list_users(self, *, query: str = "") -> tuple[list[dict[str, Any]], str | None]:
         payload = self.client._request("GET", "/aris3/admin/users")
@@ -42,6 +56,16 @@ class AdminUsersService:
         return UserMutationResult(user=user, trace_id=response.get("trace_id"), operation=op)
 
     def user_action(self, user_id: str, payload: dict[str, Any], *, idempotency_key: str) -> UserMutationResult:
+        self.telemetry.emit(
+            build_event(
+                category="api_call_result",
+                name="cc_user_action_attempt",
+                module="control_center",
+                action=str(payload.get("action") or "unknown"),
+                success=None,
+                context={"flag_enabled": self.flags.enabled("cc_safe_actions_v1", default=False)},
+            )
+        )
         response = self.client._request(
             "POST",
             f"/aris3/admin/users/{user_id}/actions",
@@ -56,7 +80,18 @@ class AdminUsersService:
             idempotency_key=idempotency_key,
             transaction_id=payload.get("transaction_id"),
         )
-        return UserMutationResult(user=user, trace_id=response.get("trace_id"), operation=op)
+        self.telemetry.emit(
+            build_event(
+                category="api_call_result",
+                name="cc_user_action_result",
+                module="control_center",
+                action=str(payload.get("action") or "unknown"),
+                success=True,
+                trace_id=response.get("trace_id"),
+                context={"has_reason": bool(payload.get("reason"))},
+            )
+        )
+        return UserMutationResult(user=user, trace_id=response.get("trace_id"), operation=op, refresh_required=True)
 
     def _record(self, action: str, *, target: str, trace_id: str | None, idempotency_key: str | None = None, transaction_id: str | None = None) -> OperationRecord:
         operation = OperationRecord(

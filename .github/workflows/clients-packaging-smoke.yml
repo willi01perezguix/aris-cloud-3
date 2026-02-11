@@ -110,3 +110,5 @@ jobs:
           if ($coreOutcome -ne "success" -or $controlCenterOutcome -ne "success") {
             throw "Packaging dry-run smoke failed. Check uploaded diagnostics artifacts for logs and tree outputs."
           }
+
+# ci-touch pr checks

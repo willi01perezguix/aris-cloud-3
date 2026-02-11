@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-rc.9 - Sprint 7 Day 5 (ARIS-CORE-3 POS Sales + POS Cash integration)
+
+### Added
+- ARIS-CORE-3 POS integration service layer: `pos_sales_service.py` and `pos_cash_service.py` using existing SDK routes/contracts only.
+- POS view-model wiring under `clients/python/apps/core_app/ui/pos/` for sales draft/edit/checkout/cancel, payment summary, cash session actions, and cash movement visibility.
+- POS test suite under `clients/python/tests/core_app/pos/` covering draft/edit/checkout/cancel, payment validation rules, cash open-session precondition, cash action state gating, permission gating, and mapped error UX behavior.
+- Dedicated POS CI workflow: `.github/workflows/clients-python-core-app-pos.yml` for lint, type checks, and POS tests on pull requests.
+
+### Changed
+- Core app README now documents Sprint 7 Day 5 POS lifecycle flows, payment rules, cash-session preconditions, permission requirements, and known limitations.
+
+### Notes
+- POS critical mutations wire `transaction_id` and `idempotency_key` metadata.
+- No contract-breaking API changes were introduced, and no new backend endpoints were added.
+
 ## 0.1.0-rc.8 - Sprint 7 Day 4 (ARIS-CORE-3 Stock module integration)
 
 ### Added

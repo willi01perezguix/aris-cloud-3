@@ -1,7 +1,8 @@
-name: clients-packaging-smoke
+﻿name: clients-packaging-smoke
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'clients/python/**'
       - 'scripts/ci/**'
@@ -49,7 +50,7 @@ jobs:
           New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/core" -Force | Out-Null
           New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/control_center" -Force | Out-Null
 
-          # placeholders para garantizar que exista algo para upload-artifact
+          # placeholders para evitar "no files found"
           Set-Content -Path "$env:PACKAGING_ARTIFACTS_DIR/.keep" -Value "keep" -Encoding utf8
           Set-Content -Path "$env:PACKAGING_ARTIFACTS_DIR/core/build_core_dryrun.log" -Value "" -Encoding utf8
           Set-Content -Path "$env:PACKAGING_ARTIFACTS_DIR/control_center/build_control_center_dryrun.log" -Value "" -Encoding utf8
@@ -59,16 +60,18 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          ./clients/python/packaging/build_core.ps1 -DryRun -CiMode 2>&1 |
-            Tee-Object -FilePath ./clients/python/packaging/temp/artifacts/core/build_core_dryrun.log
+          & ./clients/python/packaging/build_core.ps1 -DryRun -CiMode *>&1 |
+            Tee-Object -FilePath "$env:PACKAGING_ARTIFACTS_DIR/core/build_core_dryrun.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run control center packaging smoke (dry-run)
         id: control_center_smoke
         continue-on-error: true
         shell: pwsh
         run: |
-          ./clients/python/packaging/build_control_center.ps1 -DryRun -CiMode 2>&1 |
-            Tee-Object -FilePath ./clients/python/packaging/temp/artifacts/control_center/build_control_center_dryrun.log
+          & ./clients/python/packaging/build_control_center.ps1 -DryRun -CiMode *>&1 |
+            Tee-Object -FilePath "$env:PACKAGING_ARTIFACTS_DIR/control_center/build_control_center_dryrun.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Collect packaging diagnostics
         if: always()
@@ -78,7 +81,7 @@ jobs:
             New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR" -Force | Out-Null
           }
 
-          $treeFile = Join-Path "$env:PACKAGING_ARTIFACTS_DIR" "_tree.txt"
+          $treeFile = "$env:PACKAGING_ARTIFACTS_DIR/_tree.txt"
           Get-ChildItem -Path "$env:PACKAGING_ROOT" -Recurse -Force |
             Select-Object FullName, Length, LastWriteTimeUtc |
             Format-Table -AutoSize |
@@ -90,19 +93,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-packaging-smoke-diagnostics
-          path: |
-            clients/python/packaging/temp/artifacts/**
+          path: clients/python/packaging/temp/artifacts/**
           if-no-files-found: error
 
       - name: Fail job if packaging smoke failed
         if: always()
         shell: pwsh
-        env:
-          CORE_SMOKE_OUTCOME: ${{ steps.core_smoke.outcome }}
-          CONTROL_CENTER_SMOKE_OUTCOME: ${{ steps.control_center_smoke.outcome }}
         run: |
-          $coreOutcome = "$env:CORE_SMOKE_OUTCOME"
-          $controlCenterOutcome = "$env:CONTROL_CENTER_SMOKE_OUTCOME"
+          $coreOutcome = "${{ steps.core_smoke.outcome }}"
+          $controlCenterOutcome = "${{ steps.control_center_smoke.outcome }}"
 
           Write-Host "core_smoke_outcome=$coreOutcome"
           Write-Host "control_center_smoke_outcome=$controlCenterOutcome"
@@ -110,5 +109,3 @@ jobs:
           if ($coreOutcome -ne "success" -or $controlCenterOutcome -ne "success") {
             throw "Packaging dry-run smoke failed. Check uploaded diagnostics artifacts for logs and tree outputs."
           }
-
-# ci-touch pr checks

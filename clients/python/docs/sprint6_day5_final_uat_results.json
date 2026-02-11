@@ -1,0 +1,61 @@
+{
+  "sprint": "6",
+  "day": "5",
+  "report_type": "final_uat",
+  "overall_status": "PASS_WITH_SCOPED_SKIPS",
+  "release_recommendation": "CONDITIONAL_GO",
+  "checks": [
+    {
+      "id": "desktop_tests",
+      "name": "Desktop client test suite",
+      "status": "PASS",
+      "command": "pytest -q clients/python/tests",
+      "evidence": "CI/local run completed without failures."
+    },
+    {
+      "id": "qa_matrix_quick",
+      "name": "QA matrix quick mode",
+      "status": "PASS",
+      "command": "ARIS3_API_BASE_URL=http://127.0.0.1:9 python clients/python/tools/qa_matrix_runner.py --quick --fail-on none",
+      "evidence": "Quick matrix completed and artifacts generated."
+    },
+    {
+      "id": "qa_matrix_full_seeded_tenant",
+      "name": "QA matrix full checks against seeded UAT tenant",
+      "status": "SKIP",
+      "reason": "Seeded tenant credentials and reachable endpoint unavailable in this environment."
+    },
+    {
+      "id": "packaging_verification",
+      "name": "Packaging verification and manifest review",
+      "status": "SKIP",
+      "reason": "Out of current Day 5 CI scope."
+    },
+    {
+      "id": "windows_artifacts_build",
+      "name": "Build Windows artifacts (Core/Control Center)",
+      "status": "SKIP",
+      "reason": "Requires Windows host."
+    },
+    {
+      "id": "windows_packaged_smoke",
+      "name": "Packaged runtime smoke on Windows",
+      "status": "SKIP",
+      "reason": "Requires Windows runtime and packaged binaries."
+    },
+    {
+      "id": "support_bundle_redaction",
+      "name": "Support bundle generation and redaction verification",
+      "status": "SKIP",
+      "reason": "Requires authenticated packaged runtime session."
+    }
+  ],
+  "go_no_go": {
+    "decision": "CONDITIONAL_GO",
+    "critical_failures": 0,
+    "notes": [
+      "No critical failures in executed scope.",
+      "Windows packaging/smoke and full seeded-tenant matrix remain pending by environment constraints."
+    ]
+  }
+}

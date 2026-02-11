@@ -1,0 +1,19 @@
+{
+  "sprint": "6",
+  "day": "5",
+  "decision": "CONDITIONAL_GO",
+  "scope": "CI/Linux validation scope",
+  "rationale": [
+    "Desktop client tests passed.",
+    "Quick QA matrix passed.",
+    "No critical blockers in executed scope.",
+    "Remaining skips are environment-dependent."
+  ],
+  "pending_gates": [
+    "Windows artifact build/signing",
+    "Windows packaged launch smoke",
+    "Full seeded-tenant UAT matrix",
+    "Support bundle generation and redaction verification"
+  ],
+  "final_rollout_blocked_until_pending_gates_closed": true
+}

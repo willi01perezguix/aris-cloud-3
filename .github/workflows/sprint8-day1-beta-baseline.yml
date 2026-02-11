@@ -1,0 +1,38 @@
+name: sprint8-day1-beta-baseline
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/python/**'
+      - 'scripts/beta_readiness_gate.py'
+      - 'scripts/contract_safety_check.py'
+      - 'docs/planning/**'
+      - 'docs/qa/**'
+      - '.github/workflows/sprint8-day1-beta-baseline.yml'
+  workflow_dispatch:
+
+jobs:
+  beta-readiness-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Run Sprint 8 Day 1 beta readiness gate
+        run: |
+          python scripts/beta_readiness_gate.py --fail-fast | tee sprint8-day1-gate-summary.txt
+      - name: Upload gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint8-day1-beta-baseline
+          path: |
+            sprint8-day1-gate-summary.txt
+            artifacts/telemetry/*.jsonl

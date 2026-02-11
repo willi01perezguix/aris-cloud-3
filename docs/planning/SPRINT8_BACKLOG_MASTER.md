@@ -1,0 +1,16 @@
+# Sprint 8 Backlog Master (Day 1 Baseline)
+
+| ID | Title | Category | Module | User impact | Acceptance criteria | Owner | Estimate | Risk | Target day | Dependencies |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S8-BL-001 | Core app auth/session error-state hardening | ux | core_app | Reduces failed-login confusion and support pings | Expired/invalid session errors show consistent guidance and retry path; tests cover transitions | _TBD_ | M | Medium | D2 | Depends on auth service error mapper |
+| S8-BL-002 | Core app loading/error skeleton polish for stock/POS | ux | core_app | Smoother operator workflows under latency | Loading placeholder and fallback banners are deterministic and regression-tested | _TBD_ | M | Medium | D2 | UI component update + smoke checks |
+| S8-BL-003 | Control Center deny-state copy and admin safety rail updates | ux | control_center | Fewer misconfigured admin operations | Deny outcomes include cause + next action; no permission leakage | _TBD_ | M | Medium | D3 | Depends on permissioned actions widget |
+| S8-BL-004 | RBAC matrix guardrail interaction review | security | control_center | Protects tenant boundaries during admin actions | DENY-over-ALLOW and tenant ceiling scenarios validated in targeted tests | _TBD_ | M | High | D3 | Access-control service + fixtures |
+| S8-BL-005 | Startup and key-screen performance pass | perf | core_app | Faster perceived responsiveness | Startup time baseline captured, key-screen interaction timings recorded with budget notes | _TBD_ | L | Medium | D4 | Telemetry timing fields in place |
+| S8-BL-006 | Shared telemetry non-PII scaffold | ops | sdk | Better triage without sensitive data exposure | Telemetry categories + schema + sinks implemented; tests validate non-PII enforcement | _TBD_ | S | Low | D2 | Shared package scaffolding |
+| S8-BL-007 | Shared feature-flag safe rollout scaffold | ops | sdk | Safer staged beta activation | Flags default OFF, provider overrides work, permission bypass blocked by design | _TBD_ | S | Medium | D2 | Shared package scaffolding |
+| S8-BL-008 | Packaging/install hardening for Windows pilot path | ops | packaging | Fewer install blockers in beta onboarding | Packaging docs include troubleshooting and sanity checks stay green | _TBD_ | M | Medium | D5 | packaging scripts and docs |
+| S8-BL-009 | Security/permission abuse drill suite expansion | test | ci | Higher confidence in admin/operator safety | Abuse scenarios executed and summarized with reproducible outputs | _TBD_ | M | High | D6 | Existing RBAC tests + CI job |
+| S8-BL-010 | Beta readiness gate script baseline | test | ci | Single-command confidence check before merge | Gate runs smoke + contract + packaging + shared tests and prints pass/fail table | _TBD_ | S | Medium | D2 | scripts + test selection |
+| S8-BL-011 | Sprint 8 Day 2–7 release candidate gate prep | test | ci | Predictable beta candidate evaluation | Day 7 gate checklist and release-note inputs drafted and reviewed | _TBD_ | M | Medium | D7 | Inputs from D2-D6 |
+| S8-BL-012 | Internal docs consistency pass for frozen rules | bug | api-contract | Reduces accidental contract misuse | Sprint docs explicitly restate frozen rules and no-break policy | _TBD_ | S | Low | D2 | kickoff + triage docs |

@@ -1,71 +1,85 @@
-# Recovery Playbook — ARIS3 Backup/Restore Drill
+# Recovery Playbook — ARIS3 Backup/Restore + Release Readiness
 
 ## Objetivo
-Validar que los backups operativos son reproducibles, verificables y auditables sin romper contrato.
+Asegurar recuperación operativa y preparación de release con evidencia verificable y sin romper el contrato ARIS3.
 
 ## Pre-requisitos
 - Variables:
   - `OPS_ENABLE_BACKUP_DRILL=true`
   - `OPS_ARTIFACTS_DIR` (default `./artifacts`)
   - `OPS_DRILL_TIMEOUT_SEC` (default `120`)
-- Acceso a la base de datos configurada en `DATABASE_URL`.
+  - `DATABASE_URL` válido para el entorno objetivo
+- Dependencias instaladas: `pip install -r requirements.txt`
 
-## 1) Crear backup
-```bash
-python scripts/ops/backup_create.py --name backup_drill_YYYYMMDD
-```
-- Salida: ruta al `manifest.json` dentro de `OPS_ARTIFACTS_DIR/<backup_name>/`.
-- Se escribe un evento de auditoría `backup.create` (si existe tenant).
+## Verification Steps (ejecución en orden)
 
-## 2) Validar manifest
-```bash
-python scripts/ops/backup_manifest_validate.py <ruta_manifest.json>
-```
-Si falla, revisar checksums y rutas en el directorio del backup.
+### 1) Pre-deploy checks
+1. Confirmar rama de trabajo y estado limpio:
+   ```bash
+   git branch --show-current
+   git status --short
+   ```
+2. Ejecutar gate de release readiness (sqlite/local):
+   ```bash
+   python scripts/release_readiness_gate.py --pytest-target tests/smoke/test_post_merge_readiness.py
+   ```
+3. Validar migraciones en base desechable (incluido en gate). Si se requiere manual:
+   ```bash
+   alembic upgrade head && alembic downgrade base && alembic upgrade head
+   ```
 
-## 3) Restore + verify en DB temporal
-```bash
-python scripts/ops/backup_restore_verify.py <ruta_manifest.json>
-```
-Salida: ruta al `artifacts/drill_report_<timestamp>.json`.
+### 2) Deploy checks
+1. Ejecutar backup previo al despliegue:
+   ```bash
+   python scripts/ops/backup_create.py --name pre_deploy_YYYYMMDD_HHMM
+   ```
+2. Validar manifest del backup:
+   ```bash
+   python scripts/ops/backup_manifest_validate.py <ruta_manifest.json>
+   ```
+3. Verificar conectividad del servicio:
+   ```bash
+   curl -sS http://<host>/health
+   curl -sS http://<host>/ready
+   ```
 
-## 4) Interpretar reporte
-En el reporte:
-- `row_counts_match`: `true` si los conteos restaurados coinciden con el manifest.
-- `sanity_checks.primary_keys_non_null`: `true` si no hay PK nulas.
-- `status`: `PASS` o `FAIL`.
+### 3) Post-deploy validation
+1. Ejecutar smoke crítico:
+   ```bash
+   pytest -q tests/smoke/test_post_merge_readiness.py
+   ```
+2. Verificar endpoints críticos:
+   ```bash
+   curl -sS http://<host>/aris3/stock
+   curl -sS http://<host>/aris3/reports/overview
+   curl -sS http://<host>/aris3/exports
+   ```
+3. Confirmar latencia p95 local/CI dentro de presupuesto (default 120ms para `/health`) en resumen del gate.
 
-## 5) Rollback plan
-Si `status=FAIL`:
-1. Detener el proceso de restore.
-2. Re-ejecutar validación del manifest.
-3. Si el manifest es válido, repetir el restore con un nuevo `OPS_ARTIFACTS_DIR`.
-4. Si persiste, escalar con el reporte y el manifest.
+### 4) Rollback trigger conditions + rollback verification
+#### Trigger conditions
+- `scripts/release_readiness_gate.py` en `FAIL`.
+- `GET /ready` devuelve no-200 o error de DB.
+- Smoke crítico rojo en auth/stock/transfers/POS/reports/exports.
+- Falla de backup/restore drill o inconsistencia de manifest.
 
-## 6) Evidencia
-Guardar:
+#### Rollback procedure
+1. Declarar `NO-GO` y congelar despliegues.
+2. Revertir aplicación al último release estable.
+3. Restaurar último backup válido:
+   ```bash
+   python scripts/ops/backup_restore_verify.py <ruta_manifest.json>
+   ```
+4. Ejecutar verificación post-rollback:
+   ```bash
+   curl -sS http://<host>/health
+   curl -sS http://<host>/ready
+   pytest -q tests/smoke/test_post_merge_readiness.py
+   ```
+
+## Evidencia requerida
 - `manifest.json`
 - `drill_report_<timestamp>.json`
-- Bitácora de ejecución (salida CLI)
-
-## 7) Rollback drill final (Sprint 4 Día 7)
-### Disparadores de rollback
-- CRITICAL en integrity scan.
-- Backup/restore drill fallido.
-- Test matrix rojo (sqlite/postgres) o UAT crítico fallido.
-- Gate de seguridad FAIL.
-
-### Pasos de rollback (app + DB)
-1. Anunciar “NO-GO” y congelar despliegues adicionales.
-2. Revertir versión de aplicación al último release estable.
-3. Restaurar backup válido (manifest + verify PASS).
-4. Ejecutar smoke post-rollback (health/readiness + endpoints críticos).
-
-### Verificación mínima post-rollback
-- `GET /aris3/health` y `GET /aris3/ready` con 200.
-- `GET /aris3/stock` responde correctamente (meta/rows/totals).
-- `GET /aris3/reports/sales` retorna datos sin errores.
-
-### Evidencia requerida
-- `backup_restore_drill_report.json`
-- `rollback_drill_report.md`
+- salida del gate `scripts/release_readiness_gate.py`
+- salida de smoke `tests/smoke/test_post_merge_readiness.py`
+- bitácora de rollback (si aplica)

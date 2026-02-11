@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-rc.10 - Sprint 7 Day 6 (Control Center integration: users, RBAC gates, settings)
+
+### Added
+- Control Center Day 6 integration module under `clients/python/apps/control_center/` with bootstrap, state, navigation, service adapters, users/access/settings view-models, and operational audit-trace widget helpers.
+- Control Center test suite under `clients/python/tests/control_center/` covering users list/search, create/edit validation, user actions wiring, DENY-over-ALLOW precedence, ADMIN ceiling blocking, effective-permissions preview, settings load/save validation, permission-gated UI behavior, and actionable API error handling.
+- Dedicated Control Center CI workflow: `.github/workflows/clients-python-control-center.yml` for lint, type checks, and unit tests on pull requests.
+
+### Changed
+- Added Control Center Day 6 app README documenting users/actions flow, RBAC governance layering, effective-permissions preview behavior, settings page behavior, and permission requirements/limitations.
+
+### Notes
+- No contract-breaking API changes were introduced, and existing `/aris3/admin/*` + `/aris3/access-control/*` routes are preserved.
+
 ## 0.1.0-rc.9 - Sprint 7 Day 5 (ARIS-CORE-3 POS Sales + POS Cash integration)
 
 ### Added

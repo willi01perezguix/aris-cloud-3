@@ -1,0 +1,52 @@
+name: clients-python-control-center
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/python/apps/control_center/**'
+      - 'clients/python/tests/control_center/**'
+      - 'clients/python/tests/conftest.py'
+      - '.github/workflows/clients-python-control-center.yml'
+  workflow_dispatch:
+
+jobs:
+  control-center-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e aris3_client_sdk[dev]
+      - name: Lint control center files
+        run: |
+          ruff check apps/control_center tests/control_center
+      - name: Type check control center files
+        run: |
+          mypy --follow-imports=skip --disable-error-code=import-untyped \
+            apps/control_center/main.py \
+            apps/control_center/app/bootstrap.py \
+            apps/control_center/app/state.py \
+            apps/control_center/app/navigation.py \
+            apps/control_center/services/admin_users_service.py \
+            apps/control_center/services/access_control_service.py \
+            apps/control_center/services/settings_service.py \
+            apps/control_center/ui/users/users_list_view.py \
+            apps/control_center/ui/users/user_editor_view.py \
+            apps/control_center/ui/users/user_actions_dialog.py \
+            apps/control_center/ui/access/roles_policies_view.py \
+            apps/control_center/ui/access/effective_permissions_view.py \
+            apps/control_center/ui/settings/variant_fields_view.py \
+            apps/control_center/ui/settings/return_policy_view.py \
+            apps/control_center/ui/widgets/permissioned_actions.py \
+            apps/control_center/ui/widgets/audit_trace_panel.py
+      - name: Run control center tests
+        run: pytest tests/control_center -q

@@ -264,6 +264,34 @@ cd clients/python/packaging
 ./build_control_center.ps1 -DryRun
 ```
 
+### Packaging dry-run + diagnostics (Sprint 8 Day 8)
+Run deterministic dry-runs locally from `clients/python/packaging`:
+
+```powershell
+./build_core.ps1 -DryRun
+./build_control_center.ps1 -DryRun
+# CI-equivalent behavior (venv warning only):
+./build_core.ps1 -DryRun -CiMode
+./build_control_center.ps1 -DryRun -CiMode
+```
+
+Expected artifacts/log outputs:
+- Local default outputs:
+  - `clients/python/packaging/dist/core/`
+  - `clients/python/packaging/dist/control_center/`
+- CI smoke diagnostics root:
+  - `clients/python/packaging/temp/artifacts/`
+  - `clients/python/packaging/temp/artifacts/core/build_core_dryrun.log`
+  - `clients/python/packaging/temp/artifacts/control_center/build_control_center_dryrun.log`
+- Each run writes metadata + summary in resolved output dir:
+  - `*_packaging_metadata.json`
+  - `build_summary.json`
+
+Common packaging failures + quick fixes:
+- **venv is not active**: activate your virtualenv before local packaging runs.
+- **Path/outdir confusion**: pass `-OutDir` once; scripts normalize to an absolute resolved path.
+- **pyinstaller not found**: install dependencies (`pip install -r ../requirements.txt`) and ensure `pyinstaller` is available in the active venv.
+
 
 ## Sprint 6 Day 3 additions
 - SDK media resolver support via `MediaClient` (`variant -> sku -> placeholder` fallback).

@@ -47,6 +47,7 @@ if (-not (Test-Path $specTemplate -PathType Leaf)) { Fail "Preflight failed: spe
 $targetOutDir = if ($OutDir) { $OutDir } elseif ($CiMode) { "temp/artifacts/control_center" } else { "dist/control_center" }
 $resolvedOutDir = Resolve-NormalizedPath -Path $targetOutDir -Base $root
 New-Item -ItemType Directory -Path $resolvedOutDir -Force | Out-Null
+Write-Host "Resolved output directory: $resolvedOutDir"
 
 try {
   $probeFile = Join-Path $resolvedOutDir ".write_test"
@@ -129,8 +130,15 @@ if ($DryRun) {
   exit 0
 }
 
-$pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$renderedSpecPath`""
+$pyinstallerArgs = @(
+  "--clean"
+  "--noconfirm"
+  "--distpath"
+  $distPath
+  $renderedSpecPath
+)
+$pyinstallerCmd = "pyinstaller " + ($pyinstallerArgs | ForEach-Object { ('"{0}"' -f $_) } | Join-String -Separator " ")
 Write-Host "Running: $pyinstallerCmd"
-Invoke-Expression $pyinstallerCmd
+& pyinstaller @pyinstallerArgs
 Write-Host "Build complete. metadata=$metadataPath"
 Write-Host "Build complete. build_summary=$buildSummaryPath"

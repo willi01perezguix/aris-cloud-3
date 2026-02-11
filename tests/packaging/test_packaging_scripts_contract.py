@@ -76,6 +76,35 @@ def test_build_all_orchestrates_both_and_propagates_failures() -> None:
     assert "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }" in text
 
 
+
+def test_build_scripts_include_scaffold_runtime_markers() -> None:
+    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+        text = _script_text(script_name)
+
+        assert "build_summary.json" in text
+        assert "artifact_prefix" in text
+        assert "venv is not active." in text
+        assert "CI mode enabled; continuing." in text
+        assert "Activate your venv before packaging." in text
+
+
+def test_build_scripts_emit_summary_to_resolved_output_dir() -> None:
+    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+        text = _script_text(script_name)
+
+        assert "$buildSummaryPath = Join-Path $resolvedOutDir \"build_summary.json\"" in text
+        assert "$metadataPath = Join-Path $resolvedOutDir" in text
+        assert "Resolved output directory:" in text
+
+
+def test_build_scripts_log_deterministic_pyinstaller_command() -> None:
+    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+        text = _script_text(script_name)
+
+        assert "$pyinstallerArgs = @(" in text
+        assert "Write-Host \"Running: $pyinstallerCmd\"" in text
+        assert "& pyinstaller @pyinstallerArgs" in text
+
 def test_metadata_json_key_contract_fixture() -> None:
     metadata = {
         "app_name": "aris-core-3-app",

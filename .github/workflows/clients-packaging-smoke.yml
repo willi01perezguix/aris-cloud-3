@@ -45,21 +45,63 @@ jobs:
       - name: Prepare packaging artifact directories
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR" -Force | Out-Null
           New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/core" -Force | Out-Null
           New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/control_center" -Force | Out-Null
           Set-Content -Path "$env:PACKAGING_ARTIFACTS_DIR/diagnostics-placeholder.log" -Value "packaging smoke diagnostics placeholder" -Encoding utf8
 
-      - name: Run core packaging smoke (dry-run)
+      - name: Print diagnostics tree (before smoke)
         shell: pwsh
         run: |
-          ./clients/python/packaging/build_core.ps1 -DryRun -CiMode 2>&1 |
-            Tee-Object -FilePath ./clients/python/packaging/temp/artifacts/core/build_core_dryrun.log
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/core" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/control_center" -Force | Out-Null
+
+          $beforeTreeFile = "$env:PACKAGING_ARTIFACTS_DIR/_tree_before_smoke.txt"
+          Get-ChildItem -Path "$env:PACKAGING_ROOT" -Recurse -Force |
+            Select-Object FullName, Length, LastWriteTimeUtc |
+            Format-Table -AutoSize |
+            Out-String |
+            Tee-Object -FilePath $beforeTreeFile
+
+      - name: Run core packaging smoke (dry-run)
+        id: core_smoke
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $coreLog = "$env:PACKAGING_ARTIFACTS_DIR/core/build_core_dryrun.log"
+          & ./clients/python/packaging/build_core.ps1 -DryRun -CiMode 2>&1 |
+            Tee-Object -FilePath $coreLog
+          $coreExit = $LASTEXITCODE
+          "core_dryrun_exit_code=$coreExit" | Tee-Object -FilePath "$env:PACKAGING_ARTIFACTS_DIR/core/build_core_exit_code.txt"
+          exit $coreExit
 
       - name: Run control center packaging smoke (dry-run)
+        id: control_center_smoke
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $controlCenterLog = "$env:PACKAGING_ARTIFACTS_DIR/control_center/build_control_center_dryrun.log"
+          & ./clients/python/packaging/build_control_center.ps1 -DryRun -CiMode 2>&1 |
+            Tee-Object -FilePath $controlCenterLog
+          $controlCenterExit = $LASTEXITCODE
+          "control_center_dryrun_exit_code=$controlCenterExit" | Tee-Object -FilePath "$env:PACKAGING_ARTIFACTS_DIR/control_center/build_control_center_exit_code.txt"
+          exit $controlCenterExit
+
+      - name: Print diagnostics tree (after smoke)
+        if: always()
         shell: pwsh
         run: |
-          ./clients/python/packaging/build_control_center.ps1 -DryRun -CiMode 2>&1 |
-            Tee-Object -FilePath ./clients/python/packaging/temp/artifacts/control_center/build_control_center_dryrun.log
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/core" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:PACKAGING_ARTIFACTS_DIR/control_center" -Force | Out-Null
+
+          $afterTreeFile = "$env:PACKAGING_ARTIFACTS_DIR/_tree_after_smoke.txt"
+          Get-ChildItem -Path "$env:PACKAGING_ROOT" -Recurse -Force |
+            Select-Object FullName, Length, LastWriteTimeUtc |
+            Format-Table -AutoSize |
+            Out-String |
+            Tee-Object -FilePath $afterTreeFile
 
       - name: Collect packaging diagnostics
         if: always()
@@ -84,4 +126,18 @@ jobs:
         with:
           name: windows-packaging-smoke-diagnostics
           path: clients/python/packaging/temp/artifacts/**
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Gate dry-run smoke results
+        if: always()
+        shell: pwsh
+        run: |
+          $coreOutcome = "${{ steps.core_smoke.outcome }}"
+          $controlCenterOutcome = "${{ steps.control_center_smoke.outcome }}"
+
+          Write-Host "core_smoke_outcome=$coreOutcome"
+          Write-Host "control_center_smoke_outcome=$controlCenterOutcome"
+
+          if ($coreOutcome -ne "success" -or $controlCenterOutcome -ne "success") {
+            throw "Packaging dry-run smoke failed. Check uploaded diagnostics artifacts for logs and tree outputs."
+          }

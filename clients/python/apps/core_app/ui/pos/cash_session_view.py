@@ -6,6 +6,9 @@ from typing import Any
 from services.permissions_service import PermissionGate
 from services.pos_cash_service import PosCashService, PosCashServiceError
 from ui.pos.components.cash_status_chip import CashStatusChip
+from ui.shared.error_presenter import ErrorPresenter
+from ui.shared.state_widgets import StateWidget
+from ui.shared.view_state import resolve_state
 
 POS_CASH_READ: tuple[str, ...] = ("pos.cash.view", "POS_CASH_VIEW")
 POS_CASH_WRITE: tuple[str, ...] = ("pos.cash.write", "POS_CASH_WRITE")
@@ -65,6 +68,8 @@ class CashSessionView:
     def _mutate(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.can_mutate():
             return {"ok": False, "error": "You do not have permission to modify POS cash sessions"}
+        if action == "CLOSE" and payload.get("confirmed") is False:
+            return {"ok": False, "error": "Close confirmation is required"}
         if not self.can_action(action):
             return {"ok": False, "error": f"Action {action} is not allowed in the current cash state"}
         if self.is_submitting:
@@ -87,13 +92,33 @@ class CashSessionView:
                 "idempotency_key": outcome.meta.idempotency_key,
             }
         except PosCashServiceError as exc:
-            self.error_message = exc.message
+            presented = ErrorPresenter().present(
+                message=exc.message,
+                details=exc.details,
+                trace_id=exc.trace_id,
+                action=f"cash.{action.lower()}",
+                allow_retry=False,
+            )
+            self.error_message = presented.user_message
             self.trace_id = exc.trace_id
-            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details}
+            return {
+                "ok": False,
+                "error": presented.user_message,
+                "trace_id": exc.trace_id,
+                "details": presented.details,
+                "not_applied": True,
+            }
         finally:
             self.is_submitting = False
 
     def render(self) -> dict[str, Any]:
+        state = resolve_state(
+            can_view=self.can_view(),
+            is_loading=False,
+            error=self.error_message,
+            has_data=bool(self.session_payload),
+            trace_id=self.trace_id,
+        )
         return {
             "can_view": self.can_view(),
             "can_mutate": self.can_mutate(),
@@ -107,4 +132,5 @@ class CashSessionView:
             "session": self.session_payload,
             "error": self.error_message,
             "trace_id": self.trace_id,
+            "view_state": StateWidget(state).render(),
         }

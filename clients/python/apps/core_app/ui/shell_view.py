@@ -11,7 +11,7 @@ class ShellPlaceholder:
     module: ModuleSpec
     session: SessionContext
 
-    def render(self) -> dict[str, str | tuple[str, ...] | None]:
+    def render(self) -> dict[str, str | tuple[str, ...] | None | dict[str, str | None]]:
         return {
             "module_name": self.module.label,
             "status": "Ready for integration in next sprint days",
@@ -19,4 +19,9 @@ class ShellPlaceholder:
             "tenant": self.session.tenant_id,
             "store": self.session.store_id,
             "required_permissions": self.module.required_permissions,
+            "shell_status": {
+                "tenant": self.session.tenant_id,
+                "user": self.session.user.username if self.session.user else None,
+                "session": "ACTIVE" if self.session.user else "ANON",
+            },
         }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-rc.13 - Sprint 8 Day 2 (Core App UX hardening + unified error-state polish)
+
+### Added
+- UX audit artifact `docs/ux/CORE_APP_UX_AUDIT_S8D2.md` with pain-point severity mapping and Day-2/defer decisions.
+- Shared UX hardening primitives under `clients/python/apps/core_app/ui/shared/` for error presentation, notifications, retry safety, state modeling, and validators.
+- UX-focused tests under `clients/python/tests/core_app/ux/` and `clients/python/tests/core_app/shared/`.
+- Dedicated CI workflow `.github/workflows/clients-python-core-app-ux.yml` for UX/shared lint, type checks, tests, and summary artifact upload.
+
+### Changed
+- Stock, import/migrate, POS sales, and POS cash views now emit standardized state payloads and improved actionable error/validation outputs.
+- Core app README updated with UX state model, safeguards, telemetry/feature-flag guidance, and deferred UX limitations.
+
+### Notes
+- Telemetry and feature-flag wiring added with default-safe OFF behavior and non-PII expectations.
+- Explicitly no contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.12 - Sprint 8 Day 1 (beta-readiness kickoff, feedback triage, baseline guardrails)
 
 ### Added

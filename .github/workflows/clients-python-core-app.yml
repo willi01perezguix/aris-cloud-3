@@ -1,0 +1,44 @@
+name: clients-python-core-app
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/python/apps/core_app/**'
+      - 'clients/python/tests/core_app/**'
+      - 'clients/python/tests/conftest.py'
+      - '.github/workflows/clients-python-core-app.yml'
+  workflow_dispatch:
+
+jobs:
+  core-app-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e aris3_client_sdk[dev]
+      - name: Lint core app shell files
+        run: |
+          ruff check \
+            apps/core_app \
+            tests/core_app/test_bootstrap.py
+      - name: Type check core app shell files
+        run: |
+          mypy --follow-imports=skip --disable-error-code=import-untyped \
+            apps/core_app/app/bootstrap.py \
+            apps/core_app/app/navigation.py \
+            apps/core_app/app/state.py \
+            apps/core_app/services/auth_service.py \
+            apps/core_app/services/profile_service.py \
+            apps/core_app/services/permissions_service.py
+      - name: Run core app tests
+        run: pytest tests/core_app -q

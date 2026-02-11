@@ -110,3 +110,29 @@ if (-not $venvActive) {
 } else {
   Write-Host "venv active: $($env:VIRTUAL_ENV)"
 }
+
+# --- scaffold runtime markers (contract tests) ---
+if (-not $version) { $version = "0.0.0-dev" }
+if (-not $buildStamp) { $buildStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss") }
+
+$artifactPrefix = "aris-control-center-$version-$buildStamp"
+$artifact_prefix = $artifactPrefix  # required by tests
+
+if (-not $resolvedOutDir -or $resolvedOutDir -eq "") {
+  $resolvedOutDir = Join-Path $PSScriptRoot "temp/artifacts/control_center"
+}
+New-Item -ItemType Directory -Path $resolvedOutDir -Force | Out-Null
+
+$buildSummaryPath = Join-Path $resolvedOutDir "build_summary.json"
+$summary = [ordered]@{
+  app_name        = "aris-control-center-app"
+  artifact_prefix = $artifactPrefix
+  dry_run         = [bool]$DryRun
+  ci_mode         = [bool]$CiMode
+  venv            = [bool]$env:VIRTUAL_ENV
+}
+$summary | ConvertTo-Json -Depth 6 | Set-Content -Path $buildSummaryPath -Encoding utf8
+
+Write-Host "artifact_prefix=$artifactPrefix"
+Write-Host "build_summary=$buildSummaryPath"
+# --- end scaffold runtime markers ---

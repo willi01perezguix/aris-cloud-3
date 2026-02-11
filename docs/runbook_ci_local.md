@@ -34,3 +34,6 @@ pytest -q
 - **Multiple Alembic heads**: Resolve by merging migrations or rebasing to a single head; CI enforces one head.
 - **Alembic upgrade fails**: Confirm `DATABASE_URL` points to a writable DB file and rerun `alembic upgrade head`.
 - **SQLite file locked**: Remove stale `*.db` files or stop any process holding the DB open.
+## Sprint 6 Day 6 Release Readiness
+- See `docs/runbooks/sprint6_day6_release_readiness.md` for post-merge stabilization outcomes, known limitations, and rollback confirmation steps.
+

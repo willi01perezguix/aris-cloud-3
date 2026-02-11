@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-rc.5 - Sprint 7 Day 1 (Kickoff, backlog, contract safety baseline)
+
+### Added
+- Sprint 7 kickoff artifact: `docs/planning/SPRINT7_DAY1_KICKOFF.md`.
+- Prioritized backlog master with P0/P1/P2/deferred breakdown: `docs/planning/SPRINT7_BACKLOG_MASTER.md`.
+- Day-by-day execution plan for Days 2–7: `docs/planning/SPRINT7_EXECUTION_PLAN_D2_D7.md`.
+- Sprint board governance template with DoR/DoD and blocker escalation policy: `docs/planning/SPRINT7_BOARD_TEMPLATE.md`.
+- Contract safety guardrail script with strict/json modes: `scripts/contract_safety_check.py`.
+- Contract safety CI workflow for PRs to `main`: `.github/workflows/contract-safety.yml`.
+
+### Notes
+- Sprint 7 Day 1 kickoff completed with planning baseline and execution structure.
+- Contract safety checks introduced and wired for CI evidence artifacts.
+- No contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.4 - Sprint 6 Day 8 (Post-go-live stabilization and closure)
 
 ### Added

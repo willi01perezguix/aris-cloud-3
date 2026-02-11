@@ -12,3 +12,20 @@
 
 ### Notes
 - No contract-breaking API changes were introduced.
+
+## 0.1.0-rc.3 - Sprint 6 Day 7 (RC sign-off, go-live, hypercare)
+
+### Added
+- RC final sign-off package: `docs/releases/RC_FINAL_SIGNOFF_S6D7.md`.
+- Go/No-Go decision checklist: `docs/releases/GO_NO_GO_CHECKLIST_S6D7.md`.
+- Controlled go-live playbook with staged deployment, rollback triggers, rollback execution, and communication templates: `runbooks/11_GO_LIVE_PLAYBOOK_ARIS3_v1.md`.
+- Hypercare runbook with SLI/SLO guardrails, escalation paths, triage tree, and stabilization exit criteria: `runbooks/12_HYPERCARE_RUNBOOK_ARIS3_v1.md`.
+- Day 7 post-deploy smoke validation suite: `tests/smoke/test_go_live_validation.py`.
+- Optional preflight automation command: `scripts/go_live_checklist.py`.
+- Final release notes artifact: `docs/releases/RELEASE_NOTES_S6D7.md`.
+
+### Changed
+- Release-readiness CI workflow now runs Day 7 go-live smoke validation in both sqlite and postgres jobs.
+
+### Notes
+- No contract-breaking API changes were introduced.

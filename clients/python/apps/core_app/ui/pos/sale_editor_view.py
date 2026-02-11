@@ -10,6 +10,8 @@ from services.pos_sales_service import PosSalesService, PosSalesServiceError
 from ui.pos.components.cart_table import CartTable
 from ui.pos.components.payment_summary_bar import PaymentSummaryBar
 from ui.pos.payment_dialog import PaymentDialog
+from ui.shared.error_presenter import ErrorPresenter
+from ui.shared.validators import validate_payments
 
 POS_SALES_WRITE: tuple[str, ...] = ("pos.sales.write", "POS_SALE_WRITE")
 POS_SALES_CHECKOUT: tuple[str, ...] = ("pos.sales.checkout", "pos.sales.action", "POS_SALE_WRITE")
@@ -56,7 +58,7 @@ class SaleEditorView:
         except PosSalesServiceError as exc:
             self.error_message = exc.message
             self.trace_id = exc.trace_id
-            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details}
+            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details, "not_applied": True}
         finally:
             self.is_submitting = False
 
@@ -113,7 +115,7 @@ class SaleEditorView:
         except PosSalesServiceError as exc:
             self.error_message = exc.message
             self.trace_id = exc.trace_id
-            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details}
+            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details, "not_applied": True}
         finally:
             self.is_submitting = False
 
@@ -124,6 +126,16 @@ class SaleEditorView:
             return {"ok": False, "error": "No draft loaded"}
         if self.is_submitting:
             return {"ok": False, "error": "Sale mutation already in progress"}
+        validation = validate_payments(self.payments, self.total_due)
+        if not validation.ok:
+            return {
+                "ok": False,
+                "error": "Invalid payment payload",
+                "issues": validation.summary,
+                "field_errors": validation.field_errors,
+                "summary": self.payment_summary(),
+                "values": self.payments,
+            }
         dialog = PaymentDialog(total_due=self.total_due, payments=self.payments)
         if not dialog.validate():
             return {"ok": False, "error": "Invalid payment payload", "issues": dialog.issues, "summary": dialog.render()}
@@ -149,9 +161,23 @@ class SaleEditorView:
                 "idempotency_key": outcome.meta.idempotency_key,
             }
         except PosSalesServiceError as exc:
-            self.error_message = exc.message
+            presented = ErrorPresenter().present(
+                message=exc.message,
+                details=exc.details,
+                trace_id=exc.trace_id,
+                action="pos.checkout",
+                allow_retry=False,
+            )
+            self.error_message = presented.user_message
             self.trace_id = exc.trace_id
-            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details}
+            return {
+                "ok": False,
+                "error": presented.user_message,
+                "trace_id": exc.trace_id,
+                "details": presented.details,
+                "category": presented.category,
+                "not_applied": True,
+            }
         finally:
             self.is_submitting = False
 
@@ -177,7 +203,7 @@ class SaleEditorView:
         except PosSalesServiceError as exc:
             self.error_message = exc.message
             self.trace_id = exc.trace_id
-            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details}
+            return {"ok": False, "error": exc.message, "trace_id": exc.trace_id, "details": exc.details, "not_applied": True}
         finally:
             self.is_submitting = False
 
@@ -196,6 +222,12 @@ class SaleEditorView:
                 "can_write": self.can_write(),
                 "can_checkout": self.can_checkout(),
                 "can_cancel": self.can_cancel(),
+            },
+            "guards": {
+                "disable_while_submitting": self.is_submitting,
+                "double_submit_protection": True,
+                "cancel_requires_confirmation": True,
+                "keyboard_shortcuts": ["Ctrl+S", "Ctrl+Enter", "Esc"],
             },
         }
 

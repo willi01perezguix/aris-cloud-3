@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from time import perf_counter
 
 from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempotency_keys, to_user_facing_error
 from aris3_client_sdk.exceptions import ApiError
@@ -14,6 +15,10 @@ from services.auth_service import AuthService
 from services.permissions_service import PermissionGate, PermissionsService
 from services.profile_service import ProfileService
 from ui.shell_view import ShellPlaceholder
+from shared.feature_flags.flags import FeatureFlagStore
+from shared.feature_flags.provider import DictFlagProvider
+from shared.telemetry.events import build_event
+from shared.telemetry.logger import TelemetryLogger
 from ui.widgets.permissioned_menu import PermissionedMenu
 
 logger = logging.getLogger(__name__)
@@ -33,6 +38,8 @@ class CoreAppBootstrap:
         self.auth_service = AuthService(self.session)
         self.profile_service = ProfileService(self.session)
         self.permissions_service = PermissionsService(self.session)
+        self.flags = FeatureFlagStore(provider=DictFlagProvider(values={}))
+        self.telemetry = TelemetryLogger(app_name="core_app", enabled=False)
 
     def start(self) -> BootstrapResult:
         if not self.auth_service.has_active_session():
@@ -41,18 +48,22 @@ class CoreAppBootstrap:
         return self._load_authenticated_shell()
 
     def login(self, username: str, password: str) -> BootstrapResult:
+        started = perf_counter()
         try:
             token = self.auth_service.login(username, password)
         except MustChangePasswordError as exc:
             self.state.error_message = self._friendly_error(exc)
+            self._emit_auth_result(False, duration_ms=int((perf_counter()-started)*1000), trace_id=getattr(exc, "trace_id", None))
             self._navigate(Route.CHANGE_PASSWORD, "Password update required")
             return BootstrapResult(route=self.state.route, error_message=self.state.error_message)
         except Exception as exc:
             self.state.error_message = self._friendly_error(exc)
+            self._emit_auth_result(False, duration_ms=int((perf_counter()-started)*1000), trace_id=getattr(exc, "trace_id", None))
             self._navigate(Route.LOGIN, "Authentication failed")
             return BootstrapResult(route=self.state.route, error_message=self.state.error_message)
 
         self.session.establish(token=token, user=None)
+        self._emit_auth_result(True, duration_ms=int((perf_counter()-started)*1000), trace_id=getattr(token, "trace_id", None))
         return self._load_authenticated_shell()
 
     def change_password(self, current_password: str, new_password: str) -> BootstrapResult:
@@ -96,6 +107,7 @@ class CoreAppBootstrap:
             gate = PermissionGate(effective_permissions.permissions)
             self.state.allowed_permissions = gate.allowed_keys()
             self._navigate(Route.SHELL, "Authenticated")
+            self._emit_screen_view("shell", trace_id=effective_permissions.trace_id)
             self.state.error_message = None
             logger.info("shell_ready", extra={"trace_id": effective_permissions.trace_id})
             return BootstrapResult(route=self.state.route)
@@ -119,6 +131,36 @@ class CoreAppBootstrap:
         if isinstance(exc, ApiError):
             return to_user_facing_error(exc)
         return str(exc) or "Unexpected client error"
+
+
+    def _emit_auth_result(self, success: bool, *, duration_ms: int, trace_id: str | None) -> None:
+        if not self.flags.enabled("telemetry_core_app_v1", default=False):
+            return
+        self.telemetry.emit(
+            build_event(
+                category="auth",
+                name="auth_login_result",
+                module="auth",
+                action="login",
+                success=success,
+                duration_ms=duration_ms,
+                trace_id=trace_id,
+            )
+        )
+
+    def _emit_screen_view(self, action: str, *, trace_id: str | None = None) -> None:
+        if not self.flags.enabled("telemetry_core_app_v1", default=False):
+            return
+        self.telemetry.emit(
+            build_event(
+                category="navigation",
+                name="screen_view",
+                module="core_app",
+                action=action,
+                trace_id=trace_id,
+                success=True,
+            )
+        )
 
     def _navigate(self, route: Route, status_message: str) -> None:
         logger.info("navigation", extra={"route": route.value})

@@ -134,3 +134,37 @@ Core inputs:
 - Current POS integration is model/view-state oriented (no final UI toolkit binding yet).
 - Final cash balancing/day-close flows remain backend-owned and are not redesigned in the core app.
 - Action availability assumes canonical backend status values (`OPEN`, `CLOSED`, etc.) and surfaces backend trace/error details when available.
+
+## Sprint 8 Day 2 UX hardening
+
+### UX state model (loading/empty/error/retry)
+- Shared state primitives live in `ui/shared/view_state.py` + `ui/shared/state_widgets.py`.
+- Standard statuses across key screens: `loading`, `empty`, `success`, `partial_error`, `fatal_error`, `no_permission`.
+- Read operations can surface non-blocking retry affordances through `RetryPanel` (flag-gated by `advanced_retry_panel_v1`).
+- Stock list can optionally keep the last successful snapshot on read failures when `optimistic_ui_reads_v1` is enabled.
+
+### Validation behavior and operator safeguards
+- Shared validators in `ui/shared/validators.py` provide field-level errors and summary banners.
+- Enforcement includes:
+  - EPC format = 24 HEX,
+  - EPC import qty = 1,
+  - SKU import qty > 0,
+  - payment requirements (`CARD.authorization_code`, `TRANSFER.bank_name + voucher_number`),
+  - checkout missing/change display support.
+- Mutation flows keep entered values when validation fails and expose explicit `not_applied` markers on failures.
+- In-flight actions are guarded (double-submit protection), and destructive actions require explicit confirmation.
+
+### Telemetry / feature-flag usage
+- Telemetry uses shared non-PII pipeline (`shared/telemetry`) and is default OFF.
+- Core app emits scoped events such as `auth_login_result`, `screen_view`, and call-result/validation/permission signals.
+- Feature flags are default-safe OFF and currently gate:
+  - `improved_error_presenter_v2`
+  - `optimistic_ui_reads_v1`
+  - `advanced_retry_panel_v1`
+- Flags never bypass permission checks (`FeatureFlagStore.ensure_permission_gate(...)` remains authoritative).
+
+### Known limitations and deferred UX items
+- Core app remains view-model oriented (no final GUI toolkit binding yet).
+- Keyboard enhancements are currently limited to baseline shortcut metadata hints in render payloads.
+- Advanced uncertain-mutation recovery workflow is deferred pending product/ops policy alignment.
+- No contract-breaking API changes were introduced.

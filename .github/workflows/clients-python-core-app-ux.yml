@@ -1,0 +1,49 @@
+name: clients-python-core-app-ux
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/python/apps/core_app/**'
+      - 'clients/python/shared/**'
+      - 'clients/python/tests/core_app/**'
+      - '.github/workflows/clients-python-core-app-ux.yml'
+  workflow_dispatch:
+
+jobs:
+  ux-hardening-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e aris3_client_sdk[dev]
+      - name: Lint UX/shared scope
+        run: |
+          ruff check apps/core_app/ui/shared apps/core_app/ui/stock apps/core_app/ui/pos tests/core_app/ux tests/core_app/shared
+      - name: Type checks UX/shared scope
+        run: |
+          mypy --follow-imports=skip --disable-error-code=import-untyped \
+            apps/core_app/ui/shared/error_presenter.py \
+            apps/core_app/ui/shared/retry_panel.py \
+            apps/core_app/ui/shared/view_state.py \
+            apps/core_app/ui/shared/validators.py \
+            apps/core_app/ui/stock/stock_list_view.py \
+            apps/core_app/ui/pos/sale_editor_view.py
+      - name: Run UX/shared tests (fail fast)
+        run: |
+          pytest tests/core_app/ux tests/core_app/shared -q --maxfail=1 | tee ux-test-summary.txt
+      - name: Upload test summary artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-app-ux-test-summary
+          path: clients/python/ux-test-summary.txt

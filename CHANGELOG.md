@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-rc.11 - Sprint 7 Day 7 (E2E/UAT, internal alpha release, sprint closure)
+
+### Added
+- Sprint 7 Day 7 cross-module E2E matrix, UAT script/results, defect triage, and observability evidence docs under `docs/qa/`.
+- Deterministic closure automation tests under `clients/python/tests/e2e/` and `clients/python/tests/integration/` with optional `RUN_STAGING_E2E=1` staging smoke trigger.
+- Internal alpha release package and notes for Sprint 7 Day 7 under `docs/releases/`.
+- Sprint closure checkpoint artifact `docs/planning/SPRINT7_DAY7_CLOSURE.md` with ARIS save-style delta text.
+- CI workflow `.github/workflows/sprint7-day7-e2e-uat.yml` for deterministic PR checks, optional staging dispatch, and artifact uploads.
+
+### Changed
+- Packaging README updated with Sprint 7 Day 7 internal alpha artifact naming convention and dry-run/real build command sequence.
+
+### Notes
+- Sprint 7 Day 7 closure completed with E2E/UAT/release discipline artifacts and no contract-breaking API changes.
+
 ## 0.1.0-rc.10 - Sprint 7 Day 6 (Control Center integration: users, RBAC gates, settings)
 
 ### Added

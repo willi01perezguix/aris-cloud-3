@@ -12,6 +12,20 @@ function Fail([string]$Message) {
   exit 1
 }
 
+function Resolve-NormalizedPath {
+  param(
+    [Parameter(Mandatory)]
+    [string]$Path,
+    [string]$Base = $PSScriptRoot
+  )
+
+  if ([System.IO.Path]::IsPathRooted($Path)) {
+    return [System.IO.Path]::GetFullPath($Path)
+  }
+
+  return [System.IO.Path]::GetFullPath((Join-Path $Base $Path))
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $root "../..")
 Set-Location $root
@@ -30,8 +44,8 @@ if (-not $entrypoint) { Fail "Preflight failed: expected entrypoint missing at c
 $specTemplate = Join-Path $root "core_app.spec.template"
 if (-not (Test-Path $specTemplate -PathType Leaf)) { Fail "Preflight failed: spec template missing at clients/python/packaging/core_app.spec.template." }
 
-$targetOutDir = if ($OutDir) { $OutDir } elseif ($CiMode) { Join-Path $root "temp/artifacts/core" } else { Join-Path $root "dist/core" }
-$resolvedOutDir = [System.IO.Path]::GetFullPath((Join-Path $root $targetOutDir))
+$targetOutDir = if ($OutDir) { $OutDir } elseif ($CiMode) { "temp/artifacts/core" } else { "dist/core" }
+$resolvedOutDir = Resolve-NormalizedPath -Path $targetOutDir -Base $root
 New-Item -ItemType Directory -Path $resolvedOutDir -Force | Out-Null
 
 try {

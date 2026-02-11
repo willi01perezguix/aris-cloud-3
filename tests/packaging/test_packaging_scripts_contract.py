@@ -49,6 +49,25 @@ def test_dry_run_metadata_schema_keys_present() -> None:
             assert re.search(rf"\b{re.escape(key)}\s*=", text), f"{script_name} missing metadata key '{key}'"
 
 
+
+
+def test_outdir_path_normalization_contract() -> None:
+    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+        text = _script_text(script_name)
+
+        assert "function Resolve-NormalizedPath" in text
+        assert "[System.IO.Path]::IsPathRooted($Path)" in text
+        assert "return [System.IO.Path]::GetFullPath($Path)" in text
+        assert "return [System.IO.Path]::GetFullPath((Join-Path $Base $Path))" in text
+        assert "Resolve-NormalizedPath -Path $targetOutDir -Base $root" in text
+
+
+def test_no_duplicate_join_of_absolute_outdir() -> None:
+    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+        text = _script_text(script_name)
+
+        assert "[System.IO.Path]::GetFullPath((Join-Path $root $targetOutDir))" not in text
+
 def test_build_all_orchestrates_both_and_propagates_failures() -> None:
     text = _script_text("build_all.ps1")
 

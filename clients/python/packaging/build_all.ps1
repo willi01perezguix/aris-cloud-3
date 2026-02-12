@@ -17,8 +17,10 @@ function Fail([string]$Message) {
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-$coreScript = Join-Path $root "build_core.ps1"
-$controlCenterScript = Join-Path $root "build_control_center.ps1"
+$coreScript = Join-Path $root "./build_core.ps1"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$controlCenterScript = Join-Path $root "./build_control_center.ps1"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if (-not (Test-Path $coreScript -PathType Leaf)) {
   Fail "Preflight failed: missing script at $coreScript"

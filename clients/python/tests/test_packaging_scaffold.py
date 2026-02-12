@@ -63,7 +63,14 @@ def test_packaging_scripts_include_scaffold_markers() -> None:
 
 
 def test_windows_packaging_smoke_workflow_uploads_diagnostics_always() -> None:
-    workflow = Path(".github/workflows/clients-packaging-smoke.yml").read_text()
+    repo_root = next(
+        (x for x in Path(__file__).resolve().parents if (x / ".github" / "workflows").exists()),
+        Path.cwd(),
+    )
+    workflow_path = repo_root / ".github" / "workflows" / "clients-packaging-smoke.yml"
+    assert workflow_path.exists(), f"Missing workflow file: {workflow_path}"
+
+    workflow = workflow_path.read_text(encoding="utf-8")
 
     assert "PACKAGING_RUNNER_ARTIFACTS_DIR" in workflow
     assert "if-no-files-found: error" in workflow

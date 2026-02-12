@@ -13,7 +13,11 @@ def _write(path: Path, content: str = "ok\n") -> None:
 def _seed_valid_repo(tmp_path: Path) -> Path:
     packaging_root = tmp_path / "clients/python/packaging"
     for rel in validator.REQUIRED_PACKAGING_FILES:
-        _write(packaging_root / rel)
+        content = "ok\n"
+        if rel in validator.REQUIRED_SCRIPT_MARKERS:
+            markers = "\n".join(validator.REQUIRED_SCRIPT_MARKERS[rel])
+            content = f"{markers}\n"
+        _write(packaging_root / rel, content)
 
     for rel in validator.REQUIRED_CLIENT_PYPROJECTS:
         _write(tmp_path / rel, "[project]\nname='x'\nversion='0.1.0'\n")
@@ -43,3 +47,13 @@ def test_missing_pyproject_fails_with_explicit_message(tmp_path: Path) -> None:
     errors = validator.validate_packaging_scaffold(repo)
 
     assert any("Missing required client pyproject: clients/python/aris_control_center_app/pyproject.toml" in err for err in errors)
+
+
+def test_missing_script_marker_fails_with_explicit_message(tmp_path: Path) -> None:
+    repo = _seed_valid_repo(tmp_path)
+    script_path = repo / "clients/python/packaging/build_core.ps1"
+    script_path.write_text("build_summary.json\nvenv\n", encoding="utf-8")
+
+    errors = validator.validate_packaging_scaffold(repo)
+
+    assert any("Packaging scaffold script missing required marker 'artifact_prefix'" in err for err in errors)

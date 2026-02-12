@@ -1,4 +1,4 @@
-﻿name: clients-packaging-smoke
+name: clients-packaging-smoke
 
 on:
   push:
@@ -73,16 +73,18 @@ jobs:
         id: core_smoke
         continue-on-error: true
         run: |
+          $coreLog = Join-Path (Join-Path $env:PACKAGING_ARTIFACTS_DIR "core") "build_core_dryrun.log"
           & ./clients/python/packaging/build_core.ps1 -DryRun -CiMode *>&1 |
-            Tee-Object -FilePath (Join-Path $env:PACKAGING_ARTIFACTS_DIR "core/build_core_dryrun.log")
+            Tee-Object -FilePath $coreLog
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run control center packaging smoke (dry-run)
         id: control_center_smoke
         continue-on-error: true
         run: |
+          $ccLog = Join-Path (Join-Path $env:PACKAGING_ARTIFACTS_DIR "control_center") "build_control_center_dryrun.log"
           & ./clients/python/packaging/build_control_center.ps1 -DryRun -CiMode *>&1 |
-            Tee-Object -FilePath (Join-Path $env:PACKAGING_ARTIFACTS_DIR "control_center/build_control_center_dryrun.log")
+            Tee-Object -FilePath $ccLog
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Collect packaging diagnostics
@@ -104,8 +106,7 @@ jobs:
         with:
           name: windows-packaging-smoke-diagnostics
           path: clients/python/packaging/temp/artifacts/**
-          if-no-files-found: warn
-
+          if-no-files-found: error
       - name: Fail job if packaging smoke failed
         if: always()
         env:
@@ -118,3 +119,8 @@ jobs:
           if ($env:CORE_OUTCOME -ne "success" -or $env:CONTROL_CENTER_OUTCOME -ne "success") {
             throw "Packaging dry-run smoke failed. Check artifact: windows-packaging-smoke-diagnostics"
           }
+
+
+env:
+  PACKAGING_RUNNER_ARTIFACTS_DIR: windows-packaging-smoke-diagnostics
+  PACKAGING_STEP_OUTCOMES_FILE: step_outcomes.txt

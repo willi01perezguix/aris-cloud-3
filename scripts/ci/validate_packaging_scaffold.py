@@ -27,8 +27,28 @@ REQUIRED_CLIENT_PYPROJECTS = (
 )
 
 REQUIRED_SCRIPT_MARKERS = {
-    "build_core.ps1": ("artifact_prefix", "build_summary.json", "venv"),
-    "build_control_center.ps1": ("artifact_prefix", "build_summary.json", "venv"),
+    "build_core.ps1": (
+        "Set-StrictMode -Version Latest",
+        "$PSNativeCommandUseErrorActionPreference = $true",
+        "artifact_prefix",
+        "build_summary.json",
+        "venv",
+        "dist directory is empty",
+    ),
+    "build_control_center.ps1": (
+        "Set-StrictMode -Version Latest",
+        "$PSNativeCommandUseErrorActionPreference = $true",
+        "artifact_prefix",
+        "build_summary.json",
+        "venv",
+        "dist directory is empty",
+    ),
+    "build_all.ps1": (
+        "Set-StrictMode -Version Latest",
+        "$PSNativeCommandUseErrorActionPreference = $true",
+        "build_core.ps1",
+        "build_control_center.ps1",
+    ),
 }
 
 

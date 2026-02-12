@@ -23,6 +23,13 @@ Dry-run preflight:
 ./build_control_center.ps1 -DryRun
 ```
 
+## Reliability hardening behaviors
+- Scripts use strict mode (`Set-StrictMode -Version Latest`) and fail fast on native command errors.
+- Preflight validates required files (`version.json`, app entrypoint, and `*.spec.template`) before build execution.
+- Output directory writability is explicitly validated.
+- Metadata and build summary JSON outputs are validated after write.
+- Non-dry-run mode validates `pyinstaller` availability and ensures `dist/` exists with non-empty file outputs.
+
 ## Output conventions
 - `dist/core/`
 - `dist/control_center/`

@@ -1,11 +1,13 @@
-﻿param(
+param(
   [switch]$DryRun,
   [switch]$CiMode,
   [string]$OutDir,
   [string]$VersionOverride
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 
 function Fail([string]$Message) {
   Write-Error $Message
@@ -31,7 +33,15 @@ $repoRoot = Resolve-Path (Join-Path $root "../..")
 Set-Location $root
 
 $versionFile = Join-Path $root "version.json"
+if (-not (Test-Path $versionFile -PathType Leaf)) {
+  Fail "Preflight failed: version file missing at clients/python/packaging/version.json."
+}
+
 $versionPayload = Get-Content $versionFile -Raw | ConvertFrom-Json
+if (-not $versionPayload.version) {
+  Fail "Preflight failed: version.json must contain a non-empty 'version' value."
+}
+
 $version = if ($VersionOverride) { $VersionOverride } elseif ($env:PACKAGING_APP_VERSION) { $env:PACKAGING_APP_VERSION } elseif ($env:ARIS_APP_VERSION) { $env:ARIS_APP_VERSION } else { $versionPayload.version }
 $env:ARIS_APP_VERSION = $version
 
@@ -73,6 +83,9 @@ $metadata = [ordered]@{
 
 $metadataPath = Join-Path $resolvedOutDir "control_center_packaging_metadata.json"
 $metadata | ConvertTo-Json -Depth 3 | Set-Content -Path $metadataPath -Encoding utf8
+if (-not (Test-Path $metadataPath -PathType Leaf)) {
+  Fail "Preflight failed: metadata file was not created: $metadataPath"
+}
 
 # scaffold test guardrail: venv runtime check
 $venvActive = [bool]$env:VIRTUAL_ENV
@@ -101,6 +114,9 @@ $summary = [ordered]@{
   venv            = $venvActive
 }
 $summary | ConvertTo-Json -Depth 6 | Set-Content -Path $buildSummaryPath -Encoding utf8
+if (-not (Test-Path $buildSummaryPath -PathType Leaf)) {
+  Fail "Preflight failed: build summary file was not created: $buildSummaryPath"
+}
 
 Write-Host "artifact_prefix=$artifactPrefix"
 Write-Host "build_summary=$buildSummaryPath"
@@ -129,8 +145,22 @@ if ($DryRun) {
   exit 0
 }
 
-$pyinstallerCmd = "pyinstaller --clean --noconfirm --distpath `"$distPath`" `"$renderedSpecPath`""
-Write-Host "Running: $pyinstallerCmd"
-Invoke-Expression $pyinstallerCmd
+$pyInstallerCmd = Get-Command pyinstaller -ErrorAction SilentlyContinue
+if (-not $pyInstallerCmd) {
+  Fail "Preflight failed: pyinstaller executable not found in PATH. Install pyinstaller before non-dry-run packaging."
+}
+
+Write-Host "Running: pyinstaller --clean --noconfirm --distpath '$distPath' '$renderedSpecPath'"
+& pyinstaller --clean --noconfirm --distpath $distPath $renderedSpecPath
+
+if (-not (Test-Path $distPath -PathType Container)) {
+  Fail "Packaging failed: expected dist directory missing at $distPath"
+}
+
+$distItems = Get-ChildItem -Path $distPath -Recurse -File -ErrorAction SilentlyContinue
+if (-not $distItems -or $distItems.Count -eq 0) {
+  Fail "Packaging failed: dist directory is empty at $distPath"
+}
+
 Write-Host "Build complete. metadata=$metadataPath"
 Write-Host "Build complete. build_summary=$buildSummaryPath"

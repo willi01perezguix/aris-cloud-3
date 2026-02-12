@@ -29,9 +29,43 @@ def test_powershell_scripts_support_dry_run() -> None:
 
 def test_packaging_scripts_include_scaffold_markers() -> None:
     root = Path("clients/python/packaging")
-    markers = ("pyinstaller", "build_summary.json", "venv", "artifact_prefix")
+    script_markers = {
+        "build_core.ps1": (
+            "Set-StrictMode -Version Latest",
+            "$PSNativeCommandUseErrorActionPreference = $true",
+            "pyinstaller",
+            "build_summary.json",
+            "venv",
+            "artifact_prefix",
+            "dist directory is empty",
+        ),
+        "build_control_center.ps1": (
+            "Set-StrictMode -Version Latest",
+            "$PSNativeCommandUseErrorActionPreference = $true",
+            "pyinstaller",
+            "build_summary.json",
+            "venv",
+            "artifact_prefix",
+            "dist directory is empty",
+        ),
+        "build_all.ps1": (
+            "Set-StrictMode -Version Latest",
+            "$PSNativeCommandUseErrorActionPreference = $true",
+            "build_core.ps1",
+            "build_control_center.ps1",
+        ),
+    }
 
-    for script_name in ("build_core.ps1", "build_control_center.ps1"):
+    for script_name, markers in script_markers.items():
         script = (root / script_name).read_text()
         for marker in markers:
             assert marker in script, f"{marker} missing in {script_name}"
+
+
+def test_windows_packaging_smoke_workflow_uploads_diagnostics_always() -> None:
+    workflow = Path(".github/workflows/clients-packaging-smoke.yml").read_text()
+
+    assert "PACKAGING_RUNNER_ARTIFACTS_DIR" in workflow
+    assert "if-no-files-found: error" in workflow
+    assert "if: always()" in workflow
+    assert "step_outcomes.txt" in workflow

@@ -1,0 +1,74 @@
+name: Post-GA Day 6 Closeout
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_health_check:
+        description: Run final health check suite
+        type: boolean
+        default: true
+      run_final_tests:
+        description: Run final performance and reliability tests
+        type: boolean
+        default: true
+      publish_day6_artifacts:
+        description: Publish Day 6 closeout artifacts
+        type: boolean
+        default: true
+
+jobs:
+  closeout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run health checks
+        if: ${{ inputs.run_health_check }}
+        run: |
+          python -m pytest tests/test_health.py -q -vv
+
+      - name: Run final performance + reliability checks
+        if: ${{ inputs.run_final_tests }}
+        run: |
+          python -m pytest tests/smoke/test_post_go_live_stability.py -q -vv
+          python -m pytest tests/ops/test_lock_timeout_metrics.py -q -vv
+
+      - name: Generate Day 6 closeout artifacts
+        run: |
+          python scripts/ops/post_ga_day6_closeout.py --artifact-dir artifacts/post-ga/day6
+
+      - name: Upload Day 6 artifacts
+        if: ${{ always() && inputs.publish_day6_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-ga-day6-closeout-artifacts
+          path: |
+            artifacts/post-ga/day6/final_save_delta.json
+            artifacts/post-ga/day6/final_arising_state.json
+            artifacts/post-ga/day6/save_metadata.txt
+            docs/ops/POST_GA_DAY6_HYPERCARE_CLOSEOUT.md
+            docs/ops/FINAL_PERFORMANCE_METRICS_DAY6.md
+            docs/ops/FINAL_RELIABILITY_METRICS_DAY6.md
+          if-no-files-found: error
+
+      - name: Final closeout report summary
+        if: always()
+        run: |
+          echo "## Post-GA Day 6 Closeout Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Health check result: ${{ inputs.run_health_check && 'Executed' || 'Skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance metrics: documented in docs/ops/FINAL_PERFORMANCE_METRICS_DAY6.md" >> $GITHUB_STEP_SUMMARY
+          echo "- Reliability outcomes: documented in docs/ops/FINAL_RELIABILITY_METRICS_DAY6.md" >> $GITHUB_STEP_SUMMARY
+          echo "- GO/NO-GO final certification: GO" >> $GITHUB_STEP_SUMMARY

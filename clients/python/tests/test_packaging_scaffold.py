@@ -5,15 +5,22 @@ import subprocess
 
 
 def _repo_root() -> Path:
-    file_root = next(
-        (x for x in Path(__file__).resolve().parents if (x / ".github" / "workflows").exists()),
-        Path(__file__).resolve().parent,
-    )
+    this_file = Path(__file__).resolve()
+    file_root = next((x for x in this_file.parents if (x / ".github" / "workflows").exists()), None)
+
+    if file_root is not None:
+        return file_root
+
     try:
         git_root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
     except Exception:
-        return file_root
-    return Path(git_root).resolve()
+        return this_file.parents[3]
+
+    resolved_git_root = Path(git_root).resolve()
+    if (resolved_git_root / ".github" / "workflows").exists():
+        return resolved_git_root
+
+    return this_file.parents[3]
 
 
 def _packaging_root() -> Path:

@@ -47,3 +47,5 @@ clients/python/packaging/temp/
 
 # Local export artifacts
 exports_storage/
+*.bak
+*.bak2

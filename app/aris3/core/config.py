@@ -1,7 +1,9 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+
     APP_NAME: str = "ARIS-CLOUD-3"
     SECRET_KEY: str = "change-me"
     ALGORITHM: str = "HS256"
@@ -21,9 +23,5 @@ class Settings(BaseSettings):
     OPS_DRILL_TIMEOUT_SEC: int = 120
     OPS_ARTIFACTS_DIR: str = "./artifacts"
     METRICS_ENABLED: bool = True
-
-    class Config:
-        env_file = ".env"
-
 
 settings = Settings()

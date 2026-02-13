@@ -55,3 +55,6 @@ artifacts/rc/
 
 # GA release gate artifacts
 artifacts/ga/
+
+# Post-GA day1 artifacts
+artifacts/post-ga/

@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "date_utc": "2026-02-13T00:00:00Z",
+  "owner": {
+    "team": "platform-ops",
+    "rotation": "primary-oncall",
+    "backup_rotation": "secondary-oncall"
+  },
+  "baseline": {
+    "availability": {
+      "window": "28d",
+      "value": 99.5,
+      "unit": "percent"
+    },
+    "error_rate": {
+      "window": "1h",
+      "value": 0.5,
+      "unit": "percent"
+    },
+    "latency_p95": {
+      "window": "1h",
+      "value": 450,
+      "unit": "ms"
+    },
+    "latency_p99": {
+      "window": "1h",
+      "value": 900,
+      "unit": "ms"
+    },
+    "job_success_rate": {
+      "window": "24h",
+      "value": 99.0,
+      "unit": "percent"
+    }
+  },
+  "thresholds": {
+    "warning": {
+      "availability_1h_below_percent": 99.7,
+      "error_rate_15m_above_percent": 0.5,
+      "latency_p95_15m_above_ms": 450,
+      "latency_p99_15m_above_ms": 900,
+      "job_success_rate_24h_below_percent": 99.0
+    },
+    "critical": {
+      "availability_1h_below_percent": 99.5,
+      "error_rate_15m_above_percent": 1.0,
+      "latency_p95_15m_above_ms": 700,
+      "latency_p99_15m_above_ms": 1200,
+      "job_success_rate_24h_below_percent": 97.5
+    }
+  },
+  "day2_gate": {
+    "artifact_dir": "artifacts/post-ga/day2",
+    "required_checks": 5,
+    "optional_full_suite": true,
+    "go_rule": "all required checks pass",
+    "no_go_rule": "any required check fails"
+  }
+}

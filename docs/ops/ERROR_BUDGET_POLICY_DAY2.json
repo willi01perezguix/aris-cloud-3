@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "date_utc": "2026-02-13T00:00:00Z",
+  "policy": {
+    "no_contract_drift": true,
+    "rollback_first_for_incidents": true,
+    "availability_slo_percent": 99.5,
+    "budget_window": "28d",
+    "budget_percent": 0.5
+  },
+  "burn_rate_rules": [
+    {
+      "name": "fast-burn-warning",
+      "window": "1h",
+      "burn_rate_gte": 2.0,
+      "severity": "warning",
+      "action": "freeze_non_essential_changes"
+    },
+    {
+      "name": "fast-burn-critical",
+      "window": "1h",
+      "burn_rate_gte": 5.0,
+      "severity": "critical",
+      "action": "rollback_first_and_page_oncall"
+    },
+    {
+      "name": "sustained-burn-warning",
+      "window": "6h",
+      "burn_rate_gte": 1.0,
+      "severity": "warning",
+      "action": "assign_incident_owner"
+    },
+    {
+      "name": "sustained-burn-critical",
+      "window": "6h",
+      "burn_rate_gte": 2.0,
+      "severity": "critical",
+      "action": "incident_bridge_and_release_freeze"
+    }
+  ],
+  "escalation": {
+    "sev3": "primary-oncall",
+    "sev2": "primary-secondary-manager",
+    "sev1": "full-oncall-tree-and-leadership"
+  },
+  "owners": {
+    "team": "platform-ops",
+    "rotation": "primary-oncall",
+    "backup_rotation": "secondary-oncall"
+  }
+}

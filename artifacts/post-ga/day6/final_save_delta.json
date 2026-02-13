@@ -1,0 +1,18 @@
+{
+  "version": "v1.0",
+  "closeout_day": "post-ga-day6",
+  "change_classes_captured": [
+    "bugfix",
+    "enhancement",
+    "operability-improvement"
+  ],
+  "contract_drift": false,
+  "business_rule_drift": false,
+  "aris_finalize_command": {
+    "command": "ARIS 3 save --finalize --version v1.0",
+    "returncode": null,
+    "stdout": "",
+    "stderr": "skipped by operator",
+    "executed_at_utc": "2026-02-13T04:28:46.202981+00:00"
+  }
+}

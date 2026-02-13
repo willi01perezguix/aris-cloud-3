@@ -3,8 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def _repo_root() -> Path:
+    return next(
+        (x for x in Path(__file__).resolve().parents if (x / ".github" / "workflows").exists()),
+        Path(__file__).resolve().parent,
+    )
+
+
+def _packaging_root() -> Path:
+    return _repo_root() / "clients" / "python" / "packaging"
+
+
 def test_packaging_files_exist() -> None:
-    root = Path("clients/python/packaging")
+    root = _packaging_root()
     expected = [
         "core_app.spec.template",
         "control_center.spec.template",
@@ -22,13 +33,13 @@ def test_packaging_files_exist() -> None:
 
 
 def test_powershell_scripts_support_dry_run() -> None:
-    root = Path("clients/python/packaging")
+    root = _packaging_root()
     assert "DryRun" in (root / "build_core.ps1").read_text()
     assert "DryRun" in (root / "build_control_center.ps1").read_text()
 
 
 def test_packaging_scripts_include_scaffold_markers() -> None:
-    root = Path("clients/python/packaging")
+    root = _packaging_root()
     script_markers = {
         "build_core.ps1": (
             "Set-StrictMode -Version Latest",
@@ -63,10 +74,7 @@ def test_packaging_scripts_include_scaffold_markers() -> None:
 
 
 def test_windows_packaging_smoke_workflow_uploads_diagnostics_always() -> None:
-    repo_root = next(
-        (x for x in Path(__file__).resolve().parents if (x / ".github" / "workflows").exists()),
-        Path.cwd(),
-    )
+    repo_root = _repo_root()
     workflow_path = repo_root / ".github" / "workflows" / "clients-packaging-smoke.yml"
     assert workflow_path.exists(), f"Missing workflow file: {workflow_path}"
 

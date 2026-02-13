@@ -1,22 +1,5 @@
 from __future__ import annotations
 
-def _resolve_timezone(tz: str | None):
-    # UTC aliases are always valid
-    if not tz or tz in ("UTC", "Z", "Etc/UTC"):
-        return dt_timezone.utc
-    try:
-        return ZoneInfo(tz)
-    except ZoneInfoNotFoundError:
-        # Windows fallback when system tzdata is missing
-        try:
-            from dateutil import tz as dateutil_tz  # type: ignore
-            alt = dateutil_tz.gettz(tz)
-            if alt is not None:
-                return alt
-        except Exception:
-            pass
-        raise
-
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from datetime import timezone as dt_timezone
@@ -54,11 +37,21 @@ class ReportDateRange:
         return self.end_local.date()
 
 
-def resolve_timezone(timezone_name: str | None) -> ZoneInfo:
-    tz_name = timezone_name or "UTC"
+UTC_ALIASES = {"UTC", "Z", "Etc/UTC"}
+
+
+def _normalize_timezone_name(timezone_name: str | None) -> str:
+    tz_name = (timezone_name or "UTC").strip()
+    return "UTC" if tz_name in UTC_ALIASES else tz_name
+
+
+def resolve_timezone(timezone_name: str | None):
+    tz_name = _normalize_timezone_name(timezone_name)
     try:
-        return _resolve_timezone(tz_name)
-    except Exception as exc:  # pragma: no cover - depends on system tzdata
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError as exc:  # pragma: no cover - depends on system tzdata
+        if tz_name == "UTC":
+            return dt_timezone.utc
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid timezone"}) from exc
 
 
@@ -245,4 +238,3 @@ def daily_sales_refunds(
         refunds_by_date[local_date] += Decimal(str(refund_total or 0.0))
 
     return sales_by_date, orders_by_date, refunds_by_date
-

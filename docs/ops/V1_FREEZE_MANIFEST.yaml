@@ -1,0 +1,52 @@
+version: 1
+name: aris-v1-freeze-manifest
+status: frozen
+last_review_utc: "2026-01-01T00:00:00Z"
+
+frozen_api_groups:
+  - /aris3/auth
+  - /aris3/users
+  - /aris3/admin
+  - /aris3/stock
+  - /aris3/transfers
+  - /aris3/pos/sales
+  - /aris3/pos/cash
+  - /aris3/reports
+  - /aris3/exports
+
+frozen_endpoints:
+  - method: GET
+    path: /aris3/stock
+    note: full-table contract must remain unchanged
+  - method: PATCH
+    path_pattern: /aris3/**
+    note: data-edit only; state transitions remain in /actions
+
+frozen_invariants:
+  - tenant scope isolation is mandatory for every request path
+  - RBAC checks must remain enforced before protected operations
+  - audit logging remains required for sensitive state-changing operations
+  - idempotency behavior and keys remain stable for existing idempotent routes
+  - stock/transfers/POS/cash/reports business rules are locked for v1
+
+protected_migration_policy:
+  allowed_without_exception:
+    - additive-safe schema changes
+    - backward-compatible index additions
+  prohibited_without_exception:
+    - destructive column/table removals
+    - default value changes with behavior impact
+    - data backfills that alter business outcomes
+
+exception_process:
+  required_approvals:
+    - service_owner
+    - qa_lead
+    - ops_owner
+    - architecture_reviewer
+  required_fields:
+    - change_class
+    - risk_assessment
+    - evidence_links
+    - mandatory_rollback_plan
+    - communication_plan

@@ -89,10 +89,19 @@ jobs:
 
       - name: Collect packaging diagnostics
         if: always()
+        env:
+          CORE_OUTCOME: ${{ steps.core_smoke.outcome }}
+          CONTROL_CENTER_OUTCOME: ${{ steps.control_center_smoke.outcome }}
         run: |
           if (-not (Test-Path $env:PACKAGING_ARTIFACTS_DIR)) {
             New-Item -ItemType Directory -Path $env:PACKAGING_ARTIFACTS_DIR -Force | Out-Null
           }
+
+          $stepOutcomesPath = Join-Path $env:PACKAGING_ARTIFACTS_DIR $env:PACKAGING_STEP_OUTCOMES_FILE
+          @(
+            "core_smoke_outcome=$env:CORE_OUTCOME"
+            "control_center_smoke_outcome=$env:CONTROL_CENTER_OUTCOME"
+          ) | Set-Content -Path $stepOutcomesPath -Encoding utf8
 
           Get-ChildItem -Path $env:PACKAGING_ROOT -Recurse -Force |
             Select-Object FullName, Length, LastWriteTimeUtc |
@@ -105,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-packaging-smoke-diagnostics
-          path: clients/python/packaging/temp/artifacts/**
+          path: ${{ env.PACKAGING_ARTIFACTS_DIR }}/**
           if-no-files-found: error
       - name: Fail job if packaging smoke failed
         if: always()

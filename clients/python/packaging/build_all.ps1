@@ -33,13 +33,9 @@ $coreOutDir = if ($OutDir) { Join-Path $OutDir "core" } else { $null }
 $controlOutDir = if ($OutDir) { Join-Path $OutDir "control_center" } else { $null }
 
 & $coreScript -DryRun:$DryRun -CiMode:$CiMode -OutDir:$coreOutDir -VersionOverride:$VersionOverride
-if ($LASTEXITCODE -ne 0) {
-  Fail "build_core.ps1 failed with exit code $LASTEXITCODE"
-}
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 & $controlCenterScript -DryRun:$DryRun -CiMode:$CiMode -OutDir:$controlOutDir -VersionOverride:$VersionOverride
-if ($LASTEXITCODE -ne 0) {
-  Fail "build_control_center.ps1 failed with exit code $LASTEXITCODE"
-}
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "build_all completed successfully"

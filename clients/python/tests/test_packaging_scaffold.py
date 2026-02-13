@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 
 def _repo_root() -> Path:
-    return next(
+    file_root = next(
         (x for x in Path(__file__).resolve().parents if (x / ".github" / "workflows").exists()),
         Path(__file__).resolve().parent,
     )
+    try:
+        git_root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+    except Exception:
+        return file_root
+    return Path(git_root).resolve()
 
 
 def _packaging_root() -> Path:
@@ -74,8 +80,7 @@ def test_packaging_scripts_include_scaffold_markers() -> None:
 
 
 def test_windows_packaging_smoke_workflow_uploads_diagnostics_always() -> None:
-    repo_root = _repo_root()
-    workflow_path = repo_root / ".github" / "workflows" / "clients-packaging-smoke.yml"
+    workflow_path = _repo_root() / ".github" / "workflows" / "clients-packaging-smoke.yml"
     assert workflow_path.exists(), f"Missing workflow file: {workflow_path}"
 
     workflow = workflow_path.read_text(encoding="utf-8")
@@ -84,3 +89,4 @@ def test_windows_packaging_smoke_workflow_uploads_diagnostics_always() -> None:
     assert "if-no-files-found: error" in workflow
     assert "if: always()" in workflow
     assert "step_outcomes.txt" in workflow
+    assert "path: ${{ env.PACKAGING_ARTIFACTS_DIR }}/**" in workflow

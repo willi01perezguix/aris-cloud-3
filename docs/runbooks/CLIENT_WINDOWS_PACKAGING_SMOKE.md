@@ -72,6 +72,10 @@ Control Center uses the same shape with `aris-control-center-app` and `control_c
   1. Open build logs from diagnostics artifact.
   2. Inspect rendered spec path from dry-run summary.
   3. Fix upstream dependency/spec issues and re-run packaging.
+- **`UserWarning: You are using 32-bit Python on a 64-bit Windows OS` (cryptography performance warning)**
+  1. This warning is non-blocking but indicates a mismatched interpreter architecture.
+  2. Install and use **64-bit Python** (x86_64) on 64-bit Windows runners/workstations.
+  3. Recreate the virtual environment and rerun the packaging smoke commands.
 
 ## CI workflow behavior
 

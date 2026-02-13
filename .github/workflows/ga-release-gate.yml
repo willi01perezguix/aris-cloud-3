@@ -1,0 +1,58 @@
+name: ga-release-gate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ga-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run GA release gate
+        id: gate
+        run: |
+          chmod +x scripts/release/ga_gate.sh
+          if scripts/release/ga_gate.sh; then
+            echo "gate_result=GO" >> "$GITHUB_OUTPUT"
+          else
+            echo "gate_result=NO-GO" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          RESULT="${{ steps.gate.outputs.gate_result }}"
+          if [ -z "$RESULT" ]; then
+            RESULT="NO-GO"
+          fi
+          {
+            echo "## GA Release Gate Result"
+            echo ""
+            echo "**$RESULT**"
+            echo ""
+            echo "### Artifact directory"
+            echo "- artifacts/ga/"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload GA gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-gate-artifacts
+          path: artifacts/ga/
+          if-no-files-found: error

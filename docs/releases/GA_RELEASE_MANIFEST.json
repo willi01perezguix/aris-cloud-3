@@ -1,0 +1,16 @@
+{
+  "release": "GA",
+  "version": "0.1.0",
+  "commit_sha": "df2ec5dddeab6cf4c447f85e19d66902aebf045f",
+  "date_utc": "2026-02-13T02:19:47Z",
+  "included_modules": [
+    "aris-cloud-3 API and test suite",
+    "clients/python/aris3_client_sdk",
+    "clients/python/aris_core_3_app",
+    "clients/python/aris_control_center_app",
+    "release workflows and runbooks"
+  ],
+  "migration_baseline": "No new migrations required; baseline unchanged from Sprint 8 Day 9 RC readiness.",
+  "test_summary_reference": "docs/releases/GA_TEST_EVIDENCE.md",
+  "test_summary_hash": "1485a0ffd2a73f9a8ac6c4c1e639636add700cc321340d1d3b2c4b4f27f134b0"
+}

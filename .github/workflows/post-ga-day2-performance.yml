@@ -1,0 +1,110 @@
+name: post-ga-day2-performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_full_suite:
+        description: "Run the full pytest suite in addition to required Day-2 checks"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  day2-performance-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run post-GA day2 baseline
+        id: day2_gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.run_full_suite }}" == "true" ]]; then
+            scripts/ops/post_ga_day2_baseline.sh --full-suite
+          else
+            scripts/ops/post_ga_day2_baseline.sh
+          fi
+
+      - name: Build job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="artifacts/post-ga/day2/metadata.json"
+          RESULTS="artifacts/post-ga/day2/results.json"
+          DURATIONS="artifacts/post-ga/day2/pytest_durations_summary.json"
+
+          STATUS="UNKNOWN"
+          PASS="0"
+          FAIL="0"
+          P95="N/A"
+          P99="N/A"
+
+          if [[ -f "$META" ]]; then
+            STATUS=$(python - <<'PY'
+import json
+print(json.load(open("artifacts/post-ga/day2/metadata.json", encoding="utf-8")).get("result", "UNKNOWN"))
+PY
+)
+            PASS=$(python - <<'PY'
+import json
+print(json.load(open("artifacts/post-ga/day2/metadata.json", encoding="utf-8")).get("pass_count", 0))
+PY
+)
+            FAIL=$(python - <<'PY'
+import json
+print(json.load(open("artifacts/post-ga/day2/metadata.json", encoding="utf-8")).get("fail_count", 0))
+PY
+)
+          fi
+
+          if [[ -f "$DURATIONS" ]]; then
+            P95=$(python - <<'PY'
+import json
+rows = json.load(open("artifacts/post-ga/day2/pytest_durations_summary.json", encoding="utf-8")).get("slowest_tests", [])
+if rows:
+    vals = sorted([r.get("seconds", 0.0) for r in rows])
+    idx = int((len(vals)-1) * 0.95)
+    print(f"{vals[idx]:.3f}s")
+else:
+    print("N/A")
+PY
+)
+            P99=$(python - <<'PY'
+import json
+rows = json.load(open("artifacts/post-ga/day2/pytest_durations_summary.json", encoding="utf-8")).get("slowest_tests", [])
+if rows:
+    vals = sorted([r.get("seconds", 0.0) for r in rows])
+    idx = int((len(vals)-1) * 0.99)
+    print(f"{vals[idx]:.3f}s")
+else:
+    print("N/A")
+PY
+)
+          fi
+
+          {
+            echo "## Post-GA Day2 Performance Baseline"
+            echo "- Baseline status: **$STATUS**"
+            echo "- Required checks: pass **$PASS**, fail **$FAIL**"
+            echo "- Pytest durations (if available): p95 **$P95**, p99 **$P99**"
+            echo "- Artifacts path: \`artifacts/post-ga/day2/\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload day2 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-ga-day2-artifacts
+          path: artifacts/post-ga/day2/
+          if-no-files-found: error

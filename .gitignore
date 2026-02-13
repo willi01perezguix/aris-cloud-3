@@ -58,3 +58,6 @@ artifacts/ga/
 
 # Post-GA day1 artifacts
 artifacts/post-ga/
+
+# Post-GA day2 artifacts
+artifacts/post-ga/day2/

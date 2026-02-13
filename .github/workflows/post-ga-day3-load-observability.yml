@@ -1,0 +1,109 @@
+name: post-ga-day3-load-observability
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Load profile to execute"
+        required: false
+        default: L1
+        type: choice
+        options:
+          - L1
+          - L2
+          - L3
+      strict_gate:
+        description: "Fail gate strictly (zero request failures + p99 enforcement)"
+        required: false
+        default: true
+        type: boolean
+      run_full_suite:
+        description: "Run full pytest suite after probe"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  day3-load-observability:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Day-3 load probe
+        id: day3_probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--profile "${{ inputs.profile }}")
+          if [[ "${{ inputs.strict_gate }}" == "true" ]]; then
+            args+=(--strict-gate)
+          fi
+          scripts/ops/post_ga_day3_load_probe.sh "${args[@]}"
+
+      - name: Optional full suite
+        if: inputs.run_full_suite == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests -q -x --maxfail=1
+
+      - name: Build job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUMMARY="artifacts/post-ga/day3/summary.json"
+
+          RESULT="UNKNOWN"
+          LATENCY="N/A"
+          ERROR_RATE="N/A"
+
+          if [[ -f "$SUMMARY" ]]; then
+            RESULT=$(python - <<'PY'
+import json
+print(json.load(open("artifacts/post-ga/day3/summary.json", encoding="utf-8")).get("result", "UNKNOWN"))
+PY
+)
+            LATENCY=$(python - <<'PY'
+import json
+lat = json.load(open("artifacts/post-ga/day3/summary.json", encoding="utf-8")).get("latency_ms", {})
+print(f"p50={lat.get('p50', 'N/A')}ms p95={lat.get('p95', 'N/A')}ms p99={lat.get('p99', 'N/A')}ms")
+PY
+)
+            ERROR_RATE=$(python - <<'PY'
+import json
+err = json.load(open("artifacts/post-ga/day3/summary.json", encoding="utf-8")).get("totals", {}).get("error_rate", "N/A")
+if isinstance(err, float):
+    print(f"{err:.2%}")
+else:
+    print(err)
+PY
+)
+          fi
+
+          {
+            echo "## Post-GA Day3 Load + Observability"
+            echo "- Selected profile: **${{ inputs.profile }}**"
+            echo "- Strict gate: **${{ inputs.strict_gate }}**"
+            echo "- Latency summary: **$LATENCY**"
+            echo "- Error rate: **$ERROR_RATE**"
+            echo "- Gate result: **$RESULT**"
+            echo "- Artifact path: \`artifacts/post-ga/day3/\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Day-3 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-ga-day3-artifacts
+          path: artifacts/post-ga/day3/
+          if-no-files-found: error

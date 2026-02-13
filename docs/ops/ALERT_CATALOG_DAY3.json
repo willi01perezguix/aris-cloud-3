@@ -1,0 +1,98 @@
+{
+  "catalog_version": "day3-v1",
+  "owner_default": "ops-oncall",
+  "escalation_default": [
+    "service-owner",
+    "engineering-manager",
+    "incident-commander"
+  ],
+  "alerts": [
+    {
+      "id": "day3-availability-low",
+      "signal": "availability",
+      "warning_threshold": 0.995,
+      "critical_threshold": 0.99,
+      "window": "5m",
+      "burn_rate_severity": {
+        "1.0": "warning",
+        "2.0": "high-warning",
+        "4.0": "critical"
+      },
+      "runbooks": [
+        "runbooks/DEGRADATION_AND_RECOVERY_PLAYBOOK_v1.md",
+        "runbooks/INCIDENT_TRIAGE_MATRIX_v1.md"
+      ],
+      "owner": "ops-oncall",
+      "escalation": [
+        "service-owner",
+        "incident-commander"
+      ],
+      "missing_metric_policy": "treat-as-warning"
+    },
+    {
+      "id": "day3-latency-p95-high",
+      "signal": "latency_p95_ms",
+      "warning_threshold": 900,
+      "critical_threshold": 1100,
+      "window": "10m",
+      "burn_rate_severity": {
+        "1.0": "warning",
+        "2.0": "high-warning",
+        "4.0": "critical"
+      },
+      "runbooks": [
+        "runbooks/DEGRADATION_AND_RECOVERY_PLAYBOOK_v1.md"
+      ],
+      "owner": "ops-oncall",
+      "escalation": [
+        "service-owner",
+        "engineering-manager"
+      ],
+      "missing_metric_policy": "treat-as-warning"
+    },
+    {
+      "id": "day3-error-rate-high",
+      "signal": "error_rate",
+      "warning_threshold": 0.01,
+      "critical_threshold": 0.02,
+      "window": "5m",
+      "burn_rate_severity": {
+        "1.0": "warning",
+        "2.0": "high-warning",
+        "4.0": "critical"
+      },
+      "runbooks": [
+        "runbooks/DEGRADATION_AND_RECOVERY_PLAYBOOK_v1.md",
+        "runbooks/HOTFIX_PROTOCOL_v1.md"
+      ],
+      "owner": "ops-oncall",
+      "escalation": [
+        "service-owner",
+        "incident-commander"
+      ],
+      "missing_metric_policy": "treat-as-warning"
+    },
+    {
+      "id": "day3-saturation-timeout-spike",
+      "signal": "saturation_proxy_timeout_count",
+      "warning_threshold": 5,
+      "critical_threshold": 15,
+      "window": "5m",
+      "burn_rate_severity": {
+        "1.0": "warning",
+        "2.0": "high-warning",
+        "4.0": "critical"
+      },
+      "runbooks": [
+        "runbooks/DEGRADATION_AND_RECOVERY_PLAYBOOK_v1.md",
+        "runbooks/INCIDENT_TRIAGE_MATRIX_v1.md"
+      ],
+      "owner": "ops-oncall",
+      "escalation": [
+        "service-owner",
+        "incident-commander"
+      ],
+      "missing_metric_policy": "treat-as-warning"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+name: post-ga-day1-watch
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_full_suite:
+        description: "Run the full pytest suite in addition to required smoke checks"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  day1-watch-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run post-GA day1 gate
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.run_full_suite }}" == "true" ]]; then
+            scripts/ops/post_ga_gate.sh --full-suite
+          else
+            scripts/ops/post_ga_gate.sh
+          fi
+
+      - name: Build job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT="NO-GO"
+          if [[ -f artifacts/post-ga/day1/metadata.txt ]]; then
+            RESULT_LINE=$(grep '^result=' artifacts/post-ga/day1/metadata.txt || true)
+            if [[ -n "$RESULT_LINE" ]]; then
+              RESULT="${RESULT_LINE#result=}"
+            fi
+          fi
+          {
+            echo "## Post-GA Day1 Watch Result"
+            echo "- Decision: **$RESULT**"
+            echo "- Artifacts: \\`artifacts/post-ga/day1/\\`"
+            echo "- Full suite requested: **${{ inputs.run_full_suite }}**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload day1 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-ga-day1-artifacts
+          path: artifacts/post-ga/day1/
+          if-no-files-found: error

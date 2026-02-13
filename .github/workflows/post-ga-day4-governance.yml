@@ -1,0 +1,116 @@
+name: post-ga-day4-governance
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict_gate:
+        description: "Fail on governance budget failures"
+        required: false
+        default: true
+        type: boolean
+      apply_cleanup:
+        description: "Apply retention cleanup (default dry-run)"
+        required: false
+        default: false
+        type: boolean
+      run_full_suite:
+        description: "Run full pytest suite"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  day4-governance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run retention audit (dry-run by default)
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${{ inputs.apply_cleanup }}" == "true" ]]; then
+            args+=(--apply)
+          fi
+          if [[ "${{ inputs.strict_gate }}" == "true" ]]; then
+            args+=(--strict-gate)
+          fi
+          scripts/ops/post_ga_day4_retention_audit.sh "${args[@]}"
+
+      - name: Run cost/perf snapshot analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${{ inputs.strict_gate }}" == "true" ]]; then
+            args+=(--strict-gate)
+          fi
+          python scripts/ops/cost_perf_snapshot.py --artifact-dir artifacts/post-ga/day4 "${args[@]}"
+
+      - name: Optional full suite
+        if: inputs.run_full_suite == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests -q -x --maxfail=1
+
+      - name: Build job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUMMARY="artifacts/post-ga/day4/cost_perf_summary.json"
+          GATE="artifacts/post-ga/day4/gate_result.txt"
+
+          BUDGET_STATUS="unknown"
+          GO_NO_GO="unknown"
+          if [[ -f "$SUMMARY" ]]; then
+            BUDGET_STATUS=$(python - <<'PY'
+import json
+print(json.load(open("artifacts/post-ga/day4/cost_perf_summary.json", encoding="utf-8")).get("budget_status", "unknown"))
+PY
+)
+            GO_NO_GO=$(python - <<'PY'
+import json
+print(json.load(open("artifacts/post-ga/day4/cost_perf_summary.json", encoding="utf-8")).get("go_no_go", "unknown"))
+PY
+)
+          fi
+
+          RETENTION_RESULT="missing"
+          if [[ -f "$GATE" ]]; then
+            RETENTION_RESULT=$(cat "$GATE")
+          fi
+
+          CLEANUP_MODE="dry-run"
+          if [[ "${{ inputs.apply_cleanup }}" == "true" ]]; then
+            CLEANUP_MODE="apply"
+          fi
+
+          {
+            echo "## Post-GA Day4 Governance"
+            echo "- strict_gate: **${{ inputs.strict_gate }}**"
+            echo "- cleanup mode: **$CLEANUP_MODE**"
+            echo "- budget status: **$BUDGET_STATUS**"
+            echo "- GO/NO-GO: **$GO_NO_GO**"
+            echo "- retention gate: **$RETENTION_RESULT**"
+            echo "- artifact path: \`artifacts/post-ga/day4/\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Day-4 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-ga-day4-artifacts
+          path: artifacts/post-ga/day4/
+          if-no-files-found: error

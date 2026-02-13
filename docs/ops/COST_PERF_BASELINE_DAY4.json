@@ -1,0 +1,16 @@
+{
+  "version": "day4-v1",
+  "budgets": {
+    "ci_runtime_total_seconds_warn": 900,
+    "ci_runtime_total_seconds_fail": 1200,
+    "artifact_footprint_mb_warn": 250,
+    "artifact_footprint_mb_fail": 500,
+    "day3_p95_ms_warn": 1200,
+    "day3_p95_ms_fail": 1500
+  },
+  "prior_baseline": {
+    "ci_runtime_total_seconds": 780,
+    "artifact_footprint_mb": 120
+  },
+  "notes": "Baseline references Day-2 and Day-3 operational snapshots."
+}

@@ -1,0 +1,59 @@
+name: aris-cloud-3-api
+region: nyc
+features:
+  - buildpack-stack=ubuntu-22
+
+services:
+  - name: aris-cloud-3
+    environment_slug: python
+    source_dir: /
+    build_command: pip install -r requirements.txt
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+    http_port: 8080
+
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
+
+    github:
+      repo: willi01perezguix/aris-cloud-3
+      branch: main
+      deploy_on_push: true
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 15
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 6
+
+    envs:
+      - key: SECRET_KEY
+        value: EV[...]
+        type: SECRET
+        scope: RUN_TIME
+      - key: DATABASE_URL
+        value: EV[...]
+        type: SECRET
+        scope: RUN_TIME
+      - key: REPORTS_MAX_DATE_RANGE_DAYS
+        value: "92"
+        scope: RUN_TIME
+      - key: EXPORTS_MAX_ROWS
+        value: "10000"   # si quieres mantener 31, cámbialo aquí
+        scope: RUN_TIME
+      - key: EXPORTS_LIST_MAX_PAGE_SIZE
+        value: "200"
+        scope: RUN_TIME
+
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /
+      component:
+        name: aris-cloud-3
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED

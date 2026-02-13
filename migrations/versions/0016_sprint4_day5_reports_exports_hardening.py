@@ -1,6 +1,6 @@
 """sprint4 day5 reports exports hardening
 
-Revision ID: 0016_sprint4_day5_reports_exports_hardening
+Revision ID: 0016_s4d5_reports_exports_hard
 Revises: 0015_sprint4_day4
 Create Date: 2025-02-14 00:00:00.000000
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "0016_sprint4_day5_reports_exports_hardening"
+revision = "0016_s4d5_reports_exports_hard"
 down_revision = "0015_sprint4_day4"
 branch_labels = None
 depends_on = None
@@ -54,3 +54,4 @@ def downgrade() -> None:
     op.drop_index("ix_export_records_tenant_store_created", table_name="export_records")
 
     op.drop_column("export_records", "failure_reason_code")
+

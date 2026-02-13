@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-rc.14 - Sprint 8 Day 9 (RC cutover + release evidence bundle)
+
+### Added
+- RC readiness and validation evidence artifacts: `docs/releases/SPRINT8_DAY9_RC_READINESS.md` and `docs/releases/RC_VALIDATION_EVIDENCE.md`.
+- Sprint 8 Day 9 RC release notes draft: `docs/releases/RC_NOTES_SPRINT8_DAY9.md`.
+- RC Go/No-Go checklist runbook: `runbooks/RC_GO_NO_GO_CHECKLIST.md`.
+- Cross-platform RC smoke gate scripts with deterministic `artifacts/rc/` output and GO/NO-GO summary: `scripts/release/rc_smoke_gate.sh` and `scripts/release/rc_smoke_gate.ps1`.
+- Additive manual CI workflow `.github/workflows/release-candidate-gate.yml` with targeted checks, optional full-suite gate, and always-on artifact upload.
+
+### Changed
+- Repository ignore rules updated for transient RC artifacts under `artifacts/rc/`.
+
+### Notes
+- RC cutover package focuses on release reproducibility and rollback confidence only.
+- Explicitly no contract-breaking API changes were introduced.
+
 ## 0.1.0-rc.13 - Sprint 8 Day 2 (Core App UX hardening + unified error-state polish)
 
 ### Added

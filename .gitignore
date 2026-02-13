@@ -49,3 +49,6 @@ clients/python/packaging/temp/
 exports_storage/
 *.bak
 *.bak2
+
+# RC smoke gate artifacts
+artifacts/rc/

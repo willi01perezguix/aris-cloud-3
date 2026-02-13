@@ -1,0 +1,51 @@
+name: release-candidate-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_full_suite:
+        description: "Run full pytest suite after targeted RC checks"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  rc-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run targeted RC checks
+        run: |
+          chmod +x scripts/release/rc_smoke_gate.sh
+          scripts/release/rc_smoke_gate.sh
+
+      - name: Optional full-suite gate
+        if: ${{ github.event.inputs.run_full_suite == 'true' }}
+        run: |
+          chmod +x scripts/release/rc_smoke_gate.sh
+          scripts/release/rc_smoke_gate.sh --full-suite
+
+      - name: Upload RC artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-gate-artifacts
+          path: artifacts/rc/
+          if-no-files-found: error

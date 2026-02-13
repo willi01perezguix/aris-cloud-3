@@ -52,3 +52,6 @@ exports_storage/
 
 # RC smoke gate artifacts
 artifacts/rc/
+
+# GA release gate artifacts
+artifacts/ga/

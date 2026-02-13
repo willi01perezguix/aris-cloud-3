@@ -1,0 +1,116 @@
+name: post-ga-day5-certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict_gate:
+        description: "Fail gate on hard-fail or incomplete evidence"
+        required: false
+        default: true
+        type: boolean
+      run_full_suite:
+        description: "Run full pytest suite at end of validation sequence"
+        required: false
+        default: true
+        type: boolean
+      publish_day5_artifacts:
+        description: "Publish Day-5 certification artifacts"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  day5-certification:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Day-5 certification script
+        id: certify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${{ inputs.strict_gate }}" == "true" ]]; then
+            args+=(--strict-gate)
+          fi
+          python scripts/ops/post_ga_day5_certify.py --artifact-dir artifacts/post-ga/day5 "${args[@]}"
+
+      - name: Run required validation tests
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest clients/python/tests/test_packaging_scaffold.py -q
+          pushd clients/python >/dev/null
+          python -m pytest tests/test_packaging_scaffold.py -q
+          popd >/dev/null
+          python -m pytest tests/test_reports_day3_daily_timezone.py::test_reports_daily_timezone_boundary_and_week_span -q -vv
+          python -m pytest tests/smoke/test_go_live_validation.py::test_go_live_pos_checkout_and_reports_exports -q -vv
+          python -m pytest tests/packaging/test_packaging_scripts_contract.py -q
+          if [[ "${{ inputs.run_full_suite }}" == "true" ]]; then
+            python -m pytest tests -q -x --maxfail=1
+          fi
+
+      - name: Build workflow summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          STRICT="${{ inputs.strict_gate }}"
+          TEST_STATUS="${{ steps.tests.outcome }}"
+          CERT_STEP_STATUS="${{ steps.certify.outcome }}"
+          CERT_RESULT="missing"
+          if [[ -f artifacts/post-ga/day5/certification_gate_result.txt ]]; then
+            CERT_RESULT=$(cat artifacts/post-ga/day5/certification_gate_result.txt)
+          fi
+
+          GO_NO_GO="NO-GO"
+          if [[ "$CERT_RESULT" == "GO" && "$TEST_STATUS" == "success" ]]; then
+            GO_NO_GO="GO"
+          fi
+
+          {
+            echo "## Post-GA Day5 Final Certification"
+            echo "- strict_gate: **$STRICT**"
+            echo "- run_full_suite: **${{ inputs.run_full_suite }}**"
+            echo "- publish_day5_artifacts: **${{ inputs.publish_day5_artifacts }}**"
+            echo "- test status: **$TEST_STATUS**"
+            echo "- certification step status: **$CERT_STEP_STATUS**"
+            echo "- certification status: **$CERT_RESULT**"
+            echo "- GO/NO-GO: **$GO_NO_GO**"
+            echo "- artifact paths: \`artifacts/post-ga/day5/reliability_summary.json\`, \`artifacts/post-ga/day5/recovery_readiness.json\`, \`artifacts/post-ga/day5/environment_fingerprint.json\`, \`artifacts/post-ga/day5/certification_gate_result.txt\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Day-5 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-ga-day5-artifacts
+          path: artifacts/post-ga/day5/
+          if-no-files-found: error
+
+      - name: Enforce gate outcome
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.tests.outcome }}" != "success" ]]; then
+            echo "required tests failed"
+            exit 1
+          fi
+          if [[ "${{ steps.certify.outcome }}" != "success" ]]; then
+            echo "certification script failed"
+            exit 1
+          fi

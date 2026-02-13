@@ -1,0 +1,27 @@
+{
+  "name": "post-ga-day5-final-certification-manifest",
+  "version": "1.0.0",
+  "frozen_scope": {
+    "api_contracts": "locked",
+    "business_invariants": "locked",
+    "no_silent_drift": true
+  },
+  "required_documents": [
+    "docs/ops/POST_GA_DAY5_FINAL_CERTIFICATION.md",
+    "docs/ops/V1_RELEASE_FREEZE_BASELINE.md",
+    "docs/ops/V1_1_CHANGE_INTAKE_POLICY.md",
+    "docs/ops/V1_FREEZE_MANIFEST.yaml",
+    "runbooks/OPS_30_60_90_PLAN.md",
+    "runbooks/ONCALL_OWNERSHIP_MATRIX_v1.md"
+  ],
+  "required_outputs": [
+    "artifacts/post-ga/day5/reliability_summary.json",
+    "artifacts/post-ga/day5/recovery_readiness.json",
+    "artifacts/post-ga/day5/environment_fingerprint.json",
+    "artifacts/post-ga/day5/certification_gate_result.txt"
+  ],
+  "go_no_go_gate": {
+    "strict_gate_default": true,
+    "incomplete_evidence_allowed_when_strict_disabled": true
+  }
+}

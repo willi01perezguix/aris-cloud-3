@@ -59,7 +59,7 @@ def upgrade() -> None:
         sa.Column("location_code", sa.String(length=100), nullable=True),
         sa.Column("pool", sa.String(length=100), nullable=True),
         sa.Column("status", sa.String(length=50), nullable=True),
-        sa.Column("location_is_vendible", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("location_is_vendible", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("image_asset_id", GUID(), nullable=True),
         sa.Column("image_url", sa.String(length=500), nullable=True),
         sa.Column("image_thumb_url", sa.String(length=500), nullable=True),

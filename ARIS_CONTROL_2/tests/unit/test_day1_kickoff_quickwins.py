@@ -71,3 +71,43 @@ def test_admin_validation_errors_are_unified_for_critical_forms(monkeypatch, cap
     assert "code=UI_VALIDATION" in output
     assert "message=code y name son requeridos." in output
     assert "trace_id=n/a" in output
+
+
+def test_admin_quick_access_shortcuts_open_target_listing(monkeypatch) -> None:
+    console = AdminConsole(tenants=_StubClient(), stores=_StubClient(), users=_StubClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+
+    called: list[str] = []
+    monkeypatch.setattr(console, "_list_tenants", lambda _session: called.append("tenants"))
+    monkeypatch.setattr(console, "_list_stores", lambda _session: called.append("stores"))
+    monkeypatch.setattr(console, "_list_users", lambda _session: called.append("users"))
+
+    answers = iter(["t", "s", "u", "9"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    console.run(session)
+
+    assert called == ["tenants", "stores", "users"]
+
+
+def test_listing_loop_prints_clear_empty_and_error_status(monkeypatch, capsys) -> None:
+    console = AdminConsole(tenants=_StubClient(), stores=_StubClient(), users=_StubClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+
+    def fetch_page(_page: int, _page_size: int):
+        return {"rows": [], "page": 1, "page_size": 20, "total": 0, "has_next": False}
+
+    answers = iter(["b"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    console._run_listing_loop(
+        module="stores",
+        session=session,
+        fetch_page=fetch_page,
+        columns=[ColumnDef("id", "id")],
+        filter_keys=["q"],
+    )
+
+    out = capsys.readouterr().out
+    assert "[loading] Cargando stores tenant=tenant-a" in out
+    assert "[empty] STORES: sin resultados para los filtros actuales." in out

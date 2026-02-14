@@ -49,6 +49,12 @@ class AdminConsole:
         session.current_module = "admin_core"
         while True:
             print("\nAdmin Core")
+            print("Accesos rápidos: t=Tenants, s=Stores, u=Users")
+            print(
+                "Contexto activo: "
+                f"tenant={session.selected_tenant_id or session.effective_tenant_id or 'N/A'} "
+                f"role={session.role or 'N/A'}"
+            )
             print("1. Seleccionar tenant (solo SUPERADMIN)")
             print("2. Listar tenants")
             print("3. Crear tenant (SUPERADMIN)")
@@ -58,7 +64,7 @@ class AdminConsole:
             print("7. Crear user (tenant operativo + store válido)")
             print("8. Acción sobre user (set_role / set_status / reset_password)")
             print("9. Volver")
-            option = input("Selecciona una opción: ").strip()
+            option = input("Selecciona una opción: ").strip().lower()
 
             try:
                 if option == "1":
@@ -80,6 +86,12 @@ class AdminConsole:
                 elif option == "9":
                     session.current_module = "menu_principal"
                     return
+                elif option == "t":
+                    self._list_tenants(session)
+                elif option == "s":
+                    self._list_stores(session)
+                elif option == "u":
+                    self._list_users(session)
                 else:
                     print("Opción no válida.")
             except TenantContextError as error:
@@ -218,7 +230,11 @@ class AdminConsole:
         view_state = hydrate_view_state(session.listing_view_by_module.get(module), columns)
 
         while True:
-            print(f"[loading] Cargando {module} page={page_state.page} page_size={page_state.page_size}...")
+            active_tenant = session.selected_tenant_id or session.effective_tenant_id or "N/A"
+            print(
+                f"[loading] Cargando {module} tenant={active_tenant} "
+                f"page={page_state.page} page_size={page_state.page_size}..."
+            )
             try:
                 listing = self._fetch_listing_with_cache(
                     module=module,
@@ -230,6 +246,7 @@ class AdminConsole:
                 )
             except Exception as error:  # noqa: BLE001
                 payload = build_error_payload(error)
+                print(f"[error] {module.upper()}: no se pudo cargar el listado actual.")
                 print_error_banner(payload)
                 self.support_center.record_incident(module=module, payload=payload)
                 errors = self._consecutive_errors_by_module.get(module, 0) + 1
@@ -274,7 +291,7 @@ class AdminConsole:
             if rows:
                 print_table(module.upper(), rows, table_columns)
             else:
-                print(f"{module.upper()}: sin resultados para los filtros actuales.")
+                print(f"[empty] {module.upper()}: sin resultados para los filtros actuales. Ajusta filtros o recarga.")
             auto_refresh_label = "ON" if self._auto_refresh_by_module.get(module, False) else "OFF"
             export_allowed = self._can_export_module(session, module)
             export_label = "x=export csv, " if export_allowed else ""

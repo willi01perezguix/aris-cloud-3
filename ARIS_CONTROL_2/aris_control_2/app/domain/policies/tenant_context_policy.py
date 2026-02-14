@@ -13,5 +13,5 @@ class TenantContextPolicy:
         if effective_tenant_id:
             return True, ""
         if context.actor_role == cls.SUPERADMIN:
-            return False, "SUPERADMIN must select_tenant_id for stores/users"
-        return False, "token_tenant_id missing"
+            return False, "TENANT_CONTEXT_REQUIRED"
+        return False, "TENANT_SCOPE_REQUIRED"

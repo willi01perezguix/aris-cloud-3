@@ -1,9 +1,13 @@
 from aris_control_2.app.domain.models.session_context import SessionContext
+from aris_control_2.app.domain.policies.tenant_context_policy import TenantContextPolicy
 
 
 class PermissionGate:
     @staticmethod
     def require_tenant_context(context: SessionContext) -> tuple[bool, str]:
-        if context.effective_tenant_id:
+        allowed, reason = TenantContextPolicy.can_access_tenant_scoped_resources(context)
+        if allowed:
             return True, ""
-        return False, "Tenant context required. Select a tenant first."
+        if reason == "TENANT_CONTEXT_REQUIRED":
+            return False, "SUPERADMIN debe seleccionar tenant antes de Stores/Users."
+        return False, "El token no incluye tenant_id para recursos tenant-scoped."

@@ -1,30 +1,56 @@
 # ARIS_CONTROL_2
 
-Bootstrap inicial de ARIS Control 2 con arquitectura por capas:
+Shell cliente de ARIS Control 2 con arquitectura por capas (`presentation/application/domain/infrastructure`) y SDK mínimo para ARIS3.
 
-- presentation (`app/ui`)
-- application (`app/application`)
-- domain (`app/domain`)
-- infrastructure (`app/infrastructure`)
-- client SDK (`clients/aris3_client_sdk`)
-
-## Setup
+## Instalación
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .[dev]
+pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-## Ejecutar shell app
+## Ejecución
 
 ```bash
 python -m aris_control_2.app.main
 ```
 
-## Tests
+## Pruebas
 
 ```bash
 pytest -q
+```
+
+## Estructura de carpetas
+
+```text
+aris_control_2/
+  app/
+    main.py
+    ui/
+      views/
+      components/
+    application/
+      state/
+      use_cases/
+    domain/
+      models/
+      policies/
+    infrastructure/
+      sdk_adapter/
+      idempotency/
+      errors/
+      logging/
+  clients/
+    aris3_client_sdk/
+      modules/
+      http_client.py
+      auth_store.py
+      tracing.py
+
+tests/
+  unit/
+  integration/
 ```

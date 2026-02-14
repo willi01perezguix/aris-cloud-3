@@ -12,6 +12,8 @@ class SDKConfig:
     base_url: str
     timeout_seconds: float
     verify_ssl: bool
+    retry_max_attempts: int
+    retry_backoff_ms: int
 
     @classmethod
     def from_env(cls, env_file: str = ".env") -> "SDKConfig":
@@ -19,7 +21,15 @@ class SDKConfig:
         base_url = _normalize_base_url(os.getenv("ARIS3_BASE_URL", DEFAULT_BASE_URL))
         timeout_seconds = float(os.getenv("ARIS3_TIMEOUT_SECONDS", "30"))
         verify_ssl = parse_bool(os.getenv("ARIS3_VERIFY_SSL", "true"), default=True)
-        return cls(base_url=base_url, timeout_seconds=timeout_seconds, verify_ssl=verify_ssl)
+        retry_max_attempts = max(1, int(os.getenv("ARIS3_RETRY_MAX_ATTEMPTS", "3")))
+        retry_backoff_ms = max(0, int(os.getenv("ARIS3_RETRY_BACKOFF_MS", "250")))
+        return cls(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            verify_ssl=verify_ssl,
+            retry_max_attempts=retry_max_attempts,
+            retry_backoff_ms=retry_backoff_ms,
+        )
 
 
 def _normalize_base_url(value: str) -> str:

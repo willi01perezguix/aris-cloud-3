@@ -33,6 +33,8 @@ Valores por defecto:
 - `ARIS3_BASE_URL=https://aris-cloud-3-api-pecul.ondigitalocean.app/`
 - `ARIS3_TIMEOUT_SECONDS=30`
 - `ARIS3_VERIFY_SSL=true`
+- `ARIS3_RETRY_MAX_ATTEMPTS=3` (solo GET)
+- `ARIS3_RETRY_BACKOFF_MS=250`
 
 > `.env` está excluido de git. `.env.example` sí se versiona.
 

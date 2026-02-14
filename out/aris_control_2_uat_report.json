@@ -1,0 +1,29 @@
+{
+  "overall": "NO-GO",
+  "gates": {
+    "G1": "PASS",
+    "G2": "PASS",
+    "G3": "PASS",
+    "G4": "PASS",
+    "G5": "PASS",
+    "G6": "PASS",
+    "G7": "PASS",
+    "G8": "FAIL",
+    "G9": "FAIL",
+    "G10": "PASS"
+  },
+  "tests_summary": {
+    "passed": 23,
+    "failed": 0,
+    "skipped": 0
+  },
+  "packaging": {
+    "build": "FAIL",
+    "smoke": "FAIL"
+  },
+  "open_risks": [
+    "Entorno actual sin pwsh para ejecutar scripts Windows.",
+    "No fue posible instalar PyInstaller por restricción de red/proxy, impidiendo build/smoke local del artefacto."
+  ],
+  "recommended_next_step": "Pendiente de correcciones críticas: ejecutar build+smoke en runner Windows con pwsh y pyinstaller habilitados antes de declarar GO."
+}

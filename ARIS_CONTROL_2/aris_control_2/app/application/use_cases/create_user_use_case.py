@@ -25,7 +25,7 @@ class CreateUserUseCase:
                 idempotency_key=IdempotencyKeyFactory.new_key("user-create"),
             )
         except APIError as error:
-            if error.code == "IDEMPOTENCY_REPLAY":
+            if error.code in {"IDEMPOTENT_REPLAY", "IDEMPOTENCY_REPLAY"}:
                 return {"status": "already_processed"}
             raise
         return result

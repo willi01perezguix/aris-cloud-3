@@ -23,7 +23,7 @@ class CreateStoreUseCase:
                 idempotency_key=IdempotencyKeyFactory.new_key("store-create"),
             )
         except APIError as error:
-            if error.code == "IDEMPOTENCY_REPLAY":
+            if error.code in {"IDEMPOTENT_REPLAY", "IDEMPOTENCY_REPLAY"}:
                 return {"status": "already_processed"}
             raise
         return result

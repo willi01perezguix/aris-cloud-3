@@ -10,7 +10,7 @@ import platform
 from clients.aris3_client_sdk.errors import ApiError
 from clients.aris3_client_sdk.http_client import HttpClient
 
-APP_VERSION = "v1.0.3-rc"
+APP_VERSION = "v1.0.4-day5"
 HEALTH_CHECK_PATH = "/health"
 DEGRADED_LATENCY_MS = 1200
 SENSITIVE_KEY_MARKERS = ("token", "password", "secret", "authorization", "api_key")

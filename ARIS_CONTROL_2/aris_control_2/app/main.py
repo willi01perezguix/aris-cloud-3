@@ -28,6 +28,7 @@ from aris_control_2.app.context_store import (
 )
 from aris_control_2.app.diagnostics import APP_VERSION, ConnectivityResult, build_diagnostic_report, report_to_text, run_health_check
 from aris_control_2.app.error_presenter import build_error_payload, print_error_banner
+from aris_control_2.app.operational_support import OperationalSupportCenter, build_support_package, format_technical_summary
 from aris_control_2.app.session_guard import SessionGuard
 from aris_control_2.app.state import SessionState
 
@@ -245,6 +246,39 @@ def _show_diagnostics_panel(
             return connectivity
 
 
+
+
+def _export_support_files(*, package: dict, output_dir: Path) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    json_path = output_dir / f"soporte-{stamp}.json"
+    txt_path = output_dir / f"soporte-{stamp}.txt"
+    json_path.write_text(json.dumps(package, ensure_ascii=False, indent=2), encoding="utf-8")
+    txt_path.write_text(format_technical_summary(package=package), encoding="utf-8")
+    return json_path, txt_path
+
+
+def _show_incidents_panel(*, support_center: OperationalSupportCenter) -> None:
+    while True:
+        print("\nIncidencias (solo lectura)")
+        rows = support_center.latest_incident_by_module(["tenants", "stores", "users"])
+        if not rows:
+            print("  Sin incidencias registradas.")
+        else:
+            for incident in rows:
+                print(
+                    f"  módulo={incident.get('module')} estado={incident.get('status')} "
+                    f"hora={incident.get('timestamp_local')} code={incident.get('code')} "
+                    f"message={incident.get('message')} trace_id={incident.get('trace_id') or 'N/A'}"
+                )
+        print("Acciones: l=limpiar incidencias locales, b=volver")
+        cmd = input("cmd incidencias: ").strip().lower()
+        if cmd == "l":
+            support_center.clear_incidents()
+            print("Incidencias locales limpiadas.")
+        elif cmd == "b":
+            return
+
 def main() -> None:
     config = SDKConfig.from_env()
     environment = os.getenv("ARIS3_ENV", "dev").strip().lower() or "dev"
@@ -254,6 +288,7 @@ def main() -> None:
     session = SessionState()
     last_error: dict | None = None
     connectivity: ConnectivityResult | None = run_health_check(http_client)
+    support_center = OperationalSupportCenter.load()
 
     def _handle_invalid_session(reason: str) -> None:
         save_auth_recovery_context(
@@ -278,15 +313,47 @@ def main() -> None:
 
     http_client.register_auth_error_handler(_handle_http_auth_error)
 
+    def _build_package() -> dict:
+        return build_support_package(
+            base_url=config.base_url,
+            environment=environment,
+            current_module=session.current_module,
+            selected_tenant_id=session.selected_tenant_id,
+            active_filters=session.filters_by_module,
+            incidents=support_center.incidents,
+            operations=support_center.operations,
+        )
+
+    def _export_support() -> None:
+        package = _build_package()
+        json_path, txt_path = _export_support_files(package=package, output_dir=Path("out") / "reports")
+        print(f"Paquete soporte exportado: {json_path} y {txt_path}")
+
+    def _open_diagnostics() -> None:
+        nonlocal connectivity
+        connectivity = _show_diagnostics_panel(
+            config=config,
+            environment=environment,
+            session=session,
+            connectivity=connectivity,
+            last_error=last_error,
+            http_client=http_client,
+        )
+
     admin_console = AdminConsole(
         TenantsClient(http_client),
         StoresClient(http_client),
         UsersClient(http_client),
+        support_center=support_center,
         on_context_updated=lambda: _persist_operator_context(session),
+        on_open_diagnostics=_open_diagnostics,
+        on_export_support=_export_support,
     )
 
     _print_runtime_config(config, environment)
     _print_connectivity(connectivity)
+    if connectivity and connectivity.status != "Conectado":
+        print("[ALERTA] Conectividad degradada/sin conexión. Acciones rápidas: 6=Diagnóstico, 8=Exportar soporte")
 
     while True:
         print("\nMenú")
@@ -296,13 +363,18 @@ def main() -> None:
         print("4. Logout")
         print("5. Exit")
         print("6. Diagnóstico API")
+        print("7. Incidencias")
+        print("8. Exportar paquete de soporte")
+        print("9. Copiar resumen técnico")
         option = input("Selecciona una opción: ").strip()
 
         try:
             if option == "1":
                 username_or_email = input("username_or_email: ").strip()
                 password = input("password: ").strip()
+                started = perf_counter()
                 response = auth_client.login(username_or_email=username_or_email, password=password)
+                support_center.record_operation(module="auth", screen="login", action="login", result="success", latency_ms=int((perf_counter()-started)*1000), code="OK", message="login ok")
                 session.access_token = response.get("access_token")
                 session.refresh_token = response.get("refresh_token")
                 session.must_change_password = bool(response.get("must_change_password", False))
@@ -311,7 +383,9 @@ def main() -> None:
             elif option == "2":
                 if not session_guard.require_session(session, module="me"):
                     continue
+                started = perf_counter()
                 me_payload = me_client.get_me(access_token=session.access_token or "")
+                support_center.record_operation(module="me", screen="me", action="get_me", result="success", latency_ms=int((perf_counter()-started)*1000), code="OK", message="/me ok")
                 session.apply_me(me_payload)
                 _restore_operator_context(session)
                 _persist_operator_context(session)
@@ -326,27 +400,32 @@ def main() -> None:
             elif option == "5":
                 return
             elif option == "6":
-                connectivity = _show_diagnostics_panel(
-                    config=config,
-                    environment=environment,
-                    session=session,
-                    connectivity=connectivity,
-                    last_error=last_error,
-                    http_client=http_client,
-                )
+                _open_diagnostics()
+            elif option == "7":
+                _show_incidents_panel(support_center=support_center)
+            elif option == "8":
+                _export_support()
+            elif option == "9":
+                summary = format_technical_summary(package=_build_package())
+                copied = _copy_to_clipboard(summary)
+                print("Resumen técnico copiado." if copied else "No fue posible copiar al portapapeles en este entorno.")
             else:
                 print("Opción no válida.")
         except ApiError as error:
             payload = build_error_payload(error)
             last_error = payload
+            support_center.record_incident(module=session.current_module, payload=payload)
+            support_center.record_operation(module=session.current_module, screen=session.current_module, action="runtime", result="error", latency_ms=0, trace_id=payload.get("trace_id"), code=payload.get("code"), message=payload.get("message"))
             print_error_banner(payload)
         except httpx.HTTPError as error:
             payload = build_error_payload(error)
             last_error = payload
+            support_center.record_incident(module=session.current_module, payload=payload)
             print_error_banner(payload)
         except Exception as error:  # noqa: BLE001
             payload = build_error_payload(error)
             last_error = payload
+            support_center.record_incident(module=session.current_module, payload=payload)
             print_error_banner(payload)
 
 

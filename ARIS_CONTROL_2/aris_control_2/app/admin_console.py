@@ -13,6 +13,7 @@ from clients.aris3_client_sdk.users_client import UsersClient
 from aris_control_2.app.error_presenter import build_error_payload, print_error_banner
 from aris_control_2.app.export.csv_exporter import export_current_view
 from aris_control_2.app.listing_cache import ListingCache
+from aris_control_2.app.operational_support import OperationalSupportCenter
 from aris_control_2.app.state import SessionState
 from aris_control_2.app.tenant_context import TenantContextError, is_superadmin, resolve_operational_tenant_id
 from aris_control_2.app.ui.filters import clean_filters, debounce_text, prompt_optional
@@ -22,14 +23,27 @@ from aris_control_2.app.ui.table_printer import print_table
 
 
 class AdminConsole:
-    def __init__(self, tenants: TenantsClient, stores: StoresClient, users: UsersClient, on_context_updated: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        tenants: TenantsClient,
+        stores: StoresClient,
+        users: UsersClient,
+        support_center: OperationalSupportCenter | None = None,
+        on_context_updated: Callable[[], None] | None = None,
+        on_open_diagnostics: Callable[[], None] | None = None,
+        on_export_support: Callable[[], None] | None = None,
+    ) -> None:
         self.tenants = tenants
         self.stores = stores
         self.users = users
+        self.support_center = support_center or OperationalSupportCenter.load()
         self._on_context_updated = on_context_updated
+        self._on_open_diagnostics = on_open_diagnostics
+        self._on_export_support = on_export_support
         self._listing_cache = ListingCache(ttl_seconds=20)
         self._last_refresh_at_by_module: dict[str, float] = {}
         self._auto_refresh_by_module: dict[str, bool] = {}
+        self._consecutive_errors_by_module: dict[str, int] = {}
 
     def run(self, session: SessionState) -> None:
         session.current_module = "admin_core"
@@ -71,7 +85,11 @@ class AdminConsole:
             except TenantContextError as error:
                 print(f"Guardrail: {error}")
             except ApiError as error:
-                print_error_banner(build_error_payload(error))
+                payload = build_error_payload(error)
+                self.support_center.record_incident(module=session.current_module, payload=payload)
+                self.support_center.record_operation(module=session.current_module, screen=session.current_module, action="admin_operation", result="error", latency_ms=0, trace_id=payload.get("trace_id"), code=payload.get("code"), message=payload.get("message"))
+                self._print_action_result_panel(operation=session.current_module, status="error", code=payload.get("code"), message=payload.get("message"), trace_id=payload.get("trace_id"))
+                print_error_banner(payload)
 
     def _select_tenant(self, session: SessionState) -> None:
         if not is_superadmin(session.role):
@@ -139,7 +157,11 @@ class AdminConsole:
             self._print_validation_error("code y name son requeridos.")
             return
         payload = {"tenant_id": tenant_id, "code": code, "name": name}
+        started = time.monotonic()
         created = self.stores.create_store(session.access_token or "", payload, generate_idempotency_key())
+        latency_ms = int((time.monotonic() - started) * 1000)
+        self.support_center.record_operation(module="stores", screen="create_store", action="create_store", result="success", latency_ms=latency_ms, code="OK", message="store creada")
+        self._print_action_result_panel(operation="create_store", status="success", code="OK", message="Store creada", trace_id=None)
         self._invalidate_read_cache("stores")
         print(f"Store creada: {created}")
 
@@ -209,7 +231,12 @@ class AdminConsole:
             except Exception as error:  # noqa: BLE001
                 payload = build_error_payload(error)
                 print_error_banner(payload)
-                print("Acciones: t=reintentar, f=filtros, c=limpiar filtros, b=back")
+                self.support_center.record_incident(module=module, payload=payload)
+                errors = self._consecutive_errors_by_module.get(module, 0) + 1
+                self._consecutive_errors_by_module[module] = errors
+                if errors >= 2:
+                    print("[ALERTA] Errores consecutivos detectados en esta vista.")
+                print("Acciones: t=reintentar, f=filtros, c=limpiar filtros, d=diagnóstico, e=exportar soporte, b=back")
                 command = input("cmd error: ").strip().lower()
                 if command == "t":
                     continue
@@ -219,10 +246,19 @@ class AdminConsole:
                 if command == "c":
                     self._clear_filters_for_module(session, module)
                     continue
+                if command == "d" and self._on_open_diagnostics:
+                    self._on_open_diagnostics()
+                    continue
+                if command == "e" and self._on_export_support:
+                    self._on_export_support()
+                    continue
                 if command == "b":
                     session.current_module = "admin_core"
                     return
                 continue
+
+            self._consecutive_errors_by_module[module] = 0
+            self.support_center.mark_module_mitigated(module)
 
             rows = sort_rows(listing.get("rows", []), view_state)
             page_state.page = int(listing.get("page") or page_state.page)
@@ -357,7 +393,11 @@ class AdminConsole:
             "role": role,
             "password": password,
         }
+        started = time.monotonic()
         created = self.users.create_user(session.access_token or "", payload, generate_idempotency_key())
+        latency_ms = int((time.monotonic() - started) * 1000)
+        self.support_center.record_operation(module="users", screen="create_user", action="create_user", result="success", latency_ms=latency_ms, code="OK", message="user creado")
+        self._print_action_result_panel(operation="create_user", status="success", code="OK", message="User creado", trace_id=None)
         self._invalidate_read_cache("users")
         print(f"User creado: {created}")
 
@@ -372,6 +412,7 @@ class AdminConsole:
         if payload is None:
             self._print_validation_error("acción inválida o payload incompleto para user_action.")
             return
+        started = time.monotonic()
         result = self.users.user_action(
             session.access_token or "",
             user_id=user_id,
@@ -379,8 +420,20 @@ class AdminConsole:
             action_payload=payload,
             idempotency_key=generate_idempotency_key(),
         )
+        latency_ms = int((time.monotonic() - started) * 1000)
+        self.support_center.record_operation(module="users", screen="user_action", action=action, result="success", latency_ms=latency_ms, code="OK", message="acción aplicada")
+        self._print_action_result_panel(operation=f"user_action:{action}", status="success", code="OK", message="Acción aplicada", trace_id=None)
         self._invalidate_read_cache("users")
         print(f"Acción aplicada: {result}")
+
+
+    def _print_action_result_panel(self, *, operation: str, status: str, code: str | None, message: str | None, trace_id: str | None) -> None:
+        print("\n[RESULTADO OPERACIÓN]")
+        print(f"  operación: {operation}")
+        print(f"  estado_final: {status}")
+        print(f"  code: {code or 'N/A'}")
+        print(f"  message: {message or 'N/A'}")
+        print(f"  trace_id: {trace_id or 'N/A'}")
 
     def _build_user_action_payload(self, action: str) -> dict | None:
         if action == "set_role":
@@ -545,10 +598,12 @@ class AdminConsole:
                 self._listing_cache.set(key, listing)
                 self._last_refresh_at_by_module[module] = time.time()
                 elapsed = time.monotonic() - start
+                self.support_center.record_operation(module=module, screen=module, action="list", result="success", latency_ms=int(elapsed * 1000), code="OK", message="listado actualizado")
                 if elapsed >= 1.2:
                     print("[network] Conexión lenta, la respuesta demoró más de lo habitual.")
                 return listing
             except ApiError as error:
+                self.support_center.record_operation(module=module, screen=module, action="list", result="error", latency_ms=int((time.monotonic() - start) * 1000), trace_id=error.trace_id, code=error.code, message=error.message)
                 if error.code == "NETWORK_ERROR":
                     print("[network] Sin conexión. Verifica red/VPN y vuelve a intentar.")
                 if self._is_retryable_listing_error(error) and attempt < 3:

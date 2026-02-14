@@ -28,6 +28,8 @@ from aris_control_2.app.context_store import (
 )
 from aris_control_2.app.diagnostics import APP_VERSION, ConnectivityResult, build_diagnostic_report, report_to_text, run_health_check
 from aris_control_2.app.error_presenter import build_error_payload, print_error_banner
+from aris_control_2.app.feature_flags import ClientFeatureFlags
+from aris_control_2.app.navigation_shell import render_shell, resolve_route
 from aris_control_2.app.operational_support import OperationalSupportCenter, build_support_package, format_technical_summary
 from aris_control_2.app.session_guard import SessionGuard
 from aris_control_2.app.state import SessionState
@@ -337,6 +339,7 @@ def main() -> None:
     auth_client = AuthClient(http_client)
     me_client = MeClient(http_client)
     session = SessionState()
+    flags = ClientFeatureFlags.from_env()
     last_error: dict | None = None
     connectivity: ConnectivityResult | None = run_health_check(http_client)
     support_center = OperationalSupportCenter.load()
@@ -407,19 +410,44 @@ def main() -> None:
         print("[ALERTA] Conectividad degradada/sin conexión. Acciones rápidas: 6=Diagnóstico, 8=Exportar soporte")
 
     while True:
-        print("\nMenú")
+        if flags.navigation_shell_v110:
+            render_shell(session=session, connectivity=connectivity, flags=flags)
+        else:
+            print("\nMenú")
+            print("0. Reintentar startup check")
+            print("1. Login")
+            print("2. Ver /me")
+            print("3. Admin Core")
+            print("4. Logout")
+            print("5. Exit")
+            print("6. Diagnóstico API")
+            print("7. Incidencias")
+            print("8. Exportar paquete de soporte")
+            print("9. Copiar resumen técnico")
+
         _print_global_health_badge(connectivity)
-        print("0. Reintentar startup check")
-        print("1. Login")
-        print("2. Ver /me")
-        print("3. Admin Core")
-        print("4. Logout")
-        print("5. Exit")
-        print("6. Diagnóstico API")
-        print("7. Incidencias")
-        print("8. Exportar paquete de soporte")
-        print("9. Copiar resumen técnico")
         option = _resolve_quick_action(input("Selecciona una opción: ").strip())
+        if option == "t":
+            if not flags.tenant_switcher_v110:
+                print("Cambio rápido de tenant deshabilitado por feature flag.")
+                continue
+            if session.role != "SUPERADMIN":
+                print("Solo SUPERADMIN puede cambiar tenant activo.")
+                continue
+            tenant_id = input("tenant_id a seleccionar: ").strip()
+            if not tenant_id:
+                print("Debes indicar tenant_id.")
+                continue
+            session.selected_tenant_id = tenant_id
+            _persist_operator_context(session)
+            print(f"Tenant activo actualizado: {tenant_id}")
+            continue
+
+        if flags.navigation_shell_v110:
+            route_allowed, route_message = resolve_route(option, session, flags)
+            if not route_allowed:
+                print(route_message)
+                continue
 
         try:
             if option == "1":

@@ -72,6 +72,22 @@ def _print_connectivity(connectivity: ConnectivityResult | None) -> None:
     print(f"Conectividad API: {connectivity.status} ({latency})")
 
 
+def _print_startup_connectivity_status(connectivity: ConnectivityResult | None) -> None:
+    _print_connectivity(connectivity)
+    if connectivity is None:
+        print("Estado startup: Sin diagnóstico inicial. Puedes continuar y reintentar con 0.")
+        return
+    if connectivity.status == "Conectado":
+        print("Estado startup: ✅ Conectado. Operación normal.")
+        return
+    if connectivity.status == "Degradado":
+        print("Estado startup: ⚠️ Degradado. La app sigue operativa en modo controlado.")
+        print("Acción rápida: opción 0 para reintentar check de conectividad.")
+        return
+    print("Estado startup: ❌ Sin conexión. La app sigue operativa en modo degradado controlado.")
+    print("Acción rápida: opción 0 para reintentar check de conectividad.")
+
+
 def _has_operational_permission(session: SessionState) -> bool:
     if not session.role:
         return False
@@ -351,12 +367,13 @@ def main() -> None:
     )
 
     _print_runtime_config(config, environment)
-    _print_connectivity(connectivity)
+    _print_startup_connectivity_status(connectivity)
     if connectivity and connectivity.status != "Conectado":
         print("[ALERTA] Conectividad degradada/sin conexión. Acciones rápidas: 6=Diagnóstico, 8=Exportar soporte")
 
     while True:
         print("\nMenú")
+        print("0. Reintentar startup check")
         print("1. Login")
         print("2. Ver /me")
         print("3. Admin Core")
@@ -380,6 +397,9 @@ def main() -> None:
                 session.must_change_password = bool(response.get("must_change_password", False))
                 _restore_auth_recovery_context(session)
                 print("Login OK")
+            elif option == "0":
+                connectivity = run_health_check(http_client)
+                _print_startup_connectivity_status(connectivity)
             elif option == "2":
                 if not session_guard.require_session(session, module="me"):
                     continue

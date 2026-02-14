@@ -1,6 +1,9 @@
+from datetime import datetime
+
 from clients.aris3_client_sdk.errors import ApiError
 
-from aris_control_2.app.main import _api_diagnostics
+from aris_control_2.app.diagnostics import ConnectivityResult
+from aris_control_2.app.main import _api_diagnostics, _print_startup_connectivity_status
 
 
 class StubHttpClient:
@@ -26,3 +29,13 @@ def test_api_diagnostics_reports_errors_without_crashing() -> None:
     ready_entry = next(entry for entry in results if entry["check"] == "ready")
     assert ready_entry["status"] == "ERROR"
     assert "NETWORK_ERROR" in ready_entry["details"]
+
+
+def test_startup_connectivity_status_messages(capsys) -> None:
+    _print_startup_connectivity_status(
+        ConnectivityResult(status="Sin conexión", latency_ms=None, checked_at=datetime.now().astimezone(), message="timeout")
+    )
+
+    output = capsys.readouterr().out
+    assert "Estado startup: ❌ Sin conexión." in output
+    assert "opción 0 para reintentar" in output

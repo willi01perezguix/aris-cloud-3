@@ -11,6 +11,7 @@ from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.app.ui.components.error_banner import ErrorBanner
 from aris_control_2.app.ui.components.mutation_feedback import print_mutation_error, print_mutation_success
 from aris_control_2.app.ui.components.permission_gate import PermissionGate
+from aris_control_2.app.ui.forms import FormStatus, build_form_state, map_api_validation_errors, validate_store_form
 from aris_control_2.clients.aris3_client_sdk.http_client import APIError
 
 
@@ -60,19 +61,26 @@ class StoresView:
             return
 
         name = input("Store name: ").strip()
-        if not name:
-            print("[error] El nombre del store es obligatorio.")
+        form_result = validate_store_form(name=name, tenant_id=self.state.context.selected_tenant_id)
+        form_state = build_form_state(form_result)
+        if not form_state.submit_enabled:
+            print(f"[disabled] Submit store ({form_state.submit_disabled_reason})")
+            if form_result.first_invalid_field:
+                print(f"[focus] Corrige primero: {form_result.first_invalid_field}")
+            for field_name, field_error in form_result.field_errors.items():
+                print(f"[field-error] {field_name}: {field_error}")
             return
 
         operation = "store-create"
         if not begin_mutation(self.state, operation):
             print("[loading] Procesando… evita doble submit.")
             return
+        form_state.status = FormStatus.SUBMITTING
         print("[loading] Procesando… (crear store)")
         try:
             attempt = get_or_create_attempt(self.state, operation)
             result = self.create_use_case.execute(
-                name=name,
+                name=form_result.values["name"],
                 idempotency_key=attempt.idempotency_key,
                 transaction_id=attempt.transaction_id,
             )
@@ -80,17 +88,24 @@ class StoresView:
                 print("Operación ya procesada previamente.")
             else:
                 print_mutation_success("store.create", result, highlighted_id=result.get("id"))
+            form_state.status = FormStatus.SUCCESS
             clear_attempt(self.state, operation)
             print("[refresh] recargando stores...")
             for store in self.list_use_case.execute():
                 marker = " <- actualizado" if result.get("id") and store.id == result.get("id") else ""
                 print(f"{store.id} :: {store.name}{marker}")
         except APIError as error:
+            form_state.status = FormStatus.ERROR
+            if error.status_code == 422:
+                field_errors = map_api_validation_errors(error.details)
+                for field_name, field_error in field_errors.items():
+                    print(f"[field-error] {field_name}: {field_error}")
             print_mutation_error("store.create", error)
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar create store? [s/N]: ").strip().lower() == "s":
                 self.render()
         except Exception as error:
+            form_state.status = FormStatus.ERROR
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar create store? [s/N]: ").strip().lower() == "s":
                 self.render()

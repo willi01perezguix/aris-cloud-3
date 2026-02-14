@@ -4,15 +4,23 @@ from typing import Any
 
 from clients.aris3_client_sdk.http_client import HttpClient
 from clients.aris3_client_sdk.idempotency import build_idempotency_headers
+from clients.aris3_client_sdk.normalizers import normalize_listing
 
 
 class TenantsClient:
     def __init__(self, http_client: HttpClient) -> None:
         self.http_client = http_client
 
-    def list_tenants(self, access_token: str) -> list[dict[str, Any]]:
-        payload = self.http_client.request("GET", "/aris3/admin/tenants", token=access_token)
-        return _extract_items(payload)
+    def list_tenants(
+        self,
+        access_token: str,
+        page: int | None = None,
+        page_size: int | None = None,
+        q: str | None = None,
+    ) -> dict[str, Any]:
+        params = _build_query_params(page=page, page_size=page_size, q=q)
+        payload = self.http_client.request("GET", "/aris3/admin/tenants", token=access_token, params=params)
+        return normalize_listing(payload, page=page or 1, page_size=page_size or 20)
 
     def create_tenant(self, access_token: str, tenant_payload: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
         return self.http_client.request(
@@ -24,11 +32,5 @@ class TenantsClient:
         )
 
 
-def _extract_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    if isinstance(payload.get("items"), list):
-        return payload["items"]
-    if isinstance(payload.get("data"), list):
-        return payload["data"]
-    if isinstance(payload.get("tenants"), list):
-        return payload["tenants"]
-    return []
+def _build_query_params(**kwargs: Any) -> dict[str, Any]:
+    return {key: value for key, value in kwargs.items() if value not in (None, "")}

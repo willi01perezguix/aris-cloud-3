@@ -1,0 +1,37 @@
+{
+  "overall": "NO-GO",
+  "gates": {
+    "G1": "PASS",
+    "G2": "PASS",
+    "G3": "PASS",
+    "G4": "PASS",
+    "G5": "PASS",
+    "G6": "PASS",
+    "G7": "PASS",
+    "G8": "FAIL",
+    "G9": "FAIL",
+    "G10": "PASS"
+  },
+  "tests_summary": {
+    "passed": 23,
+    "failed": 0,
+    "skipped": 0
+  },
+  "packaging": {
+    "build": "FAIL",
+    "smoke": "FAIL"
+  },
+  "open_risks": [
+    {
+      "id": "R1",
+      "risk": "Packaging Windows no validado en entorno compatible.",
+      "mitigation": "Correr scripts .ps1 en runner Windows y adjuntar evidencia de dist + smoke login/navegación."
+    },
+    {
+      "id": "R2",
+      "risk": "Dependencia PyInstaller no instalable en este entorno por proxy.",
+      "mitigation": "Preparar mirror interno o preinstalar dependencia en agente de build."
+    }
+  ],
+  "recommended_next_step": "Pendiente de correcciones críticas"
+}

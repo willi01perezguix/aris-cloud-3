@@ -47,3 +47,10 @@ Mutaciones en `/aris3/admin/access-control/*` y `/aris3/access-control/*` requie
 en headers y `transaction_id` en el payload JSON. Las políticas se evalúan en orden:
 role template global → tenant policy → store policy → user override, con `DENY` ganando
 siempre sobre `ALLOW` (default deny).
+
+## ARIS_CONTROL_2 cierre Prompt 8
+
+- UAT final: `docs/UAT_ARIS_CONTROL_2_v1.md`
+- Release checklist: `docs/RELEASE_CHECKLIST_ARIS_CONTROL_2_v1.md`
+- Rollback playbook: `docs/ROLLBACK_PLAYBOOK_ARIS_CONTROL_2_v1.md`
+- Reportes JSON: `out/aris_control_2_uat_report.json`, `out/aris_control_2_release_readiness.json`

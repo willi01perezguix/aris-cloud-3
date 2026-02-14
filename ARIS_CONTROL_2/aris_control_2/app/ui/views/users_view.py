@@ -81,8 +81,14 @@ class UsersView:
             for user in users:
                 print(f"{user.id} :: {user.email}")
 
+        action_option = input("Acción users [r=refresh, c=crear, a=acciones, Enter=volver]: ").strip().lower()
+        if action_option == "r":
+            print("[refresh] recargando users y manteniendo tenant/filtros activos...")
+            self.render()
+            return
+
         create_gate = PermissionGate.check(self.state.context, "users.create")
-        if create_gate.allowed and input("Crear user? [s/N]: ").strip().lower() == "s":
+        if create_gate.allowed and action_option in {"c", "s"}:
             try:
                 stores = self.list_stores_use_case.execute()
             except Exception as error:
@@ -143,12 +149,15 @@ class UsersView:
                     self.render()
             finally:
                 end_mutation(self.state, create_operation)
-        elif not create_gate.allowed:
+        elif action_option in {"c", "s"} and not create_gate.allowed:
             print(f"[disabled] Crear usuario ({create_gate.reason})")
 
         actions_gate = PermissionGate.check(self.state.context, "users.actions")
         if not actions_gate.allowed:
             print(f"[disabled] Acciones de usuario ({actions_gate.reason})")
+            return
+
+        if action_option not in {"a", ""}:
             return
 
         action = input("Acción user (set_status/set_role/reset_password/skip): ").strip()

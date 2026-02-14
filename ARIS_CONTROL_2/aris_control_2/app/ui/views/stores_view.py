@@ -46,13 +46,17 @@ class StoresView:
             for store in stores:
                 print(f"{store.id} :: {store.name}")
 
+        refresh_option = input("Acción stores [r=refresh, c=crear, Enter=volver]: ").strip().lower()
+        if refresh_option == "r":
+            print("[refresh] recargando stores y manteniendo tenant activo...")
+            self.render()
+            return
+        if refresh_option not in {"c", "s"}:
+            return
+
         create_gate = PermissionGate.check(self.state.context, "stores.create")
         if not create_gate.allowed:
             print(f"[disabled] Crear store ({create_gate.reason})")
-            return
-
-        option = input("Crear store? [s/N]: ").strip().lower()
-        if option != "s":
             return
 
         name = input("Store name: ").strip()

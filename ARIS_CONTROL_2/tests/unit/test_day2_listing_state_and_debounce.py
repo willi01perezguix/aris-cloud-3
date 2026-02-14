@@ -49,3 +49,44 @@ def test_restore_operator_context_clears_incompatible_role_or_session(tmp_path: 
 
     assert incompatible == {}
     assert not context_file.exists()
+
+
+
+class _StoresClientStub:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def list_stores(self, *_args, **_kwargs):
+        return {"rows": self.rows, "page": 1, "page_size": 500, "total": len(self.rows), "has_next": False}
+
+
+class _NoopClient:
+    pass
+
+
+def test_users_store_filter_cleared_when_store_not_in_active_tenant() -> None:
+    from aris_control_2.app.admin_console import AdminConsole
+
+    stores = _StoresClientStub(rows=[{"id": "store-a", "tenant_id": "tenant-a"}])
+    console = AdminConsole(tenants=_NoopClient(), stores=stores, users=_NoopClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+    session.filters_by_module["users"] = {"store_id": "store-z", "status": "ACTIVE"}
+
+    is_valid = console._ensure_users_store_filter_is_valid(session, "tenant-a")
+
+    assert is_valid is False
+    assert session.filters_by_module["users"] == {"status": "ACTIVE"}
+
+
+def test_users_store_filter_kept_when_store_matches_active_tenant() -> None:
+    from aris_control_2.app.admin_console import AdminConsole
+
+    stores = _StoresClientStub(rows=[{"id": "store-a", "tenant_id": "tenant-a"}])
+    console = AdminConsole(tenants=_NoopClient(), stores=stores, users=_NoopClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+    session.filters_by_module["users"] = {"store_id": "store-a", "status": "ACTIVE"}
+
+    is_valid = console._ensure_users_store_filter_is_valid(session, "tenant-a")
+
+    assert is_valid is True
+    assert session.filters_by_module["users"]["store_id"] == "store-a"

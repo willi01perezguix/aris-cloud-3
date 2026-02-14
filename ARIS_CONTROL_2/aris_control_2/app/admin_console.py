@@ -111,8 +111,7 @@ class AdminConsole:
         if not tenant_id:
             self._print_validation_error("tenant_id es requerido.")
             return
-        session.selected_tenant_id = tenant_id
-        self._persist_context()
+        self._set_selected_tenant(session, tenant_id)
         print(f"Tenant seleccionado: {tenant_id}")
 
     def _list_tenants(self, session: SessionState) -> None:
@@ -179,7 +178,10 @@ class AdminConsole:
 
     def _list_users(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
-        self._prompt_filters(session, "users", ["q", "role", "status"])
+        self._prompt_filters(session, "users", ["q", "role", "status", "store_id"])
+
+        if not self._ensure_users_store_filter_is_valid(session, tenant_id):
+            self._persist_context()
 
         def _fetch(page: int, page_size: int) -> dict[str, Any]:
             current_filters = session.filters_by_module.get("users", {})
@@ -192,7 +194,10 @@ class AdminConsole:
                 role=current_filters.get("role"),
                 status=current_filters.get("status"),
             )
+            store_id = current_filters.get("store_id")
             rows = listing.get("rows", [])
+            if store_id:
+                rows = [row for row in rows if str(row.get("store_id") or "") == store_id]
             listing["rows"] = [
                 {
                     **row,
@@ -214,7 +219,7 @@ class AdminConsole:
                 ColumnDef("store_id", "store_id"),
                 ColumnDef("tenant_id", "tenant_id"),
             ],
-            filter_keys=["q", "role", "status"],
+            filter_keys=["q", "role", "status", "store_id"],
         )
 
     def _run_listing_loop(
@@ -291,14 +296,14 @@ class AdminConsole:
             if rows:
                 print_table(module.upper(), rows, table_columns)
             else:
-                print(f"[empty] {module.upper()}: sin resultados para los filtros actuales. Ajusta filtros o recarga.")
+                print(f"[empty] {module.upper()}: {self._contextual_empty_message(session, module)}")
             auto_refresh_label = "ON" if self._auto_refresh_by_module.get(module, False) else "OFF"
             export_allowed = self._can_export_module(session, module)
             export_label = "x=export csv, " if export_allowed else ""
             print(
                 "\nComandos: n=next, p=prev, g=goto, z=page_size, r=actualizar, "
                 f"a=auto-refresh ({auto_refresh_label}), s=ordenar, v=configurar columnas, d=duplicar filtros relacionados, "
-                f"f=filtros, c=limpiar filtros, w=restablecer vista, {export_label}b=back"
+                f"f=filtros, c=limpiar filtros, w=restablecer vista, q=atajos, y=copiar id, {export_label}b=back"
             )
             command = input("cmd: ").strip().lower()
 
@@ -363,6 +368,11 @@ class AdminConsole:
                     filters=session.filters_by_module.get(module, {}),
                 )
                 print(f"CSV exportado: {exported}")
+            elif command == "q":
+                if self._handle_navigation_shortcut(session, module):
+                    return
+            elif command == "y":
+                self._copy_operational_id(session, module)
             elif command == "b":
                 session.current_module = "admin_core"
                 return
@@ -466,6 +476,86 @@ class AdminConsole:
 
     def _resolve_tenant(self, session: SessionState) -> str:
         return resolve_operational_tenant_id(session.role, session.effective_tenant_id, session.selected_tenant_id)
+
+    def _set_selected_tenant(self, session: SessionState, tenant_id: str) -> None:
+        previous = session.selected_tenant_id
+        session.selected_tenant_id = tenant_id
+        if previous and previous != tenant_id:
+            users_filters = session.filters_by_module.get("users", {}).copy()
+            users_filters.pop("store_id", None)
+            session.filters_by_module["users"] = clean_filters(users_filters)
+            print("[context] Tenant cambiado: store_id de users reiniciado para evitar mezcla de contexto.")
+        self._persist_context()
+
+    def _ensure_users_store_filter_is_valid(self, session: SessionState, tenant_id: str) -> bool:
+        users_filters = session.filters_by_module.get("users", {})
+        store_id = users_filters.get("store_id")
+        if not store_id:
+            return True
+        stores_listing = self.stores.list_stores(session.access_token or "", tenant_id, page=1, page_size=500)
+        stores_rows = stores_listing.get("rows", stores_listing if isinstance(stores_listing, list) else [])
+        store = next((item for item in stores_rows if str(item.get("id") or "") == store_id), None)
+        if store and str(store.get("tenant_id") or tenant_id) == tenant_id:
+            return True
+        users_filters.pop("store_id", None)
+        session.filters_by_module["users"] = clean_filters(users_filters)
+        print("[context] store_id inválido para tenant activo. Filtro limpiado.")
+        return False
+
+    def _handle_navigation_shortcut(self, session: SessionState, module: str) -> bool:
+        if module == "tenants":
+            tenant_id = input("tenant_id para abrir stores [vacío=tenant actual]: ").strip()
+            if not tenant_id:
+                try:
+                    tenant_id = self._resolve_tenant(session)
+                except TenantContextError:
+                    self._print_validation_error("Selecciona tenant para abrir stores.", code="TENANT_CONTEXT_REQUIRED")
+                    return False
+            self._set_selected_tenant(session, tenant_id)
+            print(f"[quick-nav] Tenant activo: {tenant_id}. Abriendo stores...")
+            self._list_stores(session)
+            return True
+        if module == "stores":
+            store_id = input("store_id para filtrar users [vacío=sin filtro]: ").strip()
+            users_filters = session.filters_by_module.get("users", {}).copy()
+            if store_id:
+                users_filters["store_id"] = store_id
+            else:
+                users_filters.pop("store_id", None)
+            session.filters_by_module["users"] = clean_filters(users_filters)
+            self._persist_context()
+            print("[quick-nav] Contexto de users actualizado desde stores. Abriendo users...")
+            self._list_users(session)
+            return True
+        print(f"[quick-nav] {module} no tiene atajos relacionados.")
+        return False
+
+    def _copy_operational_id(self, session: SessionState, module: str) -> None:
+        if module == "tenants":
+            tenant_id = session.selected_tenant_id or session.effective_tenant_id
+            if not tenant_id:
+                print("[copy] No hay tenant activo para copiar.")
+                return
+            print(f"[copy] tenant_id={tenant_id}")
+            return
+        if module == "stores":
+            store_id = session.filters_by_module.get("users", {}).get("store_id") or input("store_id a copiar: ").strip()
+            if not store_id:
+                print("[copy] store_id vacío.")
+                return
+            print(f"[copy] store_id={store_id}")
+            return
+        print(f"[copy] Usa y en tenants/stores para copiar IDs operativos.")
+
+    def _contextual_empty_message(self, session: SessionState, module: str) -> str:
+        tenant = session.selected_tenant_id or session.effective_tenant_id
+        if module == "stores" and not tenant:
+            return "Debes seleccionar tenant para ver stores. Acción rápida: q para navegar desde tenants."
+        if module == "users" and not tenant:
+            return "Debes seleccionar tenant para ver users. Acción rápida: vuelve a tenants y fija contexto."
+        if module == "users" and session.filters_by_module.get("users", {}).get("store_id"):
+            return "No hay users para la store filtrada. Acción rápida: c=limpiar filtros o q=atajo desde stores."
+        return "sin resultados para los filtros actuales. Ajusta filtros, limpia (c) o recarga (r)."
 
     def _require_superadmin(self, session: SessionState) -> None:
         if not is_superadmin(session.role):

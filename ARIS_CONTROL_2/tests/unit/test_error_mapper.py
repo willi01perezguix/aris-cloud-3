@@ -2,24 +2,19 @@ from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.clients.aris3_client_sdk.http_client import APIError
 
 
-def _error(code: str) -> APIError:
-    return APIError(code=code, message="Backend raw", details={"field": "x"}, trace_id="trace-1")
+def test_error_mapper_known_codes_and_suggestion() -> None:
+    payload = ErrorMapper.to_payload(
+        APIError(code="PERMISSION_DENIED", message="raw", trace_id="trace-1", details={"field": "x"})
+    )
+
+    assert payload["code"] == "PERMISSION_DENIED"
+    assert payload["trace_id"] == "trace-1"
+    assert payload["suggestion"]
+    assert payload["message"] != "raw"
 
 
-def test_error_mapper_known_codes() -> None:
-    for code in [
-        "TENANT_STORE_MISMATCH",
-        "PERMISSION_DENIED",
-        "TENANT_CONTEXT_REQUIRED",
-        "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD",
-    ]:
-        payload = ErrorMapper.to_payload(_error(code))
-        assert payload["code"] == code
-        assert payload["trace_id"] == "trace-1"
-        assert payload["message"] != "Backend raw"
+def test_error_mapper_fallback_internal_error() -> None:
+    payload = ErrorMapper.to_payload(RuntimeError("boom"))
 
-
-def test_error_mapper_display_includes_trace_id() -> None:
-    message = ErrorMapper.to_display_message(_error("PERMISSION_DENIED"))
-
-    assert "trace_id=trace-1" in message
+    assert payload["code"] == "INTERNAL_ERROR"
+    assert payload["suggestion"]

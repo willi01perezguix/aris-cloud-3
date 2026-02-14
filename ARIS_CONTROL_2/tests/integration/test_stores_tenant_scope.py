@@ -22,6 +22,7 @@ def test_stores_use_effective_tenant_and_idempotency() -> None:
     state.context.actor_role = "ADMIN"
     state.context.token_tenant_id = "tenant-a"
     state.context.selected_tenant_id = "tenant-b"
+    state.context.effective_permissions = ["stores.view", "stores.create"]
     state.context.refresh_effective_tenant()
 
     ListStoresUseCase(adapter=adapter, state=state).execute()
@@ -29,4 +30,4 @@ def test_stores_use_effective_tenant_and_idempotency() -> None:
 
     assert adapter.calls[0] == ("list_stores", "tenant-a")
     assert adapter.calls[1][0:3] == ("create_store", "tenant-a", "Branch")
-    assert adapter.calls[1][3].startswith("store-")
+    assert adapter.calls[1][3].startswith("aris2-store-create-")

@@ -8,6 +8,6 @@ class ErrorBanner:
             "[ERROR] "
             f"code={error_payload.get('code')} "
             f"message={error_payload.get('message')} "
-            f"details={error_payload.get('details')} "
-            f"trace_id={error_payload.get('trace_id')}"
+            f"trace_id={error_payload.get('trace_id')} "
+            f"suggestion={error_payload.get('suggestion')}"
         )

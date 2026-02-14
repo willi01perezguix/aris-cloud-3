@@ -7,6 +7,7 @@ from aris_control_2.app.application.use_cases.load_me_use_case import LoadMeUseC
 from aris_control_2.app.application.use_cases.login_use_case import LoginUseCase
 from aris_control_2.app.application.use_cases.select_tenant_use_case import SelectTenantUseCase
 from aris_control_2.app.application.use_cases.user_actions_use_case import UserActionsUseCase
+from aris_control_2.app.config import AppConfig
 from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.app.infrastructure.logging.logger import get_logger, log_action
 from aris_control_2.app.infrastructure.sdk_adapter.admin_adapter import AdminAdapter
@@ -20,7 +21,14 @@ from aris_control_2.clients.aris3_client_sdk.http_client import APIError, HttpCl
 
 
 def build_shell():
-    http = HttpClient.from_env()
+    config = AppConfig.from_env()
+    http = HttpClient(
+        base_url=config.base_url,
+        timeout_seconds=config.timeout_seconds,
+        verify_ssl=config.verify_ssl,
+        retry_max_attempts=config.retry_max_attempts,
+        retry_backoff_ms=config.retry_backoff_ms,
+    )
     auth_store = AuthStore()
     auth_adapter = AuthAdapter(http=http, auth_store=auth_store)
     admin_adapter = AdminAdapter(http=http, auth_store=auth_store)
@@ -53,11 +61,27 @@ def main() -> None:
         credentials = login_view.prompt_credentials()
         login_uc.execute(username_or_email=credentials[0], password=credentials[1])
         me_uc.execute()
-        log_action(logger, module="shell", action="login_success", tenant_id=state.context.effective_tenant_id, trace_id=None)
+        log_action(
+            logger,
+            module="shell",
+            action="login_success",
+            actor_role=state.context.actor_role,
+            tenant_id=state.context.effective_tenant_id,
+            trace_id=None,
+            outcome="success",
+        )
     except Exception as error:
         message = ErrorMapper.to_display_message(error)
         trace_id = error.trace_id if isinstance(error, APIError) else None
-        log_action(logger, module="shell", action="login_failed", tenant_id=None, trace_id=trace_id)
+        log_action(
+            logger,
+            module="shell",
+            action="login_failed",
+            actor_role=state.context.actor_role,
+            tenant_id=None,
+            trace_id=trace_id,
+            outcome="error",
+        )
         print(f"[ERROR] {message}")
         return
 
@@ -88,8 +112,10 @@ def main() -> None:
                     logger,
                     module="shell",
                     action="tenant_selected",
+                    actor_role=state.context.actor_role,
                     tenant_id=state.context.effective_tenant_id,
                     trace_id=None,
+                    outcome="success",
                 )
             elif option == "0":
                 break
@@ -102,8 +128,10 @@ def main() -> None:
                 logger,
                 module="shell",
                 action="menu_error",
+                actor_role=state.context.actor_role,
                 tenant_id=state.context.effective_tenant_id,
                 trace_id=trace_id,
+                outcome="error",
             )
             print(f"[ERROR] {message}")
 

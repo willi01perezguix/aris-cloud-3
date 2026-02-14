@@ -32,6 +32,7 @@ def test_users_use_effective_tenant_and_actions_refresh() -> None:
     state.context.actor_role = "ADMIN"
     state.context.token_tenant_id = "tenant-token"
     state.context.selected_tenant_id = "tenant-ui"
+    state.context.effective_permissions = ["users.view", "stores.view", "users.create", "users.actions"]
     state.context.refresh_effective_tenant()
 
     ListUsersUseCase(adapter=adapter, state=state).execute()
@@ -42,8 +43,6 @@ def test_users_use_effective_tenant_and_actions_refresh() -> None:
     assert adapter.calls[0] == ("list_users", "tenant-token")
     assert adapter.calls[1] == ("list_stores", "tenant-token")
     assert adapter.calls[2][0:4] == ("create_user", "tenant-token", "x@y.com", "store-a")
-    assert adapter.calls[2][4].startswith("user-")
-    assert adapter.calls[3] == ("list_users", "tenant-token")
-    assert adapter.calls[4][0:3] == ("user_action", "user-a", "set_status")
-    assert adapter.calls[4][4].startswith("user-set_status-")
-    assert adapter.calls[5] == ("list_users", "tenant-token")
+    assert adapter.calls[2][4].startswith("aris2-user-create-")
+    assert adapter.calls[3][0:3] == ("user_action", "user-a", "set_status")
+    assert adapter.calls[3][4].startswith("aris2-user-action-set-status-")

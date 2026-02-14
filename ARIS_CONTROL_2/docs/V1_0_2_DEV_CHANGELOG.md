@@ -24,3 +24,21 @@
 
 ### Rollback
 - Revertir commit de `feature/v1.0.2-kickoff` restaura el comportamiento v1.0.1 en cliente.
+
+## 2026-02-14 — Hardening Day 6
+
+### Alcance
+- QA integral de flujos críticos cliente (login/session, tenant/store/user, idempotencia, RBAC, diagnóstico/export).
+- Preparación de evidencias de smoke E2E guiado y rollback drill simulado.
+- Sin cambios de contrato API.
+
+### Evidencia generada
+- Reporte consolidado de pruebas Day 6: `out/day6/DAY6_TEST_REPORT.md`.
+- Evidencia smoke E2E guiado: `out/day6/E2E_SMOKE_EVIDENCE.md`.
+- Resultado de packaging RC en entorno CI: `out/day6/PACKAGING_RC_V1_0_2.md`.
+- Rollback drill documentado: `docs/05_DAY6_ROLLBACK_DRILL.md`.
+- Memo Go/No-Go Day 7: `docs/06_DAY7_GO_NO_GO_MEMO.md`.
+
+### Estado
+- Suite de pruebas automatizadas objetivo en verde.
+- Packaging `.exe` pendiente de ejecución en host Windows release.

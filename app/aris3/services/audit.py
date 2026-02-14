@@ -22,6 +22,10 @@ class AuditEventPayload:
     after: dict | None
     metadata: dict | None
     result: str
+    actor_role: str | None = None
+    effective_tenant_id: str | None = None
+    resource_type: str | None = None
+    resource_id: str | None = None
 
 
 class AuditService:
@@ -34,6 +38,11 @@ class AuditService:
         self.repo = AuditRepository(db)
 
     def record_event(self, payload: AuditEventPayload) -> None:
+        metadata = dict(payload.metadata or {})
+        metadata.setdefault("actor_role", payload.actor_role)
+        metadata.setdefault("effective_tenant_id", payload.effective_tenant_id or payload.tenant_id)
+        metadata.setdefault("resource_type", payload.resource_type or payload.entity_type)
+        metadata.setdefault("resource_id", payload.resource_id or payload.entity_id)
         try:
             event = AuditEvent(
                 tenant_id=payload.tenant_id,
@@ -47,10 +56,18 @@ class AuditService:
                 entity_id=payload.entity_id,
                 before_payload=payload.before,
                 after_payload=payload.after,
-                event_metadata=payload.metadata,
+                event_metadata=metadata,
                 result=payload.result,
                 created_at=datetime.utcnow(),
             )
             self.repo.create(event)
         except Exception:
-            logger.exception("Failed to write audit event", extra={"action": payload.action})
+            logger.exception(
+                "Failed to write audit event",
+                extra={
+                    "action": payload.action,
+                    "trace_id": payload.trace_id,
+                    "tenant_id": payload.tenant_id,
+                    "resource_id": payload.resource_id or payload.entity_id,
+                },
+            )

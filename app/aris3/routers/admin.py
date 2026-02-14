@@ -288,6 +288,7 @@ async def admin_replace_role_template(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="access_control.role_template.update",
             entity_type="role_template",
             entity_id=f"platform:{role_name.upper()}",
@@ -478,6 +479,7 @@ async def patch_return_policy(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.settings.return_policy.update",
             entity_type="return_policy_settings",
             entity_id=str(settings.id),
@@ -575,6 +577,7 @@ async def admin_replace_tenant_role_policy(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="access_control.tenant_role_policy.update",
             entity_type="role_policy",
             entity_id=f"{tenant_id}:{role_name.upper()}",
@@ -694,6 +697,7 @@ async def admin_replace_store_role_policy(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="access_control.store_role_policy.update",
             entity_type="role_policy",
             entity_id=f"{tenant_id}:{store_id}:{role_name.upper()}",
@@ -796,6 +800,7 @@ async def admin_patch_user_overrides(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="access_control.user_override.update",
             entity_type="user_override",
             entity_id=f"{tenant_id}:{user_id}",
@@ -950,6 +955,7 @@ async def create_tenant(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.tenant.create",
             entity_type="tenant",
             entity_id=str(tenant.id),
@@ -1037,6 +1043,7 @@ async def update_tenant(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.tenant.update",
             entity_type="tenant",
             entity_id=str(tenant.id),
@@ -1117,6 +1124,7 @@ async def tenant_actions(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.tenant.set_status",
             entity_type="tenant",
             entity_id=str(tenant.id),
@@ -1189,6 +1197,7 @@ async def create_store(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.store.create",
             entity_type="store",
             entity_id=str(store.id),
@@ -1270,6 +1279,7 @@ async def update_store(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.store.update",
             entity_type="store",
             entity_id=str(store.id),
@@ -1341,7 +1351,7 @@ async def create_user(
     if store_id:
         store = StoreRepository(db).get_by_id(store_id)
         if store is None or str(store.tenant_id) != tenant_id:
-            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+            raise AppError(ErrorCatalog.TENANT_STORE_MISMATCH)
 
     user = User(
         tenant_id=tenant_id,
@@ -1372,6 +1382,7 @@ async def create_user(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.user.create",
             entity_type="user",
             entity_id=str(user.id),
@@ -1427,7 +1438,7 @@ async def update_user(
     if payload.store_id:
         store = StoreRepository(db).get_by_id_in_tenant(payload.store_id, tenant_id)
         if store is None:
-            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+            raise AppError(ErrorCatalog.TENANT_STORE_MISMATCH)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -1472,6 +1483,7 @@ async def update_user(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.user.update",
             entity_type="user",
             entity_id=str(user.id),
@@ -1600,6 +1612,7 @@ async def user_actions(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action=f"admin.user.{action}",
             entity_type="user",
             entity_id=str(user.id),
@@ -1706,6 +1719,7 @@ async def patch_variant_fields(
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
             actor=current_user.username,
+            actor_role=current_user.role,
             action="admin.settings.variant_fields.update",
             entity_type="variant_field_settings",
             entity_id=str(settings.id),

@@ -66,6 +66,11 @@ class ErrorCatalog:
         "Store scope mismatch",
         status.HTTP_403_FORBIDDEN,
     )
+    TENANT_STORE_MISMATCH = ErrorDefinition(
+        "TENANT_STORE_MISMATCH",
+        "Store does not belong to tenant",
+        status.HTTP_403_FORBIDDEN,
+    )
     DB_UNAVAILABLE = ErrorDefinition(
         "DB_UNAVAILABLE",
         "Database unavailable",

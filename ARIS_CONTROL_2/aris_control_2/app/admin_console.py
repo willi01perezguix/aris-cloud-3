@@ -9,6 +9,7 @@ from clients.aris3_client_sdk.stores_client import StoresClient
 from clients.aris3_client_sdk.tenants_client import TenantsClient
 from clients.aris3_client_sdk.users_client import UsersClient
 
+from aris_control_2.app.error_presenter import build_error_payload, print_error_banner
 from aris_control_2.app.export.csv_exporter import export_current_view
 from aris_control_2.app.state import SessionState
 from aris_control_2.app.tenant_context import TenantContextError, is_superadmin, resolve_operational_tenant_id
@@ -18,12 +19,14 @@ from aris_control_2.app.ui.table_printer import print_table
 
 
 class AdminConsole:
-    def __init__(self, tenants: TenantsClient, stores: StoresClient, users: UsersClient) -> None:
+    def __init__(self, tenants: TenantsClient, stores: StoresClient, users: UsersClient, on_context_updated: Callable[[], None] | None = None) -> None:
         self.tenants = tenants
         self.stores = stores
         self.users = users
+        self._on_context_updated = on_context_updated
 
     def run(self, session: SessionState) -> None:
+        session.current_module = "admin_core"
         while True:
             print("\nAdmin Core")
             print("1. Seleccionar tenant (solo SUPERADMIN)")
@@ -55,13 +58,14 @@ class AdminConsole:
                 elif option == "8":
                     self._user_action(session)
                 elif option == "9":
+                    session.current_module = "menu_principal"
                     return
                 else:
                     print("Opción no válida.")
             except TenantContextError as error:
                 print(f"Guardrail: {error}")
             except ApiError as error:
-                _print_api_error(error)
+                print_error_banner(build_error_payload(error))
 
     def _select_tenant(self, session: SessionState) -> None:
         if not is_superadmin(session.role):
@@ -72,11 +76,12 @@ class AdminConsole:
             print("tenant_id es requerido.")
             return
         session.selected_tenant_id = tenant_id
+        self._persist_context()
         print(f"Tenant seleccionado: {tenant_id}")
 
     def _list_tenants(self, session: SessionState) -> None:
         self._require_superadmin(session)
-        filters = clean_filters({"q": prompt_optional("q")})
+        filters = self._prompt_filters(session, "tenants", ["q"])
         self._run_listing_loop(
             module="tenants",
             session=session,
@@ -99,7 +104,7 @@ class AdminConsole:
 
     def _list_stores(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
-        filters = clean_filters({"q": prompt_optional("q"), "status": prompt_optional("status")})
+        filters = self._prompt_filters(session, "stores", ["q", "status"])
         self._run_listing_loop(
             module="stores",
             session=session,
@@ -127,13 +132,7 @@ class AdminConsole:
 
     def _list_users(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
-        filters = clean_filters(
-            {
-                "q": prompt_optional("q"),
-                "role": prompt_optional("role"),
-                "status": prompt_optional("status"),
-            }
-        )
+        filters = self._prompt_filters(session, "users", ["q", "role", "status"])
 
         def _fetch(page: int, page_size: int) -> dict[str, Any]:
             listing = self.users.list_users(
@@ -163,18 +162,12 @@ class AdminConsole:
             ],
         )
 
-    def _run_listing_loop(
-        self,
-        module: str,
-        session: SessionState,
-        fetch_page: Callable[[int, int], dict[str, Any]],
-        columns: list[tuple[str, str]],
-    ) -> None:
+    def _run_listing_loop(self, module: str, session: SessionState, fetch_page: Callable[[int, int], dict[str, Any]], columns: list[tuple[str, str]]) -> None:
+        session.current_module = module
         page_size_input = input("page_size (default 20): ").strip()
         page_state = PaginationState(page=1, page_size=int(page_size_input) if page_size_input.isdigit() else 20)
 
         while True:
-            print("\nCargando datos...")
             listing = fetch_page(page_state.page, page_state.page_size)
             rows = listing.get("rows", [])
             page_state.page = int(listing.get("page") or page_state.page)
@@ -185,7 +178,6 @@ class AdminConsole:
                 print_table(module.upper(), rows, columns)
             else:
                 print(f"{module.upper()}: sin resultados para los filtros actuales.")
-                print("Tip: usa 'r' para refrescar o ajusta q/status/role según corresponda.")
             print("\nComandos: n=next, p=prev, g=goto, r=refresh, x=export csv, b=back")
             command = input("cmd: ").strip().lower()
 
@@ -197,21 +189,14 @@ class AdminConsole:
                 requested = input("page: ").strip()
                 if requested.isdigit():
                     goto_page(page_state, int(requested))
-                else:
-                    print("page inválida")
             elif command == "r":
                 continue
             elif command == "x":
-                exported = export_current_view(
-                    module=module,
-                    rows=rows,
-                    headers=[key for key, _ in columns],
-                )
+                exported = export_current_view(module=module, rows=rows, headers=[key for key, _ in columns])
                 print(f"CSV exportado: {exported}")
             elif command == "b":
+                session.current_module = "admin_core"
                 return
-            else:
-                print("Comando no válido.")
 
     def _create_user(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
@@ -271,7 +256,6 @@ class AdminConsole:
         if action == "reset_password":
             new_password = input("new_password: ").strip()
             return {"new_password": new_password} if new_password else None
-        print("Acción no soportada.")
         return None
 
     def _resolve_tenant(self, session: SessionState) -> str:
@@ -280,6 +264,18 @@ class AdminConsole:
     def _require_superadmin(self, session: SessionState) -> None:
         if not is_superadmin(session.role):
             raise TenantContextError("Operación permitida solo para SUPERADMIN.")
+
+    def _prompt_filters(self, session: SessionState, module: str, keys: list[str]) -> dict[str, str]:
+        current = session.filters_by_module.get(module, {})
+        prompted = {key: prompt_optional(f"{key} [{current.get(key, '')}]") or current.get(key, "") for key in keys}
+        filters = clean_filters(prompted)
+        session.filters_by_module[module] = filters
+        self._persist_context()
+        return filters
+
+    def _persist_context(self) -> None:
+        if self._on_context_updated:
+            self._on_context_updated()
 
 
 def _print_context_header(session: SessionState, listing: dict[str, Any]) -> None:
@@ -290,16 +286,6 @@ def _print_context_header(session: SessionState, listing: dict[str, Any]) -> Non
     print(f"  effective_tenant_id: {session.effective_tenant_id}")
     print(f"  selected_tenant_id: {session.selected_tenant_id if is_superadmin(session.role) else 'N/A'}")
     print(f"  page: {listing.get('page')} / page_size: {listing.get('page_size')} / total: {total_text}")
-
-
-def _print_api_error(error: ApiError) -> None:
-    diagnostic = _api_error_diagnostic(error)
-    print("Error de API:")
-    print(f"  status_code: {error.status_code}")
-    print(f"  code: {error.code}")
-    print(f"  message: {error.message}")
-    print(f"  trace_id: {error.trace_id}")
-    print(f"  diagnóstico: {diagnostic}")
 
 
 def _api_error_diagnostic(error: ApiError) -> str:

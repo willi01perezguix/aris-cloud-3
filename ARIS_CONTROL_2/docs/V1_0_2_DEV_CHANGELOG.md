@@ -42,3 +42,8 @@
 ### Estado
 - Suite de pruebas automatizadas objetivo en verde.
 - Packaging `.exe` pendiente de ejecución en host Windows release.
+
+## 2026-02-14 — Final Release Gate Day 7
+- Decisión formal de gate emitida en `out/day7/DAY7_RELEASE_GATE_DECISION.md` (estado NO-GO).
+- Plan hotfix operativo y tiempos definidos en `out/day7/DAY7_HOTFIX_PLAN.md`.
+- Handoff operativo, bitácora 72h y backlog v1.0.3 inicial documentados en `out/day7/`.

@@ -12,6 +12,7 @@ from app.aris3.repos.idempotency import IdempotencyRepository
 
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+LEGACY_IDEMPOTENCY_HEADER = "X-Idempotency-Key"
 
 
 @dataclass
@@ -110,7 +111,7 @@ class IdempotencyService:
 
 
 def extract_idempotency_key(headers, *, required: bool) -> str | None:
-    key = headers.get(IDEMPOTENCY_HEADER)
+    key = headers.get(IDEMPOTENCY_HEADER) or headers.get(LEGACY_IDEMPOTENCY_HEADER)
     if not key and required:
         raise AppError(ErrorCatalog.IDEMPOTENCY_KEY_REQUIRED)
     return key

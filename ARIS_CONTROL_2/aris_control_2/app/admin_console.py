@@ -174,13 +174,18 @@ class AdminConsole:
         page_state = PaginationState(page=1, page_size=int(page_size_input) if page_size_input.isdigit() else 20)
 
         while True:
+            print("\nCargando datos...")
             listing = fetch_page(page_state.page, page_state.page_size)
             rows = listing.get("rows", [])
             page_state.page = int(listing.get("page") or page_state.page)
             page_state.page_size = int(listing.get("page_size") or page_state.page_size)
 
             _print_context_header(session, listing)
-            print_table(module.upper(), rows, columns)
+            if rows:
+                print_table(module.upper(), rows, columns)
+            else:
+                print(f"{module.upper()}: sin resultados para los filtros actuales.")
+                print("Tip: usa 'r' para refrescar o ajusta q/status/role según corresponda.")
             print("\nComandos: n=next, p=prev, g=goto, r=refresh, x=export csv, b=back")
             command = input("cmd: ").strip().lower()
 
@@ -288,8 +293,24 @@ def _print_context_header(session: SessionState, listing: dict[str, Any]) -> Non
 
 
 def _print_api_error(error: ApiError) -> None:
+    diagnostic = _api_error_diagnostic(error)
     print("Error de API:")
     print(f"  status_code: {error.status_code}")
     print(f"  code: {error.code}")
     print(f"  message: {error.message}")
     print(f"  trace_id: {error.trace_id}")
+    print(f"  diagnóstico: {diagnostic}")
+
+
+def _api_error_diagnostic(error: ApiError) -> str:
+    if error.code == "NETWORK_ERROR":
+        return "No se pudo conectar al API. Revisa URL base, red/VPN y estado del servicio."
+    if error.status_code == 401:
+        return "Sesión expirada o token inválido. Ejecuta Login nuevamente."
+    if error.status_code == 403:
+        return "Sin permisos para esta operación en el tenant/store seleccionado."
+    if error.status_code == 404:
+        return "Recurso no encontrado. Valida IDs y tenant operativo activo."
+    if error.status_code and error.status_code >= 500:
+        return "Falla interna del API. Comparte trace_id con soporte para trazabilidad."
+    return "Revisa payload/filtros y vuelve a intentar."

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from time import perf_counter
+
+import httpx
+
 from clients.aris3_client_sdk.auth_client import AuthClient
 from clients.aris3_client_sdk.config import SDKConfig
 from clients.aris3_client_sdk.errors import ApiError
@@ -28,6 +32,55 @@ def _print_api_error(error: ApiError) -> None:
     print(f"  trace_id: {error.trace_id}")
 
 
+def _api_diagnostics(http_client: HttpClient) -> list[dict[str, str]]:
+    checks: list[tuple[str, str]] = [
+        ("health", "/health"),
+        ("ready", "/ready"),
+    ]
+    results: list[dict[str, str]] = []
+    for name, path in checks:
+        started = perf_counter()
+        try:
+            payload = http_client.request("GET", path)
+            elapsed_ms = int((perf_counter() - started) * 1000)
+            results.append(
+                {
+                    "check": name,
+                    "status": "OK",
+                    "latency_ms": str(elapsed_ms),
+                    "details": str(payload) if payload else "sin payload",
+                }
+            )
+        except ApiError as error:
+            elapsed_ms = int((perf_counter() - started) * 1000)
+            results.append(
+                {
+                    "check": name,
+                    "status": "ERROR",
+                    "latency_ms": str(elapsed_ms),
+                    "details": f"{error.code} ({error.status_code}) trace_id={error.trace_id}",
+                }
+            )
+    return results
+
+
+def _print_api_connectivity_status(http_client: HttpClient) -> None:
+    try:
+        started = perf_counter()
+        http_client.request("GET", "/health")
+        elapsed_ms = int((perf_counter() - started) * 1000)
+        print(f"Conectividad API: OK ({elapsed_ms}ms)")
+    except ApiError as error:
+        print(f"Conectividad API: ERROR ({error.code})")
+
+
+def _print_api_diagnostics(http_client: HttpClient) -> None:
+    print("\nDiagnóstico API")
+    for result in _api_diagnostics(http_client):
+        symbol = "✅" if result["status"] == "OK" else "❌"
+        print(f"{symbol} {result['check']} [{result['latency_ms']}ms] -> {result['details']}")
+
+
 def main() -> None:
     config = SDKConfig.from_env()
     http_client = HttpClient(config=config)
@@ -37,6 +90,7 @@ def main() -> None:
     session = SessionState()
 
     _print_runtime_config(config)
+    _print_api_connectivity_status(http_client)
 
     while True:
         print("\nMenú")
@@ -45,6 +99,7 @@ def main() -> None:
         print("3. Admin Core")
         print("4. Logout")
         print("5. Exit")
+        print("6. Diagnóstico de conectividad API")
         option = input("Selecciona una opción: ").strip()
 
         try:
@@ -76,10 +131,14 @@ def main() -> None:
             elif option == "5":
                 print("Hasta luego.")
                 return
+            elif option == "6":
+                _print_api_diagnostics(http_client)
             else:
                 print("Opción no válida.")
         except ApiError as error:
             _print_api_error(error)
+        except httpx.HTTPError as error:
+            print(f"Error de red no controlado durante diagnóstico: {error}")
         except Exception as error:  # noqa: BLE001
             print(f"Ocurrió un error inesperado: {error}")
 

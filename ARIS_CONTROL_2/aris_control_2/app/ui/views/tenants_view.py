@@ -25,5 +25,14 @@ class TenantsView:
             for tenant in tenants:
                 selected = "*" if tenant.id == self.state.context.selected_tenant_id else " "
                 print(f"{selected} {tenant.id} :: {tenant.name}")
+
+            for action, permission in (
+                ("crear tenant", "tenants.create"),
+                ("editar tenant", "tenants.edit"),
+                ("suspender tenant", "tenants.suspend"),
+            ):
+                action_gate = PermissionGate.check(self.state.context, permission)
+                if not action_gate.allowed:
+                    print(f"[disabled] {action.title()} ({action_gate.reason})")
         except Exception as error:
             ErrorBanner.show(ErrorMapper.to_payload(error))

@@ -11,7 +11,9 @@ from aris_control_2.app.application.use_cases.list_users_use_case import ListUse
 from aris_control_2.app.application.use_cases.user_actions_use_case import UserActionsUseCase
 from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.app.ui.components.error_banner import ErrorBanner
+from aris_control_2.app.ui.components.mutation_feedback import print_mutation_error, print_mutation_success
 from aris_control_2.app.ui.components.permission_gate import PermissionGate
+from aris_control_2.clients.aris3_client_sdk.http_client import APIError
 
 
 def validate_store_for_selected_tenant(selected_tenant_id: str | None, store_id: str | None, stores: list) -> tuple[bool, str]:
@@ -25,6 +27,16 @@ def validate_store_for_selected_tenant(selected_tenant_id: str | None, store_id:
     if matched_store.tenant_id != selected_tenant_id:
         return False, "Mismatch tenant↔store: la store no pertenece al tenant seleccionado."
     return True, ""
+
+
+def build_sensitive_action_summary(action: str, user_id: str, payload: dict, tenant_id: str | None) -> str:
+    return (
+        "Resumen de operación:\n"
+        f"- acción: {action}\n"
+        f"- user_id: {user_id}\n"
+        f"- tenant: {tenant_id or 'N/A'}\n"
+        f"- cambios: {payload}"
+    )
 
 
 class UsersView:
@@ -114,11 +126,17 @@ class UsersView:
                 if result.get("status") == "already_processed":
                     print("Operación ya procesada previamente.")
                 else:
-                    print("[success] Usuario creado correctamente.")
+                    print_mutation_success("user.create", result, highlighted_id=result.get("id"))
                 clear_attempt(self.state, create_operation)
                 print("[refresh] recargando users...")
                 for user in self.list_use_case.execute():
-                    print(f"{user.id} :: {user.email}")
+                    marker = " <- actualizado" if result.get("id") and user.id == result.get("id") else ""
+                    print(f"{user.id} :: {user.email}{marker}")
+            except APIError as error:
+                print_mutation_error("user.create", error)
+                ErrorBanner.show(ErrorMapper.to_payload(error))
+                if input("Reintentar create user? [s/N]: ").strip().lower() == "s":
+                    self.render()
             except Exception as error:
                 ErrorBanner.show(ErrorMapper.to_payload(error))
                 if input("Reintentar create user? [s/N]: ").strip().lower() == "s":
@@ -136,9 +154,6 @@ class UsersView:
         action = input("Acción user (set_status/set_role/reset_password/skip): ").strip()
         if action not in {"set_status", "set_role", "reset_password"}:
             return
-        if input(f"Confirmar acción {action}? [s/N]: ").strip().lower() != "s":
-            print("Acción cancelada.")
-            return
         user_id = input("User ID: ").strip()
         payload_value = input("Valor (status/role/new_password): ").strip()
         payload = (
@@ -148,6 +163,10 @@ class UsersView:
             if action == "set_role"
             else {"new_password": payload_value}
         )
+        print(build_sensitive_action_summary(action, user_id, payload, self.state.context.effective_tenant_id))
+        if input(f"Confirmar acción sensible {action}? [s/N]: ").strip().lower() != "s":
+            print("Acción cancelada.")
+            return
         action_operation = f"user-action-{action}"
         if not begin_mutation(self.state, action_operation):
             print("[loading] Procesando… evita doble submit.")
@@ -165,11 +184,17 @@ class UsersView:
             if result.get("status") == "already_processed":
                 print("Operación ya procesada previamente.")
             else:
-                print("[success] Acción aplicada correctamente.")
+                print_mutation_success(f"user.{action}", result, highlighted_id=user_id)
             clear_attempt(self.state, action_operation)
             print("[refresh] recargando users...")
             for user in self.list_use_case.execute():
-                print(f"{user.id} :: {user.email}")
+                marker = " <- actualizado" if user.id == user_id else ""
+                print(f"{user.id} :: {user.email}{marker}")
+        except APIError as error:
+            print_mutation_error(f"user.{action}", error)
+            ErrorBanner.show(ErrorMapper.to_payload(error))
+            if input("Reintentar acción? [s/N]: ").strip().lower() == "s":
+                self.render()
         except Exception as error:
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar acción? [s/N]: ").strip().lower() == "s":

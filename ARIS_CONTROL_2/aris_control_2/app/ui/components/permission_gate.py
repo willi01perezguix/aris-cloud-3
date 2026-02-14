@@ -24,4 +24,4 @@ class PermissionGate:
     def check(context: SessionContext, permission: str) -> GateResult:
         if context.can(permission):
             return GateResult(True)
-        return GateResult(False, f"Permiso requerido: {permission}")
+        return GateResult(False, f"No tienes permiso para esta acción ({permission}).")

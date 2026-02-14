@@ -23,12 +23,12 @@ class CreateUserUseCase:
     ) -> dict:
         if not self.state.context.can("users.create"):
             raise APIError(code="PERMISSION_DENIED", message="Missing users.create")
-        allowed, reason = TenantContextPolicy.can_access_tenant_scoped_resources(self.state.context)
-        if not allowed:
+        tenant_id, reason = TenantContextPolicy.resolve_mutation_tenant_id(self.state.context)
+        if not tenant_id:
             raise APIError(code=reason, message=reason)
         try:
             payload = {
-                "tenant_id": self.state.context.effective_tenant_id,
+                "tenant_id": tenant_id,
                 "email": email,
                 "password": password,
                 "store_id": store_id,

@@ -10,6 +10,17 @@ class UserRepository:
     def get_by_id(self, user_id: str):
         return self.db.get(User, user_id)
 
+    def get_by_id_in_tenant(self, user_id: str, tenant_id: str):
+        stmt = select(User).where(User.id == user_id, User.tenant_id == tenant_id)
+        return self.db.execute(stmt).scalars().first()
+
+    def list_by_tenant(self, tenant_id: str, store_id: str | None = None):
+        stmt = select(User).where(User.tenant_id == tenant_id)
+        if store_id:
+            stmt = stmt.where(User.store_id == store_id)
+        stmt = stmt.order_by(User.username)
+        return self.db.execute(stmt).scalars().all()
+
     def get_by_username_or_email(self, identifier: str):
         stmt = select(User).where((User.username == identifier) | (User.email == identifier))
         return self.db.execute(stmt).scalars().first()

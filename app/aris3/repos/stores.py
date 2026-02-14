@@ -10,6 +10,10 @@ class StoreRepository:
     def get_by_id(self, store_id: str):
         return self.db.get(Store, store_id)
 
+    def get_by_id_in_tenant(self, store_id: str, tenant_id: str):
+        stmt = select(Store).where(Store.id == store_id, Store.tenant_id == tenant_id)
+        return self.db.execute(stmt).scalars().first()
+
     def list_by_tenant(self, tenant_id: str):
         stmt = select(Store).where(Store.tenant_id == tenant_id).order_by(Store.name)
         return self.db.execute(stmt).scalars().all()

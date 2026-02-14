@@ -161,7 +161,66 @@ def test_admin_user_cross_tenant_denied(client, db_session):
     assert response.json()["code"] == "CROSS_TENANT_ACCESS_DENIED"
 
 
-def test_superadmin_can_manage_cross_tenant_user(client, db_session):
+def test_manager_store_scope_user_actions_denied_other_store(client, db_session):
+    run_seed(db_session)
+    tenant, store_a = _create_tenant_store(db_session, name_suffix="Mgr-Scope-A")
+    store_b = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store Mgr-Scope-B")
+    db_session.add(store_b)
+    db_session.commit()
+
+    _create_user(db_session, tenant=tenant, store=store_a, role="MANAGER", username="manager-scope", password="Pass1234!")
+    target = _create_user(db_session, tenant=tenant, store=store_b, role="USER", username="user-other-store", password="Pass1234!")
+
+    token = _login(client, "manager-scope", "Pass1234!")
+    response = client.post(
+        f"/aris3/admin/users/{target.id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "mgr-scope-denied-1"},
+        json={"action": "set_status", "status": "SUSPENDED", "transaction_id": "txn-mgr-denied-1"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "STORE_SCOPE_MISMATCH"
+
+
+def test_manager_store_scope_user_actions_allowed_same_store(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Mgr-Scope-Same")
+    _create_user(db_session, tenant=tenant, store=store, role="MANAGER", username="manager-same-store", password="Pass1234!")
+    target = _create_user(db_session, tenant=tenant, store=store, role="USER", username="user-same-store", password="Pass1234!")
+
+    token = _login(client, "manager-same-store", "Pass1234!")
+    response = client.post(
+        f"/aris3/admin/users/{target.id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "mgr-scope-allow-1"},
+        json={"action": "set_status", "status": "SUSPENDED", "transaction_id": "txn-mgr-allow-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["status"] == "suspended"
+
+
+def test_admin_user_actions_tenant_wide_allowed_same_tenant(client, db_session):
+    run_seed(db_session)
+    tenant, store_a = _create_tenant_store(db_session, name_suffix="Admin-Tenant-A")
+    store_b = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store Admin-Tenant-B")
+    db_session.add(store_b)
+    db_session.commit()
+
+    _create_user(db_session, tenant=tenant, store=store_a, role="ADMIN", username="admin-tenant-wide", password="Pass1234!")
+    target = _create_user(db_session, tenant=tenant, store=store_b, role="USER", username="user-tenant-wide", password="Pass1234!")
+
+    token = _login(client, "admin-tenant-wide", "Pass1234!")
+    response = client.post(
+        f"/aris3/admin/users/{target.id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "admin-tenant-wide-1"},
+        json={"action": "set_status", "status": "SUSPENDED", "transaction_id": "txn-admin-tenant-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["status"] == "suspended"
+
+
+def test_superadmin_user_actions_cross_tenant_allowed(client, db_session):
     run_seed(db_session)
     tenant_a, store_a = _create_tenant_store(db_session, name_suffix="SA-A")
     tenant_b, store_b = _create_tenant_store(db_session, name_suffix="SA-B")
@@ -176,6 +235,10 @@ def test_superadmin_can_manage_cross_tenant_user(client, db_session):
     )
     assert response.status_code == 200
     assert response.json()["user"]["status"] == "suspended"
+
+
+def test_superadmin_can_manage_cross_tenant_user(client, db_session):
+    test_superadmin_user_actions_cross_tenant_allowed(client, db_session)
 
 
 def test_variant_fields_settings_patch_and_audit(client, db_session):

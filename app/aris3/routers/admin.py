@@ -154,6 +154,11 @@ def _require_transaction_id(transaction_id: str | None) -> None:
         )
 
 
+def _is_store_bound_actor(token_data) -> bool:
+    role = (token_data.role or "").upper()
+    return role in {"MANAGER", "USER"} and bool(token_data.store_id)
+
+
 def _enforce_user_store_scope(token_data, user) -> None:
     if is_superadmin(token_data.role):
         return
@@ -715,8 +720,8 @@ async def admin_get_user_overrides(
 ):
     _require_admin(token_data)
     tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None or str(user.tenant_id) != tenant_id:
+    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    if user is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     _enforce_user_store_scope(token_data, user)
     service = AccessControlPolicyService(db)
@@ -741,8 +746,8 @@ async def admin_patch_user_overrides(
 ):
     _require_admin(token_data)
     tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None or str(user.tenant_id) != tenant_id:
+    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    if user is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     _enforce_user_store_scope(token_data, user)
     _require_transaction_id(payload.transaction_id)
@@ -814,8 +819,8 @@ async def admin_effective_permissions(
 ):
     _require_admin(token_data)
     tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None or str(user.tenant_id) != tenant_id:
+    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    if user is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     _enforce_user_store_scope(token_data, user)
     if store_id and user.store_id and str(user.store_id) != store_id:
@@ -1206,8 +1211,8 @@ async def get_store(
     db=Depends(get_db),
 ):
     tenant_id = _tenant_id_or_error(token_data)
-    store = StoreRepository(db).get_by_id(store_id)
-    if store is None or str(store.tenant_id) != tenant_id:
+    store = StoreRepository(db).get_by_id_in_tenant(store_id, tenant_id)
+    if store is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     return StoreResponse(
         store=_store_item(store),
@@ -1226,8 +1231,8 @@ async def update_store(
     db=Depends(get_db),
 ):
     tenant_id = _tenant_id_or_error(token_data)
-    store = StoreRepository(db).get_by_id(store_id)
-    if store is None or str(store.tenant_id) != tenant_id:
+    store = StoreRepository(db).get_by_id_in_tenant(store_id, tenant_id)
+    if store is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -1286,7 +1291,8 @@ async def list_users(
     db=Depends(get_db),
 ):
     tenant_id = _tenant_id_or_error(token_data)
-    users = db.query(User).filter(User.tenant_id == tenant_id).order_by(User.username).all()
+    store_id = token_data.store_id if _is_store_bound_actor(token_data) else None
+    users = UserRepository(db).list_by_tenant(tenant_id, store_id=store_id)
     return UserListResponse(
         users=[_user_item(user) for user in users],
         trace_id=getattr(request.state, "trace_id", ""),
@@ -1388,8 +1394,8 @@ async def get_user(
     db=Depends(get_db),
 ):
     tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None or str(user.tenant_id) != tenant_id:
+    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    if user is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     return UserResponse(
         user=_user_item(user),
@@ -1408,8 +1414,8 @@ async def update_user(
     db=Depends(get_db),
 ):
     tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None or str(user.tenant_id) != tenant_id:
+    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    if user is None:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
 
     if payload.username is None and payload.email is None and payload.store_id is None:
@@ -1419,8 +1425,8 @@ async def update_user(
         )
 
     if payload.store_id:
-        store = StoreRepository(db).get_by_id(payload.store_id)
-        if store is None or str(store.tenant_id) != tenant_id:
+        store = StoreRepository(db).get_by_id_in_tenant(payload.store_id, tenant_id)
+        if store is None:
             raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -1489,14 +1495,19 @@ async def user_actions(
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
-    if not is_superadmin(token_data.role):
-        tenant_id = _tenant_id_or_error(token_data)
-        if str(user.tenant_id) != tenant_id:
+    user_repo = UserRepository(db)
+    if is_superadmin(token_data.role):
+        user = user_repo.get_by_id(user_id)
+        if user is None:
             raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
-    tenant_id = str(user.tenant_id)
+        tenant_id = str(user.tenant_id)
+    else:
+        tenant_id = _tenant_id_or_error(token_data)
+        user = user_repo.get_by_id_in_tenant(user_id, tenant_id)
+        if user is None:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        if _is_store_bound_actor(token_data):
+            _enforce_user_store_scope(token_data, user)
 
     if not payload.transaction_id:
         raise AppError(

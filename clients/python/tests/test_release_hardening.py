@@ -73,6 +73,17 @@ def test_support_bundle_creation_excludes_plain_secret(tmp_path: Path, monkeypat
     assert "secret-value" not in profile
 
 
+
+
+def test_support_bundle_creation_redacts_sensitive_env_keys(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("ARIS3_AUTH_HEADER", "Bearer clear-text-token")
+    bundle = create_bundle(tmp_path)
+    with zipfile.ZipFile(bundle) as zf:
+        profile = zf.read("env_profile.json").decode("utf-8")
+    assert "clear-text-token" not in profile
+    assert "<REDACTED>" in profile
+
 def test_packaging_verify_report_generation(tmp_path: Path) -> None:
     root = tmp_path / "packaging"
     (root / "dist").mkdir(parents=True)

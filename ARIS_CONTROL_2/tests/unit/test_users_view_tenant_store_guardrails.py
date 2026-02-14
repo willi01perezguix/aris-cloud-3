@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 
 from aris_control_2.app.application.state.session_state import SessionState
-from aris_control_2.app.ui.views.users_view import UsersView, validate_store_for_selected_tenant
+from aris_control_2.app.ui.views.users_view import (
+    UsersView,
+    render_last_admin_action,
+    validate_store_for_selected_tenant,
+    validate_user_action_context,
+)
 
 
 @dataclass
@@ -60,3 +65,83 @@ def test_users_view_requires_selected_tenant(capsys) -> None:
 
     output = capsys.readouterr().out
     assert "Debes seleccionar tenant" in output
+
+
+def test_validate_user_action_context_blocks_when_tenant_is_missing() -> None:
+    allowed, reason = validate_user_action_context(
+        selected_tenant_id=None,
+        effective_tenant_id=None,
+        action_gate_allowed=True,
+        action_gate_reason="",
+        user_id="user-1",
+        action="set_status",
+        payload={"status": "ACTIVE"},
+        users=[type("UserStub", (), {"id": "user-1", "tenant_id": "tenant-a"})()],
+    )
+
+    assert allowed is False
+    assert "seleccionar tenant" in reason
+
+
+def test_validate_user_action_context_blocks_tenant_mismatch() -> None:
+    allowed, reason = validate_user_action_context(
+        selected_tenant_id="tenant-a",
+        effective_tenant_id="tenant-a",
+        action_gate_allowed=True,
+        action_gate_reason="",
+        user_id="user-1",
+        action="set_role",
+        payload={"role": "MANAGER"},
+        users=[type("UserStub", (), {"id": "user-1", "tenant_id": "tenant-b"})()],
+    )
+
+    assert allowed is False
+    assert "mismatch tenant" in reason
+
+
+def test_validate_user_action_context_blocks_missing_permission() -> None:
+    allowed, reason = validate_user_action_context(
+        selected_tenant_id="tenant-a",
+        effective_tenant_id="tenant-a",
+        action_gate_allowed=False,
+        action_gate_reason="No tienes permiso para esta acción (users.actions).",
+        user_id="user-1",
+        action="reset_password",
+        payload={"new_password": "secret"},
+        users=[type("UserStub", (), {"id": "user-1", "tenant_id": "tenant-a"})()],
+    )
+
+    assert allowed is False
+    assert "No tienes permiso" in reason
+
+
+def test_validate_user_action_context_accepts_valid_action() -> None:
+    allowed, reason = validate_user_action_context(
+        selected_tenant_id="tenant-a",
+        effective_tenant_id="tenant-a",
+        action_gate_allowed=True,
+        action_gate_reason="",
+        user_id="user-1",
+        action="set_status",
+        payload={"status": "INACTIVE"},
+        users=[type("UserStub", (), {"id": "user-1", "tenant_id": "tenant-a"})()],
+    )
+
+    assert allowed is True
+    assert reason == ""
+
+
+def test_render_last_admin_action_shows_trace(capsys) -> None:
+    state = SessionState()
+    state.last_admin_action = {
+        "action": "user.set_role",
+        "timestamp_local": "2026-01-01T00:00:00",
+        "result": "OK",
+        "trace_id": "trace-123",
+    }
+
+    render_last_admin_action(state)
+
+    output = capsys.readouterr().out
+    assert "última acción" in output
+    assert "trace-123" in output

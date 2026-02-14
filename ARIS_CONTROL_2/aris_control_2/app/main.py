@@ -89,6 +89,24 @@ def _print_startup_connectivity_status(connectivity: ConnectivityResult | None) 
     print("Acción rápida: opción 0 para reintentar check de conectividad.")
 
 
+def _connectivity_badge(connectivity: ConnectivityResult | None) -> str:
+    if connectivity is None:
+        return "⚪ No evaluada"
+    if connectivity.status == "Conectado":
+        return "🟢 Conectado"
+    if connectivity.status == "Degradado":
+        return "🟡 Degradado"
+    return "🔴 Sin conexión"
+
+
+def _print_global_health_badge(connectivity: ConnectivityResult | None) -> None:
+    latency_label = "N/A"
+    if connectivity and connectivity.latency_ms is not None:
+        latency_label = f"{connectivity.latency_ms}ms"
+    print(f"Estado API global: {_connectivity_badge(connectivity)} | latencia={latency_label}")
+    print("Atajos rápidos: d=diagnóstico, i=incidencias, s=soporte")
+
+
 def _has_operational_permission(session: SessionState) -> bool:
     if not session.role:
         return False
@@ -296,6 +314,22 @@ def _show_incidents_panel(*, support_center: OperationalSupportCenter) -> None:
         elif cmd == "b":
             return
 
+
+def _resolve_quick_action(option: str) -> str:
+    normalized = option.strip().lower()
+    quick_actions = {
+        "d": "6",
+        "diag": "6",
+        "diagnostico": "6",
+        "diagnóstico": "6",
+        "i": "7",
+        "inc": "7",
+        "incidencias": "7",
+        "s": "8",
+        "soporte": "8",
+    }
+    return quick_actions.get(normalized, option)
+
 def main() -> None:
     config = SDKConfig.from_env()
     environment = os.getenv("ARIS3_ENV", "dev").strip().lower() or "dev"
@@ -374,6 +408,7 @@ def main() -> None:
 
     while True:
         print("\nMenú")
+        _print_global_health_badge(connectivity)
         print("0. Reintentar startup check")
         print("1. Login")
         print("2. Ver /me")
@@ -384,7 +419,7 @@ def main() -> None:
         print("7. Incidencias")
         print("8. Exportar paquete de soporte")
         print("9. Copiar resumen técnico")
-        option = input("Selecciona una opción: ").strip()
+        option = _resolve_quick_action(input("Selecciona una opción: ").strip())
 
         try:
             if option == "1":

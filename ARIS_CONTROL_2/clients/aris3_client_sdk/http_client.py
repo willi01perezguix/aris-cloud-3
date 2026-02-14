@@ -28,6 +28,7 @@ class HttpClient:
         token: str | None = None,
         json_body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         request_headers = dict(headers or {})
         if token:
@@ -41,6 +42,7 @@ class HttpClient:
                 url=normalized_path,
                 json=json_body,
                 headers=request_headers,
+                params=params,
             )
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise ApiError(

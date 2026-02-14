@@ -5,7 +5,11 @@ from clients.aris3_client_sdk.config import SDKConfig
 from clients.aris3_client_sdk.errors import ApiError
 from clients.aris3_client_sdk.http_client import HttpClient
 from clients.aris3_client_sdk.me_client import MeClient
+from clients.aris3_client_sdk.stores_client import StoresClient
+from clients.aris3_client_sdk.tenants_client import TenantsClient
+from clients.aris3_client_sdk.users_client import UsersClient
 
+from aris_control_2.app.admin_console import AdminConsole
 from aris_control_2.app.state import SessionState
 
 
@@ -29,6 +33,7 @@ def main() -> None:
     http_client = HttpClient(config=config)
     auth_client = AuthClient(http_client)
     me_client = MeClient(http_client)
+    admin_console = AdminConsole(TenantsClient(http_client), StoresClient(http_client), UsersClient(http_client))
     session = SessionState()
 
     _print_runtime_config(config)
@@ -37,8 +42,9 @@ def main() -> None:
         print("\nMenú")
         print("1. Login")
         print("2. Ver /me")
-        print("3. Logout")
-        print("4. Exit")
+        print("3. Admin Core")
+        print("4. Logout")
+        print("5. Exit")
         option = input("Selecciona una opción: ").strip()
 
         try:
@@ -57,12 +63,17 @@ def main() -> None:
                     print("Debes iniciar sesión primero.")
                     continue
                 me_payload = me_client.get_me(access_token=session.access_token or "")
-                session.user = me_payload
+                session.apply_me(me_payload)
                 print(f"/me => {me_payload}")
             elif option == "3":
+                if not session.is_authenticated():
+                    print("Debes iniciar sesión primero.")
+                    continue
+                admin_console.run(session)
+            elif option == "4":
                 session.clear()
                 print("Sesión cerrada.")
-            elif option == "4":
+            elif option == "5":
                 print("Hasta luego.")
                 return
             else:

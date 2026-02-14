@@ -13,12 +13,12 @@ class StoresClient:
         )
         return result.get("items", [])
 
-    def create(self, tenant_id: str, name: str, idempotency_key: str) -> dict:
+    def create(self, tenant_id: str, name: str, idempotency_key: str, transaction_id: str) -> dict:
         headers = {"Idempotency-Key": idempotency_key}
         return self.http.request(
             "POST",
             f"/aris3/admin/tenants/{tenant_id}/stores",
             token=self.auth_store.get_token(),
             headers=headers,
-            json={"name": name},
+            json={"name": name, "transaction_id": transaction_id},
         )

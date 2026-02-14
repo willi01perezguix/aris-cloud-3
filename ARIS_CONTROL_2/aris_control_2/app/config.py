@@ -21,7 +21,7 @@ class AppConfig:
         _load_dotenv(env_file)
         config = cls(
             base_url=os.getenv("ARIS3_BASE_URL", DEFAULT_BASE_URL).strip(),
-            timeout_seconds=float(os.getenv("ARIS3_TIMEOUT_SECONDS", "30")),
+            timeout_seconds=float(os.getenv("ARIS3_TIMEOUT_SECONDS", "20")),
             verify_ssl=os.getenv("ARIS3_VERIFY_SSL", "true").lower() == "true",
             retry_max_attempts=int(os.getenv("ARIS3_RETRY_MAX_ATTEMPTS", "3")),
             retry_backoff_ms=int(os.getenv("ARIS3_RETRY_BACKOFF_MS", "150")),

@@ -15,6 +15,8 @@ class SessionState:
     selected_user_row: str | None = None
     stores_page: int = 1
     users_page: int = 1
+    mutation_in_flight: set[str] = field(default_factory=set)
+    pending_mutations: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def clear_tenant_scoped_data(self) -> None:
         self.stores_cache.clear()

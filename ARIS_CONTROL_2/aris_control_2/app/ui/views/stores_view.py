@@ -1,4 +1,10 @@
 from aris_control_2.app.application.state.session_state import SessionState
+from aris_control_2.app.application.mutation_attempts import (
+    begin_mutation,
+    clear_attempt,
+    end_mutation,
+    get_or_create_attempt,
+)
 from aris_control_2.app.application.use_cases.create_store_use_case import CreateStoreUseCase
 from aris_control_2.app.application.use_cases.list_stores_use_case import ListStoresUseCase
 from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
@@ -52,12 +58,29 @@ class StoresView:
             print("[error] El nombre del store es obligatorio.")
             return
 
-        print("[spinner] creando store...")
+        operation = "store-create"
+        if not begin_mutation(self.state, operation):
+            print("[loading] Procesando… evita doble submit.")
+            return
+        print("[loading] Procesando… (crear store)")
         try:
-            result = self.create_use_case.execute(name=name)
+            attempt = get_or_create_attempt(self.state, operation)
+            result = self.create_use_case.execute(
+                name=name,
+                idempotency_key=attempt.idempotency_key,
+                transaction_id=attempt.transaction_id,
+            )
             if result.get("status") == "already_processed":
                 print("Operación ya procesada previamente.")
             else:
-                print("Store creada correctamente.")
+                print("[success] Store creada correctamente.")
+            clear_attempt(self.state, operation)
+            print("[refresh] recargando stores...")
+            for store in self.list_use_case.execute():
+                print(f"{store.id} :: {store.name}")
         except Exception as error:
             ErrorBanner.show(ErrorMapper.to_payload(error))
+            if input("Reintentar create store? [s/N]: ").strip().lower() == "s":
+                self.render()
+        finally:
+            end_mutation(self.state, operation)

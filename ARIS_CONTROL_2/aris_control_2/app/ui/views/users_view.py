@@ -98,13 +98,43 @@ def validate_store_for_selected_tenant(selected_tenant_id: str | None, store_id:
 
 
 def build_sensitive_action_summary(action: str, user_id: str, payload: dict, tenant_id: str | None) -> str:
+    expected_effect = {
+        "set_status": "Actualiza estado operativo del usuario objetivo.",
+        "set_role": "Actualiza rol y alcance RBAC del usuario objetivo.",
+        "reset_password": "Invalida credencial previa y exige uso de nueva contraseña.",
+    }.get(action, "Aplica mutación administrativa sobre el usuario objetivo.")
     return (
-        "Resumen de operación:\n"
+        "Resumen de operación sensible:\n"
         f"- acción: {action}\n"
         f"- user_id: {user_id}\n"
         f"- tenant: {tenant_id or 'N/A'}\n"
-        f"- cambios: {payload}"
+        f"- cambios: {payload}\n"
+        f"- efecto esperado: {expected_effect}"
     )
+
+
+def validate_sensitive_confirmation_inputs(confirmation_checked: bool, confirmation_text: str, expected_text: str) -> tuple[bool, str]:
+    if not confirmation_checked:
+        return False, "Debes marcar la confirmación explícita antes de ejecutar la acción sensible."
+    if confirmation_text.strip() != expected_text:
+        return False, f"Texto de confirmación inválido: escribe exactamente {expected_text}."
+    return True, ""
+
+
+def should_enable_sensitive_confirm(
+    *,
+    valid_action: bool,
+    confirmation_checked: bool,
+    confirmation_text: str,
+    expected_text: str,
+) -> tuple[bool, str]:
+    if not valid_action:
+        return False, "Confirmar deshabilitado: validaciones previas en estado bloqueado."
+    return validate_sensitive_confirmation_inputs(confirmation_checked, confirmation_text, expected_text)
+
+
+def print_standard_action_result(*, code: str, message: str, trace_id: str | None) -> None:
+    print(f"[result] code={code} message={message} trace_id={trace_id or 'n/a'}")
 
 
 def validate_user_action_context(
@@ -464,10 +494,30 @@ class UsersView:
         if not valid_action:
             print(f"[blocked] {block_reason}")
             return
+
+        confirm_token = f"CONFIRM-{action.upper()}"
+        print("[sensitive] Acción de alto impacto detectada.")
         print(build_sensitive_action_summary(action, user_id, payload, self.state.context.effective_tenant_id))
-        if input(f"Confirmar acción sensible {action}? [s/N]: ").strip().lower() != "s":
+        print("Modal de confirmación reforzada:")
+        print(f"- tenant/store context: tenant={self.state.context.effective_tenant_id} store={self.state.selected_user_store_id or 'N/A'}")
+        print("- Orden de botones: [Cancelar]=primario, [Confirmar]=secundario")
+        confirm_checkbox = input("Escribe 'si' para marcar confirmación explícita (vacío = cancelar): ").strip().lower() == "si"
+        confirm_text = input(f"Texto de confirmación requerido ({confirm_token}): ").strip()
+        confirm_enabled, confirm_reason = should_enable_sensitive_confirm(
+            valid_action=valid_action,
+            confirmation_checked=confirm_checkbox,
+            confirmation_text=confirm_text,
+            expected_text=confirm_token,
+        )
+        if not confirm_enabled:
+            print(f"[disabled] Confirmar acción ({confirm_reason})")
             print("Acción cancelada.")
             return
+        final_choice = input("Selecciona botón [1=Cancelar, 2=Confirmar]: ").strip()
+        if final_choice != "2":
+            print("Acción cancelada.")
+            return
+
         action_operation = f"user-action-{action}"
         if not begin_mutation(self.state, action_operation):
             print("[loading] Procesando… evita doble submit.")
@@ -484,8 +534,18 @@ class UsersView:
             )
             if result.get("status") == "already_processed":
                 print("Operación ya procesada previamente.")
+                print_standard_action_result(
+                    code="already_processed",
+                    message="Operación ya procesada previamente",
+                    trace_id=result.get("trace_id") or result.get("transaction_id"),
+                )
             else:
                 print_mutation_success(f"user.{action}", result, highlighted_id=user_id)
+                print_standard_action_result(
+                    code=result.get("status", "ok"),
+                    message="Mutación aplicada correctamente",
+                    trace_id=result.get("trace_id") or result.get("transaction_id"),
+                )
             _save_last_admin_action(
                 self.state,
                 action=f"user.{action}",
@@ -500,6 +560,7 @@ class UsersView:
                 print(f"{user.id} :: {user.email}{marker}")
         except APIError as error:
             print_mutation_error(f"user.{action}", error)
+            print_standard_action_result(code=error.code, message=error.message, trace_id=error.trace_id)
             _save_last_admin_action(self.state, action=f"user.{action}", result="ERROR", trace_id=error.trace_id)
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar acción? [s/N]: ").strip().lower() == "s":

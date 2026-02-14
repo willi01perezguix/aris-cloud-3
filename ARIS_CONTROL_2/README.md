@@ -2,6 +2,9 @@
 
 Cliente operativo para ARIS Cloud 3 enfocado en login, contexto `/me`, administración (tenants/stores/users), filtros, paginación y exportación CSV.
 
+## Versión de trabajo
+- `v1.0.4-dev`
+
 ## Quickstart
 
 ### Opción A: PowerShell local (sin `.venv`)

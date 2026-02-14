@@ -45,3 +45,28 @@ def test_admin_refresh_keeps_tenant_and_filters(monkeypatch, capsys) -> None:
     assert calls[0] == calls[1]
     assert session.selected_tenant_id == "tenant-a"
     assert session.filters_by_module["stores"] == {"q": "main", "status": "ACTIVE"}
+
+
+def test_admin_duplicate_filters_between_stores_and_users() -> None:
+    console = AdminConsole(tenants=_StubClient(), stores=_StubClient(), users=_StubClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+    session.filters_by_module["stores"] = {"q": "north", "status": "ACTIVE", "extra": "ignored"}
+
+    console._duplicate_related_filters(session, "stores")
+
+    assert session.filters_by_module["users"] == {"q": "north", "status": "ACTIVE"}
+    assert session.selected_tenant_id == "tenant-a"
+
+
+def test_admin_validation_errors_are_unified_for_critical_forms(monkeypatch, capsys) -> None:
+    console = AdminConsole(tenants=_StubClient(), stores=_StubClient(), users=_StubClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
+    console._create_store(session)
+
+    output = capsys.readouterr().out.strip()
+    assert "code=UI_VALIDATION" in output
+    assert "message=code y name son requeridos." in output
+    assert "trace_id=n/a" in output

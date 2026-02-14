@@ -16,6 +16,7 @@ from aris_control_2.app.listing_cache import ListingCache
 from aris_control_2.app.state import SessionState
 from aris_control_2.app.tenant_context import TenantContextError, is_superadmin, resolve_operational_tenant_id
 from aris_control_2.app.ui.filters import clean_filters, debounce_text, prompt_optional
+from aris_control_2.app.ui.listing_view import ColumnDef, hydrate_view_state, serialize_view_state, sort_rows
 from aris_control_2.app.ui.pagination import PaginationState, goto_page, next_page, prev_page
 from aris_control_2.app.ui.table_printer import print_table
 
@@ -96,7 +97,7 @@ class AdminConsole:
                 page_size=page_size,
                 q=session.filters_by_module.get("tenants", {}).get("q"),
             ),
-            columns=[("id", "id"), ("code", "code"), ("name", "name"), ("status", "status")],
+            columns=[ColumnDef("id", "id"), ColumnDef("code", "code"), ColumnDef("name", "name"), ColumnDef("status", "status")],
             filter_keys=["q"],
         )
 
@@ -126,7 +127,7 @@ class AdminConsole:
                 q=session.filters_by_module.get("stores", {}).get("q"),
                 status=session.filters_by_module.get("stores", {}).get("status"),
             ),
-            columns=[("id", "id"), ("code", "code"), ("name", "name"), ("status", "status"), ("tenant_id", "tenant")],
+            columns=[ColumnDef("id", "id"), ColumnDef("code", "code"), ColumnDef("name", "name"), ColumnDef("status", "status"), ColumnDef("tenant_id", "tenant_id")],
             filter_keys=["q", "status"],
         )
 
@@ -172,12 +173,12 @@ class AdminConsole:
             session=session,
             fetch_page=_fetch,
             columns=[
-                ("id", "id"),
-                ("username_or_email", "username/email"),
-                ("role", "role"),
-                ("status", "status"),
-                ("store_id", "store"),
-                ("tenant_id", "tenant"),
+                ColumnDef("id", "id"),
+                ColumnDef("username_or_email", "username_or_email"),
+                ColumnDef("role", "role"),
+                ColumnDef("status", "status"),
+                ColumnDef("store_id", "store_id"),
+                ColumnDef("tenant_id", "tenant_id"),
             ],
             filter_keys=["q", "role", "status"],
         )
@@ -187,11 +188,12 @@ class AdminConsole:
         module: str,
         session: SessionState,
         fetch_page: Callable[[int, int], dict[str, Any]],
-        columns: list[tuple[str, str]],
+        columns: list[ColumnDef],
         filter_keys: list[str],
     ) -> None:
         session.current_module = module
         page_state = self._load_pagination_state(session, module)
+        view_state = hydrate_view_state(session.listing_view_by_module.get(module), columns)
 
         while True:
             print(f"[loading] Cargando {module} page={page_state.page} page_size={page_state.page_size}...")
@@ -222,20 +224,28 @@ class AdminConsole:
                     return
                 continue
 
-            rows = listing.get("rows", [])
+            rows = sort_rows(listing.get("rows", []), view_state)
             page_state.page = int(listing.get("page") or page_state.page)
             page_state.page_size = int(listing.get("page_size") or page_state.page_size)
             self._save_pagination_state(session, module, page_state)
 
+            visible_columns = [column for column in columns if column.key in set(view_state.visible_columns)]
+            if not visible_columns:
+                visible_columns = columns
+            table_columns = [(column.key, column.label) for column in visible_columns]
+
             _print_context_header(session, listing, self._last_refresh_at_by_module.get(module))
             if rows:
-                print_table(module.upper(), rows, columns)
+                print_table(module.upper(), rows, table_columns)
             else:
                 print(f"{module.upper()}: sin resultados para los filtros actuales.")
             auto_refresh_label = "ON" if self._auto_refresh_by_module.get(module, False) else "OFF"
+            export_allowed = self._can_export_module(session, module)
+            export_label = "x=export csv, " if export_allowed else ""
             print(
                 "\nComandos: n=next, p=prev, g=goto, z=page_size, r=actualizar, "
-                f"a=auto-refresh ({auto_refresh_label}), d=duplicar filtros relacionados, f=filtros, c=limpiar filtros, x=export csv, b=back"
+                f"a=auto-refresh ({auto_refresh_label}), s=ordenar, v=configurar columnas, d=duplicar filtros relacionados, "
+                f"f=filtros, c=limpiar filtros, w=restablecer vista, {export_label}b=back"
             )
             command = input("cmd: ").strip().lower()
 
@@ -271,6 +281,12 @@ class AdminConsole:
                 enabled = not self._auto_refresh_by_module.get(module, False)
                 self._auto_refresh_by_module[module] = enabled
                 print(f"[refresh] Auto-refresh {'activado' if enabled else 'desactivado'} (solo lectura).")
+            elif command == "s":
+                self._configure_sort(module, view_state, columns)
+                self._save_listing_view_state(session, module, view_state)
+            elif command == "v":
+                self._configure_visible_columns(module, view_state, columns)
+                self._save_listing_view_state(session, module, view_state)
             elif command == "d":
                 self._duplicate_related_filters(session, module)
             elif command == "f":
@@ -281,8 +297,18 @@ class AdminConsole:
                 self._clear_filters_for_module(session, module)
                 page_state.page = 1
                 self._save_pagination_state(session, module, page_state)
-            elif command == "x":
-                exported = export_current_view(module=module, rows=rows, headers=[key for key, _ in columns])
+            elif command == "w":
+                view_state = hydrate_view_state(None, columns)
+                self._save_listing_view_state(session, module, view_state)
+                print("[view] Vista restablecida al estado por defecto.")
+            elif command == "x" and export_allowed:
+                exported = export_current_view(
+                    module=module,
+                    rows=rows,
+                    headers=[column.label for column in visible_columns],
+                    tenant_id=session.selected_tenant_id or session.effective_tenant_id,
+                    filters=session.filters_by_module.get(module, {}),
+                )
                 print(f"CSV exportado: {exported}")
             elif command == "b":
                 session.current_module = "admin_core"
@@ -419,6 +445,49 @@ class AdminConsole:
             f"(tenant={session.selected_tenant_id or session.effective_tenant_id or 'N/A'}): "
             f"{session.filters_by_module[target_module] or 'sin filtros'}"
         )
+
+    def _configure_sort(self, module: str, view_state: Any, columns: list[ColumnDef]) -> None:
+        options = {column.key: column.label for column in columns}
+        print(f"[sort] Columnas disponibles: {options}")
+        selected = input("sort_by (vacío para quitar): ").strip()
+        if not selected:
+            view_state.sort_by = None
+            view_state.sort_dir = "asc"
+            print(f"[sort] Orden limpiado para {module}.")
+            return
+        if selected not in options:
+            print(f"[sort] Columna inválida: {selected}")
+            return
+        direction = input("sort_dir (asc/desc): ").strip().lower() or "asc"
+        view_state.sort_by = selected
+        view_state.sort_dir = "desc" if direction == "desc" else "asc"
+        print(f"[sort] Orden aplicado: {selected} {view_state.sort_dir}")
+
+    def _configure_visible_columns(self, module: str, view_state: Any, columns: list[ColumnDef]) -> None:
+        all_keys = [column.key for column in columns]
+        current = set(view_state.visible_columns)
+        print(f"[columns] Actuales ({module}): {sorted(current)}")
+        print(f"[columns] Disponibles: {all_keys}")
+        raw = input("columnas visibles (csv, vacío=mantener): ").strip()
+        if not raw:
+            return
+        requested = [item.strip() for item in raw.split(",") if item.strip() in all_keys]
+        if not requested:
+            print("[columns] Selección inválida, se preserva configuración actual.")
+            return
+        view_state.visible_columns = requested
+        print(f"[columns] Vista actualizada: {requested}")
+
+    def _save_listing_view_state(self, session: SessionState, module: str, view_state: Any) -> None:
+        session.listing_view_by_module[module] = serialize_view_state(view_state)
+        self._persist_context()
+
+    def _can_export_module(self, session: SessionState, module: str) -> bool:
+        permissions = session.user.get("effective_permissions") if isinstance(session.user, dict) else None
+        if isinstance(permissions, list) and permissions:
+            required = {f"{module}.view", f"{module}.read", "admin.read"}
+            return bool(required.intersection(set(str(item) for item in permissions)))
+        return bool(session.role)
 
     def _print_validation_error(self, message: str, code: str = "UI_VALIDATION") -> None:
         print_error_banner(

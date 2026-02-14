@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import requests
+import httpx
 
 
 @dataclass
@@ -19,12 +19,12 @@ class HttpClient:
         base_url: str,
         timeout_seconds: int = 30,
         verify_ssl: bool = True,
-        transport: Callable[..., requests.Response] | None = None,
+        transport: Callable[..., httpx.Response] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.verify_ssl = verify_ssl
-        self.transport = transport or requests.request
+        self.transport = transport or httpx.request
 
     @classmethod
     def from_env(cls) -> "HttpClient":
@@ -34,7 +34,7 @@ class HttpClient:
             verify_ssl=os.getenv("ARIS3_VERIFY_SSL", "true").lower() == "true",
         )
 
-    def request(self, method: str, path: str, token: str | None = None, **kwargs) -> dict[str, Any]:
+    def request(self, method: str, path: str, token: str | None = None, **kwargs: Any) -> dict[str, Any]:
         headers = kwargs.pop("headers", {})
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -57,8 +57,9 @@ class HttpClient:
         return self._safe_json(response)
 
     @staticmethod
-    def _safe_json(response: requests.Response) -> dict[str, Any]:
+    def _safe_json(response: httpx.Response) -> dict[str, Any]:
         try:
-            return response.json()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {"items": payload}
         except ValueError:
             return {"message": response.text}

@@ -9,4 +9,7 @@ class LoadMeUseCase:
 
     def execute(self) -> None:
         me = self.auth_adapter.me()
+        self.state.context.actor_role = me.get("role", self.state.context.actor_role)
+        self.state.context.token_tenant_id = me.get("tenant_id", self.state.context.token_tenant_id)
         self.state.context.effective_permissions = me.get("permissions", [])
+        self.state.context.refresh_effective_tenant()

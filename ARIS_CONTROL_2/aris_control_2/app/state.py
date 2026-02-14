@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -13,6 +13,8 @@ class SessionState:
     role: str | None = None
     effective_tenant_id: str | None = None
     selected_tenant_id: str | None = None
+    filters_by_module: dict[str, dict[str, str]] = field(default_factory=dict)
+    current_module: str = "menu_principal"
 
     def is_authenticated(self) -> bool:
         return bool(self.access_token)
@@ -28,6 +30,11 @@ class SessionState:
         if self.role != "SUPERADMIN":
             self.selected_tenant_id = self.effective_tenant_id
 
+    def session_fingerprint(self) -> str:
+        role = self.role or "ANON"
+        tenant = self.effective_tenant_id or "NO_TENANT"
+        return f"{role}:{tenant}"
+
     def clear(self) -> None:
         self.access_token = None
         self.refresh_token = None
@@ -36,3 +43,5 @@ class SessionState:
         self.role = None
         self.effective_tenant_id = None
         self.selected_tenant_id = None
+        self.filters_by_module = {}
+        self.current_module = "menu_principal"

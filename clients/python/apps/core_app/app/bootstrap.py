@@ -92,6 +92,9 @@ class CoreAppBootstrap:
 
     def _load_authenticated_shell(self) -> BootstrapResult:
         try:
+            self.state.status_message = "Checking API connectivity..."
+            self._ensure_api_connectivity()
+            self.state.status_message = "Loading profile..."
             profile = self.profile_service.load_profile()
             self.state.trace_id = profile.trace_id
             self.state.session.user = profile
@@ -115,6 +118,17 @@ class CoreAppBootstrap:
             self.state.error_message = self._friendly_error(exc)
             self._navigate(Route.LOGIN, "Failed to initialize shell")
             return BootstrapResult(route=self.state.route, error_message=self.state.error_message)
+
+    def _ensure_api_connectivity(self) -> None:
+        health_client_factory = getattr(self.session, "health_client", None)
+        if not callable(health_client_factory):
+            return
+        try:
+            payload = health_client_factory().health() or {}
+        except Exception as exc:
+            raise RuntimeError("Cannot connect to ARIS API. Verify network/VPN and try again.") from exc
+        if payload.get("ok") is False:
+            raise RuntimeError("ARIS API is reachable but unhealthy. Please retry in a moment.")
 
     def visible_navigation(self) -> list[str]:
         gate = PermissionGate([{"key": key, "allowed": True} for key in self.state.allowed_permissions])

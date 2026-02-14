@@ -65,18 +65,40 @@ class FakeAccessControlClient:
         )
 
 
+@dataclass
+class FakeHealthClient:
+    payload: dict[str, object] | None = None
+    error: Exception | None = None
+
+    def health(self) -> dict[str, object]:
+        if self.error:
+            raise self.error
+        return self.payload or {"ok": True}
+
+
 class FakeSession:
-    def __init__(self, profile: UserResponse, permissions: list[PermissionEntry], token: str | None = None) -> None:
+    def __init__(
+        self,
+        profile: UserResponse,
+        permissions: list[PermissionEntry],
+        token: str | None = None,
+        health_payload: dict[str, object] | None = None,
+        health_error: Exception | None = None,
+    ) -> None:
         self.token = token
         self.user: UserResponse | None = None
         self._auth = FakeAuthClient(profile=profile)
         self._ac = FakeAccessControlClient(permissions=permissions)
+        self._health = FakeHealthClient(payload=health_payload, error=health_error)
 
     def auth_client(self) -> FakeAuthClient:
         return self._auth
 
     def access_control_client(self) -> FakeAccessControlClient:
         return self._ac
+
+    def health_client(self) -> FakeHealthClient:
+        return self._health
 
     def establish(self, token: TokenResponse, user: UserResponse | None) -> None:
         self.token = token.access_token
@@ -172,3 +194,31 @@ def test_logout_clears_session_and_routes_to_login() -> None:
     assert session.token is None
     assert result.route is Route.LOGIN
     assert bootstrap.state.allowed_permissions == set()
+
+
+def test_login_fails_when_api_is_unreachable() -> None:
+    session = FakeSession(
+        profile=_profile(),
+        permissions=[],
+        health_error=RuntimeError("network down"),
+    )
+    bootstrap = CoreAppBootstrap(session=session)  # type: ignore[arg-type]
+
+    result = bootstrap.login("alice", "safe-password")
+
+    assert result.route is Route.LOGIN
+    assert result.error_message == "Cannot connect to ARIS API. Verify network/VPN and try again."
+
+
+def test_login_fails_when_api_health_is_unhealthy() -> None:
+    session = FakeSession(
+        profile=_profile(),
+        permissions=[],
+        health_payload={"ok": False},
+    )
+    bootstrap = CoreAppBootstrap(session=session)  # type: ignore[arg-type]
+
+    result = bootstrap.login("alice", "safe-password")
+
+    assert result.route is Route.LOGIN
+    assert result.error_message == "ARIS API is reachable but unhealthy. Please retry in a moment."

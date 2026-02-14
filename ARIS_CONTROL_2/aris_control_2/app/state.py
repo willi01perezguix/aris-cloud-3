@@ -10,12 +10,29 @@ class SessionState:
     refresh_token: str | None = None
     must_change_password: bool = False
     user: dict[str, Any] | None = None
+    role: str | None = None
+    effective_tenant_id: str | None = None
+    selected_tenant_id: str | None = None
 
     def is_authenticated(self) -> bool:
         return bool(self.access_token)
+
+    def apply_me(self, me_payload: dict[str, Any]) -> None:
+        self.user = me_payload
+        self.role = str(me_payload.get("role") or me_payload.get("actor_role") or "").upper() or None
+        self.effective_tenant_id = (
+            me_payload.get("effective_tenant_id")
+            or me_payload.get("tenant_id")
+            or me_payload.get("actor_tenant_id")
+        )
+        if self.role != "SUPERADMIN":
+            self.selected_tenant_id = self.effective_tenant_id
 
     def clear(self) -> None:
         self.access_token = None
         self.refresh_token = None
         self.must_change_password = False
         self.user = None
+        self.role = None
+        self.effective_tenant_id = None
+        self.selected_tenant_id = None

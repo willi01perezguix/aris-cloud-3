@@ -12,4 +12,7 @@ class LoadMeUseCase:
         self.state.context.actor_role = me.get("role", self.state.context.actor_role)
         self.state.context.token_tenant_id = me.get("tenant_id", self.state.context.token_tenant_id)
         self.state.context.effective_permissions = me.get("permissions", [])
+        self.state.context.must_change_password = bool(
+            me.get("must_change_password", self.state.context.must_change_password)
+        )
         self.state.context.refresh_effective_tenant()

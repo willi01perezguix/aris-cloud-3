@@ -8,4 +8,4 @@ class MeClient:
         self.auth_store = auth_store
 
     def get_me(self) -> dict:
-        return self.http.request("GET", "/auth/me", token=self.auth_store.get_token())
+        return self.http.request("GET", "/aris3/me", token=self.auth_store.get_token())

@@ -26,11 +26,20 @@ def fake_transport(method, url, **kwargs):
     if url.endswith("/aris3/auth/login"):
         return FakeResponse(200, {"access_token": "token-1", "role": "SUPERADMIN", "tenant_id": None}, headers={})
     if url.endswith("/aris3/me"):
-        return FakeResponse(200, {"role": "ADMIN", "tenant_id": "tenant-from-token", "permissions": []}, headers={})
+        return FakeResponse(
+            200,
+            {
+                "role": "ADMIN",
+                "tenant_id": "tenant-from-token",
+                "permissions": ["stores.read", "users.actions.write"],
+                "must_change_password": False,
+            },
+            headers={},
+        )
     raise AssertionError(f"Unexpected call: {method} {url}")
 
 
-def test_login_me_and_effective_tenant_resolution() -> None:
+def test_login_me_and_session_context() -> None:
     http = HttpClient(base_url="http://fake", transport=fake_transport)
     auth_store = AuthStore()
     state = SessionState()
@@ -42,3 +51,5 @@ def test_login_me_and_effective_tenant_resolution() -> None:
     assert state.context.actor_role == "ADMIN"
     assert state.context.token_tenant_id == "tenant-from-token"
     assert state.context.effective_tenant_id == "tenant-from-token"
+    assert state.context.effective_permissions == ["stores.read", "users.actions.write"]
+    assert state.context.must_change_password is False

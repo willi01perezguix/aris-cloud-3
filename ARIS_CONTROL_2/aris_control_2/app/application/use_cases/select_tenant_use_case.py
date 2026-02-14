@@ -8,3 +8,4 @@ class SelectTenantUseCase:
     def execute(self, tenant_id: str | None) -> None:
         self.state.context.selected_tenant_id = tenant_id
         self.state.context.refresh_effective_tenant()
+        self.state.clear_tenant_scoped_data()

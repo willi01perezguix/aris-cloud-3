@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -11,6 +12,7 @@ from clients.aris3_client_sdk.users_client import UsersClient
 
 from aris_control_2.app.error_presenter import build_error_payload, print_error_banner
 from aris_control_2.app.export.csv_exporter import export_current_view
+from aris_control_2.app.listing_cache import ListingCache
 from aris_control_2.app.state import SessionState
 from aris_control_2.app.tenant_context import TenantContextError, is_superadmin, resolve_operational_tenant_id
 from aris_control_2.app.ui.filters import clean_filters, debounce_text, prompt_optional
@@ -24,6 +26,9 @@ class AdminConsole:
         self.stores = stores
         self.users = users
         self._on_context_updated = on_context_updated
+        self._listing_cache = ListingCache(ttl_seconds=20)
+        self._last_refresh_at_by_module: dict[str, float] = {}
+        self._auto_refresh_by_module: dict[str, bool] = {}
 
     def run(self, session: SessionState) -> None:
         session.current_module = "admin_core"
@@ -104,6 +109,7 @@ class AdminConsole:
             return
         payload = {"code": code, "name": name}
         result = self.tenants.create_tenant(session.access_token or "", payload, generate_idempotency_key())
+        self._invalidate_read_cache("tenants")
         print(f"Tenant creado: {result}")
 
     def _list_stores(self, session: SessionState) -> None:
@@ -133,6 +139,7 @@ class AdminConsole:
             return
         payload = {"tenant_id": tenant_id, "code": code, "name": name}
         created = self.stores.create_store(session.access_token or "", payload, generate_idempotency_key())
+        self._invalidate_read_cache("stores")
         print(f"Store creada: {created}")
 
     def _list_users(self, session: SessionState) -> None:
@@ -150,8 +157,14 @@ class AdminConsole:
                 role=current_filters.get("role"),
                 status=current_filters.get("status"),
             )
-            for row in listing.get("rows", []):
-                row["username_or_email"] = row.get("username") or row.get("email")
+            rows = listing.get("rows", [])
+            listing["rows"] = [
+                {
+                    **row,
+                    "username_or_email": row.get("username") or row.get("email"),
+                }
+                for row in rows
+            ]
             return listing
 
         self._run_listing_loop(
@@ -183,7 +196,14 @@ class AdminConsole:
         while True:
             print(f"[loading] Cargando {module} page={page_state.page} page_size={page_state.page_size}...")
             try:
-                listing = fetch_page(page_state.page, page_state.page_size)
+                listing = self._fetch_listing_with_cache(
+                    module=module,
+                    session=session,
+                    page=page_state.page,
+                    page_size=page_state.page_size,
+                    fetch_page=fetch_page,
+                    force_refresh=False,
+                )
             except Exception as error:  # noqa: BLE001
                 payload = build_error_payload(error)
                 print_error_banner(payload)
@@ -207,12 +227,16 @@ class AdminConsole:
             page_state.page_size = int(listing.get("page_size") or page_state.page_size)
             self._save_pagination_state(session, module, page_state)
 
-            _print_context_header(session, listing)
+            _print_context_header(session, listing, self._last_refresh_at_by_module.get(module))
             if rows:
                 print_table(module.upper(), rows, columns)
             else:
                 print(f"{module.upper()}: sin resultados para los filtros actuales.")
-            print("\nComandos: n=next, p=prev, g=goto, z=page_size, r=actualizar, f=filtros, c=limpiar filtros, x=export csv, b=back")
+            auto_refresh_label = "ON" if self._auto_refresh_by_module.get(module, False) else "OFF"
+            print(
+                "\nComandos: n=next, p=prev, g=goto, z=page_size, r=actualizar, "
+                f"a=auto-refresh ({auto_refresh_label}), f=filtros, c=limpiar filtros, x=export csv, b=back"
+            )
             command = input("cmd: ").strip().lower()
 
             if command == "n":
@@ -234,7 +258,19 @@ class AdminConsole:
                     self._save_pagination_state(session, module, page_state)
             elif command == "r":
                 print("[refresh] Recargando listado y preservando tenant/filtros/paginación activos...")
+                self._fetch_listing_with_cache(
+                    module=module,
+                    session=session,
+                    page=page_state.page,
+                    page_size=page_state.page_size,
+                    fetch_page=fetch_page,
+                    force_refresh=True,
+                )
                 continue
+            elif command == "a":
+                enabled = not self._auto_refresh_by_module.get(module, False)
+                self._auto_refresh_by_module[module] = enabled
+                print(f"[refresh] Auto-refresh {'activado' if enabled else 'desactivado'} (solo lectura).")
             elif command == "f":
                 self._update_filters_for_module(session, module, filter_keys)
                 page_state.page = 1
@@ -249,6 +285,20 @@ class AdminConsole:
             elif command == "b":
                 session.current_module = "admin_core"
                 return
+
+            if self._auto_refresh_by_module.get(module, False):
+                print("[refresh] Reintentando actualización no intrusiva...")
+                try:
+                    self._fetch_listing_with_cache(
+                        module=module,
+                        session=session,
+                        page=page_state.page,
+                        page_size=page_state.page_size,
+                        fetch_page=fetch_page,
+                        force_refresh=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _create_user(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
@@ -280,6 +330,7 @@ class AdminConsole:
             "password": password,
         }
         created = self.users.create_user(session.access_token or "", payload, generate_idempotency_key())
+        self._invalidate_read_cache("users")
         print(f"User creado: {created}")
 
     def _user_action(self, session: SessionState) -> None:
@@ -296,6 +347,7 @@ class AdminConsole:
             action_payload=payload,
             idempotency_key=generate_idempotency_key(),
         )
+        self._invalidate_read_cache("users")
         print(f"Acción aplicada: {result}")
 
     def _build_user_action_payload(self, action: str) -> dict | None:
@@ -350,9 +402,55 @@ class AdminConsole:
         if self._on_context_updated:
             self._on_context_updated()
 
+    def _invalidate_read_cache(self, module: str) -> None:
+        self._listing_cache.invalidate_prefix(f"{module}:")
+
+    def _cache_key(self, module: str, session: SessionState, page: int, page_size: int) -> str:
+        filters = session.filters_by_module.get(module, {})
+        filters_fingerprint = "|".join(f"{key}={filters[key]}" for key in sorted(filters.keys()))
+        tenant_key = session.selected_tenant_id or session.effective_tenant_id or "NO_TENANT"
+        return f"{module}:{session.session_fingerprint()}:{tenant_key}:{page}:{page_size}:{filters_fingerprint}"
+
+    def _fetch_listing_with_cache(
+        self,
+        module: str,
+        session: SessionState,
+        page: int,
+        page_size: int,
+        fetch_page: Callable[[int, int], dict[str, Any]],
+        force_refresh: bool,
+    ) -> dict[str, Any]:
+        key = self._cache_key(module, session, page, page_size)
+        if not force_refresh:
+            cached = self._listing_cache.get(key)
+            if cached is not None:
+                return cached
+
+        start = time.monotonic()
+        for attempt in range(1, 4):
+            try:
+                listing = fetch_page(page, page_size)
+                self._listing_cache.set(key, listing)
+                self._last_refresh_at_by_module[module] = time.time()
+                elapsed = time.monotonic() - start
+                if elapsed >= 1.2:
+                    print("[network] Conexión lenta, la respuesta demoró más de lo habitual.")
+                return listing
+            except ApiError as error:
+                if error.code == "NETWORK_ERROR":
+                    print("[network] Sin conexión. Verifica red/VPN y vuelve a intentar.")
+                if self._is_retryable_listing_error(error) and attempt < 3:
+                    print(f"[network] Reintentando... intento {attempt + 1}/3")
+                    time.sleep(0.25 * attempt)
+                    continue
+                raise
+
+    @staticmethod
+    def _is_retryable_listing_error(error: ApiError) -> bool:
+        return error.code in {"NETWORK_ERROR"} or bool(error.status_code and error.status_code >= 500)
 
 
-def _print_context_header(session: SessionState, listing: dict[str, Any]) -> None:
+def _print_context_header(session: SessionState, listing: dict[str, Any], last_refresh_at: float | None = None) -> None:
     total = listing.get("total")
     total_text = str(total) if total is not None else "N/A"
     print("\nContexto:")
@@ -360,6 +458,8 @@ def _print_context_header(session: SessionState, listing: dict[str, Any]) -> Non
     print(f"  effective_tenant_id: {session.effective_tenant_id}")
     print(f"  selected_tenant_id: {session.selected_tenant_id if is_superadmin(session.role) else 'N/A'}")
     print(f"  page: {listing.get('page')} / page_size: {listing.get('page_size')} / total: {total_text}")
+    if last_refresh_at is not None:
+        print(f"  última actualización: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_refresh_at))}")
 
 
 def _api_error_diagnostic(error: ApiError) -> str:

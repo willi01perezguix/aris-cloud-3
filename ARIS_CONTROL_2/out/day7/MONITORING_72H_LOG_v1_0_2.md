@@ -2,6 +2,7 @@
 
 Estado inicial: NO-GO (RC mantenido)
 Inicio bitácora: 2026-02-14T00:00:00Z
+Endpoint por defecto monitoreado: `https://aris-cloud-3-api-pecul.ondigitalocean.app/`
 
 ## Formato de checkpoint (delta-only)
 - Disponibilidad app
@@ -9,6 +10,10 @@ Inicio bitácora: 2026-02-14T00:00:00Z
 - Impacto
 - Mitigación aplicada
 - Estado final
+
+Plantilla mínima de error por checkpoint:
+- UI: `code=<ui_code> message=<detalle> trace_id=<id|N/A>`
+- API: `status=<http_status> code=<api_code> message=<detalle> trace_id=<id|N/A>`
 
 ## Checkpoints programados
 | Checkpoint | Estado ejecución | Disponibilidad app | Errores UI/API | Impacto | Mitigación | Estado final |

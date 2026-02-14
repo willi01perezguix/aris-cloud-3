@@ -1,4 +1,10 @@
 from aris_control_2.app.application.state.session_state import SessionState
+from aris_control_2.app.application.mutation_attempts import (
+    begin_mutation,
+    clear_attempt,
+    end_mutation,
+    get_or_create_attempt,
+)
 from aris_control_2.app.application.use_cases.create_user_use_case import CreateUserUseCase
 from aris_control_2.app.application.use_cases.list_stores_use_case import ListStoresUseCase
 from aris_control_2.app.application.use_cases.list_users_use_case import ListUsersUseCase
@@ -91,15 +97,34 @@ class UsersView:
                 return
             self.state.selected_user_store_id = store_id
 
-            print("[spinner] creando usuario...")
+            create_operation = "user-create"
+            if not begin_mutation(self.state, create_operation):
+                print("[loading] Procesando… evita doble submit.")
+                return
+            print("[loading] Procesando… (crear usuario)")
             try:
-                result = self.create_use_case.execute(email=email, password=password, store_id=store_id)
+                attempt = get_or_create_attempt(self.state, create_operation)
+                result = self.create_use_case.execute(
+                    email=email,
+                    password=password,
+                    store_id=store_id,
+                    idempotency_key=attempt.idempotency_key,
+                    transaction_id=attempt.transaction_id,
+                )
                 if result.get("status") == "already_processed":
                     print("Operación ya procesada previamente.")
                 else:
-                    print("Usuario creado correctamente.")
+                    print("[success] Usuario creado correctamente.")
+                clear_attempt(self.state, create_operation)
+                print("[refresh] recargando users...")
+                for user in self.list_use_case.execute():
+                    print(f"{user.id} :: {user.email}")
             except Exception as error:
                 ErrorBanner.show(ErrorMapper.to_payload(error))
+                if input("Reintentar create user? [s/N]: ").strip().lower() == "s":
+                    self.render()
+            finally:
+                end_mutation(self.state, create_operation)
         elif not create_gate.allowed:
             print(f"[disabled] Crear usuario ({create_gate.reason})")
 
@@ -123,12 +148,31 @@ class UsersView:
             if action == "set_role"
             else {"new_password": payload_value}
         )
-        print("[spinner] aplicando acción...")
+        action_operation = f"user-action-{action}"
+        if not begin_mutation(self.state, action_operation):
+            print("[loading] Procesando… evita doble submit.")
+            return
+        print("[loading] Procesando… (acción usuario)")
         try:
-            result = self.actions_use_case.execute(user_id=user_id, action=action, payload=payload)
+            attempt = get_or_create_attempt(self.state, action_operation)
+            result = self.actions_use_case.execute(
+                user_id=user_id,
+                action=action,
+                payload=payload,
+                idempotency_key=attempt.idempotency_key,
+                transaction_id=attempt.transaction_id,
+            )
             if result.get("status") == "already_processed":
                 print("Operación ya procesada previamente.")
             else:
-                print("Acción aplicada correctamente.")
+                print("[success] Acción aplicada correctamente.")
+            clear_attempt(self.state, action_operation)
+            print("[refresh] recargando users...")
+            for user in self.list_use_case.execute():
+                print(f"{user.id} :: {user.email}")
         except Exception as error:
             ErrorBanner.show(ErrorMapper.to_payload(error))
+            if input("Reintentar acción? [s/N]: ").strip().lower() == "s":
+                self.render()
+        finally:
+            end_mutation(self.state, action_operation)

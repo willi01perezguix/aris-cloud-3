@@ -18,7 +18,7 @@ class HttpClient:
     def __init__(
         self,
         base_url: str,
-        timeout_seconds: float = 30,
+        timeout_seconds: float = 20,
         verify_ssl: bool = True,
         retry_max_attempts: int = 3,
         retry_backoff_ms: int = 150,
@@ -37,6 +37,8 @@ class HttpClient:
             headers["Authorization"] = f"Bearer {token}"
         url = f"{self.base_url}{path}"
 
+        allow_retry = method.upper() == "GET"
+
         for attempt in range(1, self.retry_max_attempts + 1):
             try:
                 response = self.transport(
@@ -47,9 +49,22 @@ class HttpClient:
                     headers=headers,
                     **kwargs,
                 )
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                if attempt >= self.retry_max_attempts:
-                    raise APIError(code="INTERNAL_ERROR", message=str(exc), status_code=None) from exc
+            except httpx.TimeoutException as exc:
+                if (not allow_retry) or attempt >= self.retry_max_attempts:
+                    raise APIError(
+                        code="TIMEOUT_ERROR",
+                        message="La solicitud excedió el tiempo de espera. Verifica tu red y vuelve a intentar.",
+                        status_code=None,
+                    ) from exc
+                self._backoff(attempt)
+                continue
+            except httpx.TransportError as exc:
+                if (not allow_retry) or attempt >= self.retry_max_attempts:
+                    raise APIError(
+                        code="NETWORK_ERROR",
+                        message="No se pudo conectar con ARIS3 API. Reintenta manualmente.",
+                        status_code=None,
+                    ) from exc
                 self._backoff(attempt)
                 continue
 
@@ -62,7 +77,7 @@ class HttpClient:
                     trace_id=payload.get("trace_id") or response.headers.get("X-Trace-ID") or response.headers.get("X-Trace-Id"),
                     status_code=response.status_code,
                 )
-                if self._is_retryable_status(response.status_code) and attempt < self.retry_max_attempts:
+                if allow_retry and self._is_retryable_status(response.status_code) and attempt < self.retry_max_attempts:
                     self._backoff(attempt)
                     continue
                 raise api_error

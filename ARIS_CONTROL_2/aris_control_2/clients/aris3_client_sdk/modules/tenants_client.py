@@ -11,12 +11,12 @@ class TenantsClient:
         result = self.http.request("GET", "/aris3/admin/tenants", token=self.auth_store.get_token())
         return result.get("items", [])
 
-    def create(self, name: str, idempotency_key: str) -> dict:
+    def create(self, name: str, idempotency_key: str, transaction_id: str) -> dict:
         headers = {"Idempotency-Key": idempotency_key}
         return self.http.request(
             "POST",
             "/aris3/admin/tenants",
             token=self.auth_store.get_token(),
             headers=headers,
-            json={"name": name},
+            json={"name": name, "transaction_id": transaction_id},
         )

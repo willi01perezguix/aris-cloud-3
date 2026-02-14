@@ -17,26 +17,46 @@ class AdminAdapter:
     def list_tenants(self) -> list[Tenant]:
         return [Tenant(**item) for item in self.tenants.list()]
 
-    def create_tenant(self, name: str, idempotency_key: str) -> dict:
-        return self.tenants.create(name=name, idempotency_key=idempotency_key)
+    def create_tenant(self, name: str, idempotency_key: str, transaction_id: str) -> dict:
+        return self.tenants.create(name=name, idempotency_key=idempotency_key, transaction_id=transaction_id)
 
     def list_stores(self, tenant_id: str) -> list[Store]:
         return [Store(**item) for item in self.stores.list(tenant_id=tenant_id)]
 
-    def create_store(self, tenant_id: str, name: str, idempotency_key: str) -> dict:
-        return self.stores.create(tenant_id=tenant_id, name=name, idempotency_key=idempotency_key)
+    def create_store(self, tenant_id: str, name: str, idempotency_key: str, transaction_id: str) -> dict:
+        return self.stores.create(
+            tenant_id=tenant_id,
+            name=name,
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+        )
 
     def list_users(self, tenant_id: str) -> list[User]:
         return [User(**item) for item in self.users.list(tenant_id=tenant_id)]
 
-    def create_user(self, tenant_id: str, email: str, password: str, store_id: str | None, idempotency_key: str) -> dict:
+    def create_user(
+        self,
+        tenant_id: str,
+        email: str,
+        password: str,
+        store_id: str | None,
+        idempotency_key: str,
+        transaction_id: str,
+    ) -> dict:
         return self.users.create(
             tenant_id=tenant_id,
             email=email,
             password=password,
             store_id=store_id,
             idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
         )
 
-    def user_action(self, user_id: str, action: str, payload: dict, idempotency_key: str) -> dict:
-        return self.users.action(user_id=user_id, action=action, payload=payload, idempotency_key=idempotency_key)
+    def user_action(self, user_id: str, action: str, payload: dict, idempotency_key: str, transaction_id: str) -> dict:
+        return self.users.action(
+            user_id=user_id,
+            action=action,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+        )

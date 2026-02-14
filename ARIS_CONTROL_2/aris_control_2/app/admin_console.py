@@ -13,7 +13,7 @@ from aris_control_2.app.error_presenter import build_error_payload, print_error_
 from aris_control_2.app.export.csv_exporter import export_current_view
 from aris_control_2.app.state import SessionState
 from aris_control_2.app.tenant_context import TenantContextError, is_superadmin, resolve_operational_tenant_id
-from aris_control_2.app.ui.filters import clean_filters, prompt_optional
+from aris_control_2.app.ui.filters import clean_filters, debounce_text, prompt_optional
 from aris_control_2.app.ui.pagination import PaginationState, goto_page, next_page, prev_page
 from aris_control_2.app.ui.table_printer import print_table
 
@@ -81,14 +81,18 @@ class AdminConsole:
 
     def _list_tenants(self, session: SessionState) -> None:
         self._require_superadmin(session)
-        filters = self._prompt_filters(session, "tenants", ["q"])
+        self._prompt_filters(session, "tenants", ["q"])
         self._run_listing_loop(
             module="tenants",
             session=session,
             fetch_page=lambda page, page_size: self.tenants.list_tenants(
-                session.access_token or "", page=page, page_size=page_size, q=filters.get("q")
+                session.access_token or "",
+                page=page,
+                page_size=page_size,
+                q=session.filters_by_module.get("tenants", {}).get("q"),
             ),
             columns=[("id", "id"), ("code", "code"), ("name", "name"), ("status", "status")],
+            filter_keys=["q"],
         )
 
     def _create_tenant(self, session: SessionState) -> None:
@@ -104,7 +108,7 @@ class AdminConsole:
 
     def _list_stores(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
-        filters = self._prompt_filters(session, "stores", ["q", "status"])
+        self._prompt_filters(session, "stores", ["q", "status"])
         self._run_listing_loop(
             module="stores",
             session=session,
@@ -113,10 +117,11 @@ class AdminConsole:
                 tenant_id,
                 page=page,
                 page_size=page_size,
-                q=filters.get("q"),
-                status=filters.get("status"),
+                q=session.filters_by_module.get("stores", {}).get("q"),
+                status=session.filters_by_module.get("stores", {}).get("status"),
             ),
-            columns=[("id", "id"), ("tenant_id", "tenant_id"), ("code", "code"), ("name", "name"), ("status", "status")],
+            columns=[("id", "id"), ("code", "code"), ("name", "name"), ("status", "status"), ("tenant_id", "tenant")],
+            filter_keys=["q", "status"],
         )
 
     def _create_store(self, session: SessionState) -> None:
@@ -132,17 +137,18 @@ class AdminConsole:
 
     def _list_users(self, session: SessionState) -> None:
         tenant_id = self._resolve_tenant(session)
-        filters = self._prompt_filters(session, "users", ["q", "role", "status"])
+        self._prompt_filters(session, "users", ["q", "role", "status"])
 
         def _fetch(page: int, page_size: int) -> dict[str, Any]:
+            current_filters = session.filters_by_module.get("users", {})
             listing = self.users.list_users(
                 session.access_token or "",
                 tenant_id,
                 page=page,
                 page_size=page_size,
-                q=filters.get("q"),
-                role=filters.get("role"),
-                status=filters.get("status"),
+                q=current_filters.get("q"),
+                role=current_filters.get("role"),
+                status=current_filters.get("status"),
             )
             for row in listing.get("rows", []):
                 row["username_or_email"] = row.get("username") or row.get("email")
@@ -154,45 +160,89 @@ class AdminConsole:
             fetch_page=_fetch,
             columns=[
                 ("id", "id"),
-                ("tenant_id", "tenant_id"),
-                ("store_id", "store_id"),
                 ("username_or_email", "username/email"),
                 ("role", "role"),
                 ("status", "status"),
+                ("store_id", "store"),
+                ("tenant_id", "tenant"),
             ],
+            filter_keys=["q", "role", "status"],
         )
 
-    def _run_listing_loop(self, module: str, session: SessionState, fetch_page: Callable[[int, int], dict[str, Any]], columns: list[tuple[str, str]]) -> None:
+    def _run_listing_loop(
+        self,
+        module: str,
+        session: SessionState,
+        fetch_page: Callable[[int, int], dict[str, Any]],
+        columns: list[tuple[str, str]],
+        filter_keys: list[str],
+    ) -> None:
         session.current_module = module
-        page_size_input = input("page_size (default 20): ").strip()
-        page_state = PaginationState(page=1, page_size=int(page_size_input) if page_size_input.isdigit() else 20)
+        page_state = self._load_pagination_state(session, module)
 
         while True:
             print(f"[loading] Cargando {module} page={page_state.page} page_size={page_state.page_size}...")
-            listing = fetch_page(page_state.page, page_state.page_size)
+            try:
+                listing = fetch_page(page_state.page, page_state.page_size)
+            except Exception as error:  # noqa: BLE001
+                payload = build_error_payload(error)
+                print_error_banner(payload)
+                print("Acciones: t=reintentar, f=filtros, c=limpiar filtros, b=back")
+                command = input("cmd error: ").strip().lower()
+                if command == "t":
+                    continue
+                if command == "f":
+                    self._update_filters_for_module(session, module, filter_keys)
+                    continue
+                if command == "c":
+                    self._clear_filters_for_module(session, module)
+                    continue
+                if command == "b":
+                    session.current_module = "admin_core"
+                    return
+                continue
+
             rows = listing.get("rows", [])
             page_state.page = int(listing.get("page") or page_state.page)
             page_state.page_size = int(listing.get("page_size") or page_state.page_size)
+            self._save_pagination_state(session, module, page_state)
 
             _print_context_header(session, listing)
             if rows:
                 print_table(module.upper(), rows, columns)
             else:
                 print(f"{module.upper()}: sin resultados para los filtros actuales.")
-            print("\nComandos: n=next, p=prev, g=goto, r=refresh, x=export csv, b=back")
+            print("\nComandos: n=next, p=prev, g=goto, z=page_size, r=actualizar, f=filtros, c=limpiar filtros, x=export csv, b=back")
             command = input("cmd: ").strip().lower()
 
             if command == "n":
                 next_page(page_state, listing.get("has_next"))
+                self._save_pagination_state(session, module, page_state)
             elif command == "p":
                 prev_page(page_state)
+                self._save_pagination_state(session, module, page_state)
             elif command == "g":
                 requested = input("page: ").strip()
                 if requested.isdigit():
                     goto_page(page_state, int(requested))
+                    self._save_pagination_state(session, module, page_state)
+            elif command == "z":
+                requested_size = input("page_size: ").strip()
+                if requested_size.isdigit() and int(requested_size) > 0:
+                    page_state.page_size = int(requested_size)
+                    page_state.page = 1
+                    self._save_pagination_state(session, module, page_state)
             elif command == "r":
-                print("[refresh] Recargando listado y preservando tenant/filtros activos...")
+                print("[refresh] Recargando listado y preservando tenant/filtros/paginación activos...")
                 continue
+            elif command == "f":
+                self._update_filters_for_module(session, module, filter_keys)
+                page_state.page = 1
+                self._save_pagination_state(session, module, page_state)
+            elif command == "c":
+                self._clear_filters_for_module(session, module)
+                page_state.page = 1
+                self._save_pagination_state(session, module, page_state)
             elif command == "x":
                 exported = export_current_view(module=module, rows=rows, headers=[key for key, _ in columns])
                 print(f"CSV exportado: {exported}")
@@ -270,14 +320,36 @@ class AdminConsole:
     def _prompt_filters(self, session: SessionState, module: str, keys: list[str]) -> dict[str, str]:
         current = session.filters_by_module.get(module, {})
         prompted = {key: prompt_optional(f"{key} [{current.get(key, '')}]") or current.get(key, "") for key in keys}
+        if "q" in prompted:
+            prompted["q"] = debounce_text(prompted.get("q", ""), wait_ms=350)
         filters = clean_filters(prompted)
         session.filters_by_module[module] = filters
         self._persist_context()
         return filters
 
+    def _update_filters_for_module(self, session: SessionState, module: str, keys: list[str]) -> None:
+        filters = self._prompt_filters(session, module, keys)
+        print(f"[filters] {module}: {filters or 'sin filtros'}")
+
+    def _clear_filters_for_module(self, session: SessionState, module: str) -> None:
+        session.filters_by_module[module] = {}
+        self._persist_context()
+        print("[filters] Filtros limpiados. Tenant seleccionado preservado.")
+
+    def _load_pagination_state(self, session: SessionState, module: str) -> PaginationState:
+        current = session.pagination_by_module.get(module, {})
+        page = int(current.get("page", 1) or 1)
+        page_size = int(current.get("page_size", 20) or 20)
+        return PaginationState(page=max(page, 1), page_size=max(page_size, 1))
+
+    def _save_pagination_state(self, session: SessionState, module: str, page_state: PaginationState) -> None:
+        session.pagination_by_module[module] = {"page": page_state.page, "page_size": page_state.page_size}
+        self._persist_context()
+
     def _persist_context(self) -> None:
         if self._on_context_updated:
             self._on_context_updated()
+
 
 
 def _print_context_header(session: SessionState, listing: dict[str, Any]) -> None:

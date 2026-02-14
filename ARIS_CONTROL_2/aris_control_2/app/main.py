@@ -76,6 +76,7 @@ def _persist_operator_context(session: SessionState) -> None:
         session_fingerprint=session.session_fingerprint(),
         selected_tenant_id=session.selected_tenant_id,
         filters_by_module=session.filters_by_module,
+        pagination_by_module=session.pagination_by_module,
     )
 
 
@@ -87,6 +88,13 @@ def _restore_operator_context(session: SessionState) -> None:
     restored_filters = payload.get("filters_by_module")
     if isinstance(restored_filters, dict):
         session.filters_by_module = {str(key): value for key, value in restored_filters.items() if isinstance(value, dict)}
+    restored_pagination = payload.get("pagination_by_module")
+    if isinstance(restored_pagination, dict):
+        session.pagination_by_module = {
+            str(key): value
+            for key, value in restored_pagination.items()
+            if isinstance(value, dict)
+        }
 
 
 def _copy_to_clipboard(text: str) -> bool:

@@ -24,11 +24,18 @@ def load_context() -> dict[str, Any]:
         return {}
 
 
-def save_context(*, session_fingerprint: str, selected_tenant_id: str | None, filters_by_module: dict[str, dict[str, str]]) -> None:
+def save_context(
+    *,
+    session_fingerprint: str,
+    selected_tenant_id: str | None,
+    filters_by_module: dict[str, dict[str, str]],
+    pagination_by_module: dict[str, dict[str, int]],
+) -> None:
     payload = {
         "session_fingerprint": session_fingerprint,
         "selected_tenant_id": selected_tenant_id,
         "filters_by_module": filters_by_module,
+        "pagination_by_module": pagination_by_module,
     }
     path = _context_path()
     path.parent.mkdir(parents=True, exist_ok=True)

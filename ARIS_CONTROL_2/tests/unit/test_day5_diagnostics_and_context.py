@@ -32,11 +32,13 @@ def test_persistence_restores_tenant_and_filters_and_clears_incompatible(tmp_pat
         session_fingerprint="SUPERADMIN:t-1",
         selected_tenant_id="tenant-a",
         filters_by_module={"stores": {"status": "ACTIVE"}},
+        pagination_by_module={"stores": {"page": 3, "page_size": 50}},
     )
 
     restored = restore_compatible_context(session_fingerprint="SUPERADMIN:t-1")
     assert restored["selected_tenant_id"] == "tenant-a"
     assert restored["filters_by_module"]["stores"]["status"] == "ACTIVE"
+    assert restored["pagination_by_module"]["stores"]["page"] == 3
 
     incompatible = restore_compatible_context(session_fingerprint="MANAGER:t-2")
     assert incompatible == {}

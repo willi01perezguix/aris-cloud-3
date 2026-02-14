@@ -1,7 +1,12 @@
 from aris_control_2.app.application.state.session_state import SessionState
+from aris_control_2.app.application.use_cases.create_store_use_case import CreateStoreUseCase
+from aris_control_2.app.application.use_cases.create_user_use_case import CreateUserUseCase
+from aris_control_2.app.application.use_cases.list_stores_use_case import ListStoresUseCase
+from aris_control_2.app.application.use_cases.list_users_use_case import ListUsersUseCase
 from aris_control_2.app.application.use_cases.load_me_use_case import LoadMeUseCase
 from aris_control_2.app.application.use_cases.login_use_case import LoginUseCase
 from aris_control_2.app.application.use_cases.select_tenant_use_case import SelectTenantUseCase
+from aris_control_2.app.application.use_cases.user_actions_use_case import UserActionsUseCase
 from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.app.infrastructure.logging.logger import get_logger, log_action
 from aris_control_2.app.infrastructure.sdk_adapter.admin_adapter import AdminAdapter
@@ -14,30 +19,38 @@ from aris_control_2.clients.aris3_client_sdk.auth_store import AuthStore
 from aris_control_2.clients.aris3_client_sdk.http_client import APIError, HttpClient
 
 
-def build_shell() -> tuple[SessionState, LoginUseCase, LoadMeUseCase, SelectTenantUseCase, TenantsView, StoresView, UsersView]:
+def build_shell():
     http = HttpClient.from_env()
     auth_store = AuthStore()
     auth_adapter = AuthAdapter(http=http, auth_store=auth_store)
     admin_adapter = AdminAdapter(http=http, auth_store=auth_store)
 
     state = SessionState()
+    list_stores_uc = ListStoresUseCase(adapter=admin_adapter, state=state)
     return (
         state,
         LoginUseCase(auth_adapter=auth_adapter, state=state),
         LoadMeUseCase(auth_adapter=auth_adapter, state=state),
         SelectTenantUseCase(state=state),
         TenantsView(adapter=admin_adapter, state=state),
-        StoresView(adapter=admin_adapter, state=state),
-        UsersView(adapter=admin_adapter, state=state),
+        StoresView(list_use_case=list_stores_uc, create_use_case=CreateStoreUseCase(adapter=admin_adapter, state=state), state=state),
+        UsersView(
+            list_use_case=ListUsersUseCase(adapter=admin_adapter, state=state),
+            create_use_case=CreateUserUseCase(adapter=admin_adapter, state=state),
+            actions_use_case=UserActionsUseCase(adapter=admin_adapter, state=state),
+            list_stores_use_case=list_stores_uc,
+            state=state,
+        ),
     )
 
 
 def main() -> None:
     logger = get_logger("aris_control_2.shell")
     state, login_uc, me_uc, select_tenant_uc, tenants_view, stores_view, users_view = build_shell()
+    login_view = LoginView()
 
     try:
-        credentials = LoginView().prompt_credentials()
+        credentials = login_view.prompt_credentials()
         login_uc.execute(username_or_email=credentials[0], password=credentials[1])
         me_uc.execute()
         log_action(logger, module="shell", action="login_success", tenant_id=state.context.effective_tenant_id, trace_id=None)
@@ -46,6 +59,10 @@ def main() -> None:
         trace_id = error.trace_id if isinstance(error, APIError) else None
         log_action(logger, module="shell", action="login_failed", tenant_id=None, trace_id=trace_id)
         print(f"[ERROR] {message}")
+        return
+
+    if state.context.must_change_password:
+        login_view.must_change_password_block()
         return
 
     while True:

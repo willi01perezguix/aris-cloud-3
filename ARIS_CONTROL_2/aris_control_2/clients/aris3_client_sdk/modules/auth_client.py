@@ -9,7 +9,7 @@ class AuthClient:
 
     def login(self, username_or_email: str, password: str) -> dict:
         payload = {"username_or_email": username_or_email, "password": password}
-        result = self.http.request("POST", "/auth/login", json=payload)
+        result = self.http.request("POST", "/aris3/auth/login", json=payload)
         token = result.get("access_token")
         if token:
             self.auth_store.set_token(token)

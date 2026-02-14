@@ -9,5 +9,9 @@ class PermissionGate:
         if allowed:
             return True, ""
         if reason == "TENANT_CONTEXT_REQUIRED":
-            return False, "SUPERADMIN debe seleccionar tenant antes de Stores/Users."
+            return False, "SUPERADMIN debe seleccionar tenant antes de operar Stores/Users."
         return False, "El token no incluye tenant_id para recursos tenant-scoped."
+
+    @staticmethod
+    def can(context: SessionContext, permission: str) -> bool:
+        return context.can(permission)

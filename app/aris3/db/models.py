@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import uuid
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.aris3.db.base import Base, GUID
@@ -30,9 +30,12 @@ class Store(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     tenant = relationship("Tenant", back_populates="stores")
-    users = relationship("User", back_populates="store")
+    users = relationship("User", back_populates="store", foreign_keys="User.store_id")
 
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_store_tenant_name"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_store_tenant_name"),
+        UniqueConstraint("tenant_id", "id", name="uq_stores_tenant_id_id"),
+    )
 
 
 class User(Base):
@@ -51,11 +54,12 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     tenant = relationship("Tenant", back_populates="users")
-    store = relationship("Store", back_populates="users")
+    store = relationship("Store", back_populates="users", foreign_keys=[store_id])
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "username", name="uq_users_tenant_username"),
         UniqueConstraint("tenant_id", "email", name="uq_users_tenant_email"),
+        ForeignKeyConstraint(("tenant_id", "store_id"), ("stores.tenant_id", "stores.id"), name="fk_users_tenant_store"),
     )
 
 

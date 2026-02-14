@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from aris_control_2.app.application.state.session_state import SessionState
 from aris_control_2.app.application.mutation_attempts import (
     begin_mutation,
@@ -37,6 +39,61 @@ def build_sensitive_action_summary(action: str, user_id: str, payload: dict, ten
         f"- tenant: {tenant_id or 'N/A'}\n"
         f"- cambios: {payload}"
     )
+
+
+def validate_user_action_context(
+    *,
+    selected_tenant_id: str | None,
+    effective_tenant_id: str | None,
+    action_gate_allowed: bool,
+    action_gate_reason: str,
+    user_id: str,
+    action: str,
+    payload: dict,
+    users: list,
+) -> tuple[bool, str]:
+    if not action_gate_allowed:
+        return False, action_gate_reason
+    if not selected_tenant_id:
+        return False, "Acción bloqueada: debes seleccionar tenant antes de ejecutar acciones administrativas."
+    if effective_tenant_id != selected_tenant_id:
+        return False, "Acción bloqueada: contexto tenant inconsistente, recarga sesión y vuelve a intentar."
+    if not user_id:
+        return False, "Acción bloqueada: user_id es requerido."
+
+    target_user = next((user for user in users if user.id == user_id), None)
+    if target_user is None:
+        return False, "Acción bloqueada: el usuario objetivo no existe en la lista del tenant activo."
+    if target_user.tenant_id != effective_tenant_id:
+        return False, "Acción bloqueada: mismatch tenant, el usuario objetivo no pertenece al tenant efectivo."
+
+    if action in {"set_status", "set_role", "reset_password"}:
+        required_key = "status" if action == "set_status" else "role" if action == "set_role" else "new_password"
+        if not payload.get(required_key):
+            return False, f"Acción bloqueada: falta {required_key} para {action}."
+    return True, ""
+
+
+def render_last_admin_action(state: SessionState) -> None:
+    if not state.last_admin_action:
+        return
+    last = state.last_admin_action
+    print(
+        "[audit] última acción "
+        f"type={last.get('action')} "
+        f"timestamp={last.get('timestamp_local')} "
+        f"result={last.get('result')} "
+        f"trace_id={last.get('trace_id', 'n/a')}"
+    )
+
+
+def _save_last_admin_action(state: SessionState, action: str, result: str, trace_id: str | None = None) -> None:
+    state.last_admin_action = {
+        "action": action,
+        "timestamp_local": datetime.now().isoformat(timespec="seconds"),
+        "result": result,
+        "trace_id": trace_id or "n/a",
+    }
 
 
 class UsersView:
@@ -80,6 +137,7 @@ class UsersView:
             print("[ready] -- Users --")
             for user in users:
                 print(f"{user.id} :: {user.email}")
+        render_last_admin_action(self.state)
 
         action_option = input("Acción users [r=refresh, c=crear, a=acciones, Enter=volver]: ").strip().lower()
         if action_option == "r":
@@ -172,6 +230,19 @@ class UsersView:
             if action == "set_role"
             else {"new_password": payload_value}
         )
+        valid_action, block_reason = validate_user_action_context(
+            selected_tenant_id=self.state.context.selected_tenant_id,
+            effective_tenant_id=self.state.context.effective_tenant_id,
+            action_gate_allowed=actions_gate.allowed,
+            action_gate_reason=actions_gate.reason,
+            user_id=user_id,
+            action=action,
+            payload=payload,
+            users=users,
+        )
+        if not valid_action:
+            print(f"[blocked] {block_reason}")
+            return
         print(build_sensitive_action_summary(action, user_id, payload, self.state.context.effective_tenant_id))
         if input(f"Confirmar acción sensible {action}? [s/N]: ").strip().lower() != "s":
             print("Acción cancelada.")
@@ -194,17 +265,26 @@ class UsersView:
                 print("Operación ya procesada previamente.")
             else:
                 print_mutation_success(f"user.{action}", result, highlighted_id=user_id)
+            _save_last_admin_action(
+                self.state,
+                action=f"user.{action}",
+                result="OK",
+                trace_id=result.get("trace_id") or result.get("transaction_id"),
+            )
             clear_attempt(self.state, action_operation)
-            print("[refresh] recargando users...")
-            for user in self.list_use_case.execute():
+            print("[refresh] actualizando lista afectada sin perder contexto...")
+            refreshed_users = self.list_use_case.execute()
+            for user in refreshed_users:
                 marker = " <- actualizado" if user.id == user_id else ""
                 print(f"{user.id} :: {user.email}{marker}")
         except APIError as error:
             print_mutation_error(f"user.{action}", error)
+            _save_last_admin_action(self.state, action=f"user.{action}", result="ERROR", trace_id=error.trace_id)
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar acción? [s/N]: ").strip().lower() == "s":
                 self.render()
         except Exception as error:
+            _save_last_admin_action(self.state, action=f"user.{action}", result="ERROR")
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar acción? [s/N]: ").strip().lower() == "s":
                 self.render()

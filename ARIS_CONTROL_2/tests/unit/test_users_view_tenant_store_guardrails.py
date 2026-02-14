@@ -4,6 +4,8 @@ from aris_control_2.app.application.state.session_state import SessionState
 from aris_control_2.app.ui.views.users_view import (
     UsersView,
     render_last_admin_action,
+    should_enable_sensitive_confirm,
+    validate_sensitive_confirmation_inputs,
     validate_store_for_selected_tenant,
     validate_user_action_context,
 )
@@ -145,3 +147,41 @@ def test_render_last_admin_action_shows_trace(capsys) -> None:
     output = capsys.readouterr().out
     assert "última acción" in output
     assert "trace-123" in output
+
+
+def test_validate_sensitive_confirmation_inputs_requires_checkbox() -> None:
+    allowed, reason = validate_sensitive_confirmation_inputs(False, "CONFIRM-SET_ROLE", "CONFIRM-SET_ROLE")
+
+    assert allowed is False
+    assert "confirmación explícita" in reason
+
+
+def test_validate_sensitive_confirmation_inputs_requires_exact_text() -> None:
+    allowed, reason = validate_sensitive_confirmation_inputs(True, "confirm-set-role", "CONFIRM-SET_ROLE")
+
+    assert allowed is False
+    assert "exactamente" in reason
+
+
+def test_should_enable_sensitive_confirm_blocks_invalid_prevalidation() -> None:
+    enabled, reason = should_enable_sensitive_confirm(
+        valid_action=False,
+        confirmation_checked=True,
+        confirmation_text="CONFIRM-SET_STATUS",
+        expected_text="CONFIRM-SET_STATUS",
+    )
+
+    assert enabled is False
+    assert "validaciones previas" in reason
+
+
+def test_should_enable_sensitive_confirm_accepts_valid_inputs() -> None:
+    enabled, reason = should_enable_sensitive_confirm(
+        valid_action=True,
+        confirmation_checked=True,
+        confirmation_text="CONFIRM-RESET_PASSWORD",
+        expected_text="CONFIRM-RESET_PASSWORD",
+    )
+
+    assert enabled is True
+    assert reason == ""

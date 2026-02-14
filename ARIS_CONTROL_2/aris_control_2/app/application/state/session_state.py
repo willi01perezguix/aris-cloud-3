@@ -13,6 +13,8 @@ class SessionState:
     selected_store_row: str | None = None
     selected_user_store_id: str | None = None
     selected_user_row: str | None = None
+    selected_user_rows: list[str] = field(default_factory=list)
+    selected_user_rows_tenant_id: str | None = None
     stores_page: int = 1
     users_page: int = 1
     mutation_in_flight: set[str] = field(default_factory=set)
@@ -27,5 +29,7 @@ class SessionState:
         self.selected_store_row = None
         self.selected_user_store_id = None
         self.selected_user_row = None
+        self.selected_user_rows.clear()
+        self.selected_user_rows_tenant_id = None
         self.stores_page = 1
         self.users_page = 1

@@ -72,3 +72,15 @@ def test_api_error_keeps_trace_id() -> None:
     except ApiError as exc:
         assert exc.status_code == 403
         assert exc.trace_id == "trace-123"
+
+
+def test_list_clients_return_canonical_listing_shape() -> None:
+    http = DummyHttp()
+
+    tenants_listing = TenantsClient(http).list_tenants("token")
+    stores_listing = StoresClient(http).list_stores("token", "tenant-1")
+    users_listing = UsersClient(http).list_users("token", "tenant-1")
+
+    assert set(tenants_listing.keys()) >= {"rows", "page", "page_size", "total", "has_next", "has_prev", "raw_meta"}
+    assert stores_listing["rows"] == []
+    assert users_listing["rows"] == []

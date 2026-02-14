@@ -11,8 +11,8 @@ class StubStoresClient:
         self._stores = stores
         self.create_called = False
 
-    def list_stores(self, access_token: str, tenant_id: str):
-        return self._stores
+    def list_stores(self, access_token: str, tenant_id: str, **kwargs):
+        return {"rows": self._stores, "page": 1, "page_size": len(self._stores) or 1, "total": len(self._stores)}
 
 
 class StubUsersClient:

@@ -15,6 +15,12 @@ from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.app.ui.components.error_banner import ErrorBanner
 from aris_control_2.app.ui.components.mutation_feedback import print_mutation_error, print_mutation_success
 from aris_control_2.app.ui.components.permission_gate import PermissionGate
+from aris_control_2.app.ui.forms import (
+    FormStatus,
+    build_form_state,
+    map_api_validation_errors,
+    validate_user_form,
+)
 from aris_control_2.clients.aris3_client_sdk.http_client import APIError
 
 
@@ -161,29 +167,46 @@ class UsersView:
                 print("[empty] No hay stores disponibles para asociar al usuario.")
 
             email = input("Email: ").strip()
-            password = input("Password: ").strip()
+            password = input("Password (mínimo 8 caracteres): ").strip()
             store_id = input("Store ID (opcional): ").strip() or None
+            form_result = validate_user_form(
+                email=email,
+                password=password,
+                tenant_id=self.state.context.selected_tenant_id,
+                store_id=store_id,
+            )
+            form_state = build_form_state(form_result)
+            if not form_state.submit_enabled:
+                print(f"[disabled] Submit user ({form_state.submit_disabled_reason})")
+                if form_result.first_invalid_field:
+                    print(f"[focus] Corrige primero: {form_result.first_invalid_field}")
+                for field_name, field_error in form_result.field_errors.items():
+                    print(f"[field-error] {field_name}: {field_error}")
+                return
             valid_store, reason = validate_store_for_selected_tenant(
                 self.state.context.selected_tenant_id,
-                store_id,
+                form_result.values["store_id"],
                 stores,
             )
             if not valid_store:
+                print("[disabled] Submit user (store fuera de tenant contexto)")
+                print("[focus] Corrige primero: store_id")
                 ErrorBanner.show(reason)
                 return
-            self.state.selected_user_store_id = store_id
+            self.state.selected_user_store_id = form_result.values["store_id"]
 
             create_operation = "user-create"
             if not begin_mutation(self.state, create_operation):
                 print("[loading] Procesando… evita doble submit.")
                 return
+            form_state.status = FormStatus.SUBMITTING
             print("[loading] Procesando… (crear usuario)")
             try:
                 attempt = get_or_create_attempt(self.state, create_operation)
                 result = self.create_use_case.execute(
-                    email=email,
-                    password=password,
-                    store_id=store_id,
+                    email=form_result.values["email"],
+                    password=form_result.values["password"],
+                    store_id=form_result.values["store_id"],
                     idempotency_key=attempt.idempotency_key,
                     transaction_id=attempt.transaction_id,
                 )
@@ -191,17 +214,24 @@ class UsersView:
                     print("Operación ya procesada previamente.")
                 else:
                     print_mutation_success("user.create", result, highlighted_id=result.get("id"))
+                form_state.status = FormStatus.SUCCESS
                 clear_attempt(self.state, create_operation)
                 print("[refresh] recargando users...")
                 for user in self.list_use_case.execute():
                     marker = " <- actualizado" if result.get("id") and user.id == result.get("id") else ""
                     print(f"{user.id} :: {user.email}{marker}")
             except APIError as error:
+                form_state.status = FormStatus.ERROR
+                if error.status_code == 422:
+                    field_errors = map_api_validation_errors(error.details)
+                    for field_name, field_error in field_errors.items():
+                        print(f"[field-error] {field_name}: {field_error}")
                 print_mutation_error("user.create", error)
                 ErrorBanner.show(ErrorMapper.to_payload(error))
                 if input("Reintentar create user? [s/N]: ").strip().lower() == "s":
                     self.render()
             except Exception as error:
+                form_state.status = FormStatus.ERROR
                 ErrorBanner.show(ErrorMapper.to_payload(error))
                 if input("Reintentar create user? [s/N]: ").strip().lower() == "s":
                     self.render()

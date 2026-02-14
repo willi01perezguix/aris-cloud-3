@@ -5,6 +5,7 @@ from clients.aris3_client_sdk.errors import ApiError
 from aris_control_2.app.admin_console import AdminConsole
 from aris_control_2.app.listing_cache import ListingCache
 from aris_control_2.app.state import SessionState
+from aris_control_2.app.ui.listing_view import ColumnDef
 
 
 class _StubTenantsClient:
@@ -59,7 +60,7 @@ def test_refresh_keeps_filters_and_page_state(monkeypatch) -> None:
         module="tenants",
         session=session,
         fetch_page=_fetch,
-        columns=[("id", "id")],
+        columns=[ColumnDef("id", "id")],
         filter_keys=["q"],
     )
 

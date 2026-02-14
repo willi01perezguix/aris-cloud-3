@@ -36,12 +36,14 @@ def save_context(
     selected_tenant_id: str | None,
     filters_by_module: dict[str, dict[str, str]],
     pagination_by_module: dict[str, dict[str, int]],
+    listing_view_by_module: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     payload = {
         "session_fingerprint": session_fingerprint,
         "selected_tenant_id": selected_tenant_id,
         "filters_by_module": filters_by_module,
         "pagination_by_module": pagination_by_module,
+        "listing_view_by_module": listing_view_by_module or {},
     }
     path = _context_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,6 +73,7 @@ def save_auth_recovery_context(
     selected_tenant_id: str | None,
     filters_by_module: dict[str, dict[str, str]],
     pagination_by_module: dict[str, dict[str, int]],
+    listing_view_by_module: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     payload = {
         "reason": reason,
@@ -78,6 +81,7 @@ def save_auth_recovery_context(
         "selected_tenant_id": selected_tenant_id,
         "filters_by_module": filters_by_module,
         "pagination_by_module": pagination_by_module,
+        "listing_view_by_module": listing_view_by_module or {},
     }
     path = _recovery_path()
     path.parent.mkdir(parents=True, exist_ok=True)

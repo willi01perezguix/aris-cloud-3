@@ -15,6 +15,7 @@ class SessionState:
     selected_tenant_id: str | None = None
     filters_by_module: dict[str, dict[str, str]] = field(default_factory=dict)
     pagination_by_module: dict[str, dict[str, int]] = field(default_factory=dict)
+    listing_view_by_module: dict[str, dict[str, Any]] = field(default_factory=dict)
     current_module: str = "menu_principal"
 
     def is_authenticated(self) -> bool:
@@ -46,4 +47,5 @@ class SessionState:
         self.selected_tenant_id = None
         self.filters_by_module = {}
         self.pagination_by_module = {}
+        self.listing_view_by_module = {}
         self.current_module = "menu_principal"

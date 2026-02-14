@@ -1,5 +1,6 @@
 from aris_control_2.app.admin_console import AdminConsole
 from aris_control_2.app.state import SessionState
+from aris_control_2.app.ui.listing_view import ColumnDef
 from aris_control_2.app.ui.components.error_banner import ErrorBanner
 
 
@@ -34,7 +35,7 @@ def test_admin_refresh_keeps_tenant_and_filters(monkeypatch, capsys) -> None:
         module="stores",
         session=session,
         fetch_page=fetch_page,
-        columns=[("id", "id"), ("name", "name"), ("status", "status")],
+        columns=[ColumnDef("id", "id"), ColumnDef("name", "name"), ColumnDef("status", "status")],
         filter_keys=["q", "status"],
     )
 

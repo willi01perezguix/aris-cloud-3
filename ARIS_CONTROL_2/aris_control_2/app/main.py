@@ -85,6 +85,7 @@ def _persist_operator_context(session: SessionState) -> None:
         selected_tenant_id=session.selected_tenant_id,
         filters_by_module=session.filters_by_module,
         pagination_by_module=session.pagination_by_module,
+        listing_view_by_module=session.listing_view_by_module,
     )
 
 
@@ -101,6 +102,13 @@ def _restore_operator_context(session: SessionState) -> None:
         session.pagination_by_module = {
             str(key): value
             for key, value in restored_pagination.items()
+            if isinstance(value, dict)
+        }
+    restored_listing_view = payload.get("listing_view_by_module")
+    if isinstance(restored_listing_view, dict):
+        session.listing_view_by_module = {
+            str(key): value
+            for key, value in restored_listing_view.items()
             if isinstance(value, dict)
         }
 
@@ -127,6 +135,13 @@ def _restore_auth_recovery_context(session: SessionState) -> None:
         session.pagination_by_module = {
             str(key): value
             for key, value in recovered_pagination.items()
+            if isinstance(value, dict)
+        }
+    recovered_listing_view = payload.get("listing_view_by_module")
+    if isinstance(recovered_listing_view, dict):
+        session.listing_view_by_module = {
+            str(key): value
+            for key, value in recovered_listing_view.items()
             if isinstance(value, dict)
         }
     clear_auth_recovery_context()
@@ -247,6 +262,7 @@ def main() -> None:
             selected_tenant_id=session.selected_tenant_id,
             filters_by_module=session.filters_by_module,
             pagination_by_module=session.pagination_by_module,
+            listing_view_by_module=session.listing_view_by_module,
         )
         _logout_session(session, keep_recovery_context=True)
         _show_session_banner(reason=reason, action="Ir a login")

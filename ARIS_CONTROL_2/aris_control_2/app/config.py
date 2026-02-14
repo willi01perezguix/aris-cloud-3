@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+DEFAULT_BASE_URL = "https://aris-cloud-3-api-pecul.ondigitalocean.app/"
+
+
 @dataclass(frozen=True)
 class AppConfig:
     base_url: str
@@ -17,7 +20,7 @@ class AppConfig:
     def from_env(cls, env_file: str = ".env") -> "AppConfig":
         _load_dotenv(env_file)
         config = cls(
-            base_url=os.getenv("ARIS3_BASE_URL", "http://localhost:8000").strip(),
+            base_url=os.getenv("ARIS3_BASE_URL", DEFAULT_BASE_URL).strip(),
             timeout_seconds=float(os.getenv("ARIS3_TIMEOUT_SECONDS", "30")),
             verify_ssl=os.getenv("ARIS3_VERIFY_SSL", "true").lower() == "true",
             retry_max_attempts=int(os.getenv("ARIS3_RETRY_MAX_ATTEMPTS", "3")),

@@ -37,6 +37,7 @@ def _print_runtime_config(config: SDKConfig, environment: str) -> None:
     print("ARIS_CONTROL_2")
     print(f"Base URL: {config.base_url}")
     print(f"Timeout: {config.timeout_seconds}s")
+    print(f"GET Retry: {config.retry_max_attempts} intentos, backoff base {config.retry_backoff_ms}ms")
     print(f"Verify SSL: {config.verify_ssl}")
     print(f"Entorno: {environment}")
     print(f"Versión: {APP_VERSION}")

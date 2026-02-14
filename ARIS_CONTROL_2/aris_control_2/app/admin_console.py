@@ -44,6 +44,8 @@ class AdminConsole:
         self._last_refresh_at_by_module: dict[str, float] = {}
         self._auto_refresh_by_module: dict[str, bool] = {}
         self._consecutive_errors_by_module: dict[str, int] = {}
+        self._last_load_duration_ms_by_module: dict[str, int] = {}
+        self._health_status_by_module: dict[str, str] = {}
 
     def run(self, session: SessionState) -> None:
         session.current_module = "admin_core"
@@ -292,7 +294,13 @@ class AdminConsole:
                 visible_columns = columns
             table_columns = [(column.key, column.label) for column in visible_columns]
 
-            _print_context_header(session, listing, self._last_refresh_at_by_module.get(module))
+            _print_context_header(
+                session,
+                listing,
+                self._last_refresh_at_by_module.get(module),
+                self._last_load_duration_ms_by_module.get(module),
+                self._health_status_by_module.get(module, "OK"),
+            )
             if rows:
                 print_table(module.upper(), rows, table_columns)
             else:
@@ -481,6 +489,10 @@ class AdminConsole:
         previous = session.selected_tenant_id
         session.selected_tenant_id = tenant_id
         if previous and previous != tenant_id:
+            session.reset_module_state("stores")
+            session.reset_module_state("users")
+            self._invalidate_read_cache("stores")
+            self._invalidate_read_cache("users")
             users_filters = session.filters_by_module.get("users", {}).copy()
             users_filters.pop("store_id", None)
             session.filters_by_module["users"] = clean_filters(users_filters)
@@ -667,7 +679,11 @@ class AdminConsole:
         return PaginationState(page=max(page, 1), page_size=max(page_size, 1))
 
     def _save_pagination_state(self, session: SessionState, module: str, page_state: PaginationState) -> None:
-        session.pagination_by_module[module] = {"page": page_state.page, "page_size": page_state.page_size}
+        previous = session.pagination_by_module.get(module)
+        updated = {"page": page_state.page, "page_size": page_state.page_size}
+        if previous == updated:
+            return
+        session.pagination_by_module[module] = updated
         self._persist_context()
 
     def _persist_context(self) -> None:
@@ -705,14 +721,22 @@ class AdminConsole:
                 self._listing_cache.set(key, listing)
                 self._last_refresh_at_by_module[module] = time.time()
                 elapsed = time.monotonic() - start
-                self.support_center.record_operation(module=module, screen=module, action="list", result="success", latency_ms=int(elapsed * 1000), code="OK", message="listado actualizado")
+                elapsed_ms = int(elapsed * 1000)
+                self._last_load_duration_ms_by_module[module] = elapsed_ms
+                self._health_status_by_module[module] = "DEGRADED" if elapsed >= 1.2 else "OK"
+                self.support_center.record_operation(module=module, screen=module, action="list", result="success", latency_ms=elapsed_ms, code="OK", message="listado actualizado")
                 if elapsed >= 1.2:
                     print("[network] Conexión lenta, la respuesta demoró más de lo habitual.")
+                if attempt > 1:
+                    print("[network] Servicio recuperado. Continuando operación.")
                 return listing
             except ApiError as error:
                 self.support_center.record_operation(module=module, screen=module, action="list", result="error", latency_ms=int((time.monotonic() - start) * 1000), trace_id=error.trace_id, code=error.code, message=error.message)
                 if error.code == "NETWORK_ERROR":
+                    self._health_status_by_module[module] = "OFFLINE"
                     print("[network] Sin conexión. Verifica red/VPN y vuelve a intentar.")
+                elif error.status_code and error.status_code >= 500:
+                    self._health_status_by_module[module] = "DEGRADED"
                 if self._is_retryable_listing_error(error) and attempt < 3:
                     print(f"[network] Reintentando... intento {attempt + 1}/3")
                     time.sleep(0.25 * attempt)
@@ -724,7 +748,13 @@ class AdminConsole:
         return error.code in {"NETWORK_ERROR"} or bool(error.status_code and error.status_code >= 500)
 
 
-def _print_context_header(session: SessionState, listing: dict[str, Any], last_refresh_at: float | None = None) -> None:
+def _print_context_header(
+    session: SessionState,
+    listing: dict[str, Any],
+    last_refresh_at: float | None = None,
+    load_duration_ms: int | None = None,
+    health_status: str = "OK",
+) -> None:
     total = listing.get("total")
     total_text = str(total) if total is not None else "N/A"
     print("\nContexto:")
@@ -734,6 +764,9 @@ def _print_context_header(session: SessionState, listing: dict[str, Any], last_r
     print(f"  page: {listing.get('page')} / page_size: {listing.get('page_size')} / total: {total_text}")
     if last_refresh_at is not None:
         print(f"  última actualización: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_refresh_at))}")
+    if load_duration_ms is not None:
+        print(f"  duración carga aprox: {load_duration_ms}ms")
+    print(f"  salud vista: {health_status}")
 
 
 def _api_error_diagnostic(error: ApiError) -> str:

@@ -22,6 +22,8 @@ class SessionState:
         return bool(self.access_token)
 
     def apply_me(self, me_payload: dict[str, Any]) -> None:
+        previous_role = self.role
+        previous_effective_tenant = self.effective_tenant_id
         self.user = me_payload
         self.role = str(me_payload.get("role") or me_payload.get("actor_role") or "").upper() or None
         self.effective_tenant_id = (
@@ -29,6 +31,10 @@ class SessionState:
             or me_payload.get("tenant_id")
             or me_payload.get("actor_tenant_id")
         )
+        if previous_role and previous_role != self.role:
+            self._reset_operational_context()
+        if previous_effective_tenant and previous_effective_tenant != self.effective_tenant_id:
+            self._reset_operational_context()
         if self.role != "SUPERADMIN":
             self.selected_tenant_id = self.effective_tenant_id
 
@@ -49,3 +55,13 @@ class SessionState:
         self.pagination_by_module = {}
         self.listing_view_by_module = {}
         self.current_module = "menu_principal"
+
+    def reset_module_state(self, module: str) -> None:
+        self.filters_by_module.pop(module, None)
+        self.pagination_by_module.pop(module, None)
+        self.listing_view_by_module.pop(module, None)
+
+    def _reset_operational_context(self) -> None:
+        self.filters_by_module = {}
+        self.pagination_by_module = {}
+        self.listing_view_by_module = {}

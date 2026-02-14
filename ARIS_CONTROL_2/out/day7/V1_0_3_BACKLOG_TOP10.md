@@ -1,19 +1,19 @@
-# Backlog v1.0.3 — Top 10 priorizado (Day 1 kickoff)
+# Backlog v1.0.4 — Top 10 priorizado (post Day 7)
 
-Criterio: priorización por **impacto + riesgo + esfuerzo** manteniendo contrato API/endpoints sin cambios.
+Criterio: priorización por **impacto + riesgo + esfuerzo** sin cambios de contrato API/endpoints.
 
-| Prioridad | ID | Item | Impacto | Riesgo | Esfuerzo | Estado Day 1 |
+| Prioridad | ID | Item | Impacto | Riesgo | Esfuerzo | Prioridad final |
 |---:|---|---|---|---|---|---|
-| 1 | QW1 | UX operativa: unificar error visible `code + message + trace_id` en Stores/Users/Actions | Alto | Bajo | Bajo | ✅ Implementado |
-| 2 | QW2 | Productividad UI admin: refresh explícito + loading claro preservando tenant/filtros | Alto | Bajo | Bajo | ✅ Implementado |
-| 3 | QW3 | Shortcut de paginación rápida (`first/last`) en listados admin | Medio | Bajo | Bajo | Pendiente |
-| 4 | QW4 | Copia de ayuda contextual para errores 401/403/422 en consola | Medio | Bajo | Bajo | Pendiente |
-| 5 | QW5 | Normalizar mensajes empty-state con siguiente acción recomendada | Medio | Bajo | Bajo | Pendiente |
-| 6 | BL6 | Señal de latencia por llamada (ms) en listados admin | Alto | Medio | Medio | Pendiente |
-| 7 | BL7 | Export CSV con nombre determinístico (tenant+timestamp) | Medio | Bajo | Medio | Pendiente |
-| 8 | BL8 | Check de sesión expirada previo a mutaciones sensibles | Alto | Medio | Medio | Pendiente |
-| 9 | BL9 | Runbook smoke automatizado post-release v1.0.3 | Alto | Medio | Medio | Pendiente |
-| 10 | BL10 | Telemetría de errores de operador (agregado por código) | Medio | Medio | Medio | Pendiente |
+| 1 | B4-01 | Automatizar build y smoke Windows (`.exe`) en runner dedicado | Alto | Alto | Medio | P0 |
+| 2 | B4-02 | Publicación automática de SHA256 junto al asset release | Alto | Alto | Bajo | P0 |
+| 3 | B4-03 | Pipeline de smoke T+0 en máquina limpia (checklist ejecutable) | Alto | Alto | Medio | P0 |
+| 4 | B4-04 | Ejecución periódica de rollback drill real con evidencia <15 min | Alto | Medio | Medio | P1 |
+| 5 | B4-05 | Dashboard de errores UI/API con `code/message/trace_id` consolidado | Alto | Medio | Medio | P1 |
+| 6 | B4-06 | Reintento controlado para fallos de conectividad endpoint default | Medio | Medio | Bajo | P1 |
+| 7 | B4-07 | Plantilla de release notes estable + riesgos + rollback resumido | Medio | Bajo | Bajo | P1 |
+| 8 | B4-08 | Alertas automáticas para incumplimiento checkpoints 72h | Medio | Medio | Bajo | P2 |
+| 9 | B4-09 | Reporte comparativo RC vs estable (asset/hash/smoke) | Medio | Bajo | Bajo | P2 |
+| 10 | B4-10 | Kit de evidencia one-click para comité GO/NO-GO | Medio | Bajo | Medio | P2 |
 
-## Quick wins seleccionados hoy
-- **QW1** y **QW2** por mejor relación impacto/riesgo/esfuerzo y rollback inmediato por revert de commit.
+## Nota de continuidad
+- Este backlog se activa inmediatamente después del cierre de hotfix Day 7 y previo al próximo intento de publicación estable.

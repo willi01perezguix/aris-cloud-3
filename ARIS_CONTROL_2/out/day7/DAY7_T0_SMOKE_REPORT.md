@@ -1,22 +1,23 @@
-# Day 7 — Smoke post-publicación inmediata (T+0)
+# Day 7 — Smoke post-publicación inmediata (T+0) v1.0.3
 
 Fecha: 2026-02-14
-Estado global: **BLOCKED (NO-GO activo, sin release estable publicada)**
+Estado global: **FAIL por precondición (NO-GO activo)**
 
-## Checkpoint Δ1 — Precondición
-- Δ Release estable publicada: **NO**.
-- Δ Asset descargable `ARIS_CONTROL_2.exe`: **NO**.
-- Δ SHA256 publicado: **NO**.
+## Checkpoint Δ1 — Verificación de precondiciones de publicación
+- Δ Release estable v1.0.3 publicada: **NO**.
+- Δ Asset `ARIS_CONTROL_2.exe` descargable desde release estable: **NO**.
+- Δ SHA256 oficial publicado/verificable: **NO**.
 
-## Checkpoint Δ2 — Matriz T+0
+## Checkpoint Δ2 — Matriz T+0 (PASS/FAIL)
 | Paso | Resultado | Evidencia / Nota |
 |---|---|---|
-| Descargar artefacto publicado | FAIL | No existe release estable v1.0.2 publicada |
-| Verificar hash del asset publicado | FAIL | No existe asset publicado para comparar |
-| Abrir `.exe` en máquina limpia | FAIL | No hay binario estable liberado |
-| Login | FAIL | Depende del paso anterior |
-| Flujo Tenant/Store/User por permisos | FAIL | Depende del paso anterior |
-| Conectividad API OK | FAIL | Prueba T+0 bloqueada por ausencia de app ejecutable |
+| Verificar asset publicado + hash | FAIL | No existe release estable v1.0.3 para descargar/validar |
+| a) Abrir `.exe` en máquina limpia | FAIL | Bloqueado por ausencia de asset estable |
+| b) Login OK | FAIL | Depende de ejecución del binario estable |
+| c) Flujo Tenant/Store/User según permisos | FAIL | Depende de login y contexto en binario estable |
+| d) Conectividad API OK (`https://aris-cloud-3-api-pecul.ondigitalocean.app/`) | FAIL | Prueba no ejecutable sin app estable |
 
-## Checkpoint Δ3 — Acción requerida
-- Δ Ejecutar `HF-01..HF-05` de `out/day7/DAY7_HOTFIX_PLAN.md` para habilitar nueva corrida T+0.
+## Checkpoint Δ3 — Evidencia y decisión
+- Δ Evidencia Day 6 confirma readiness parcial pero insuficiente para certificar salida estable.
+- Δ T+0 queda oficialmente **NO-EJECUTABLE** hasta completar HF-01..HF-06.
+- Δ Acción inmediata: ejecutar hotfix y reintentar smoke T+0 con build Windows real.

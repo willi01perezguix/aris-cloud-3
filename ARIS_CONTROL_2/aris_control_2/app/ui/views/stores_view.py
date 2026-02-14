@@ -13,19 +13,37 @@ class StoresView:
         self.state = state
 
     def render(self) -> None:
-        allowed, reason = PermissionGate.require_tenant_context(self.state.context)
-        if not allowed:
-            ErrorBanner.show(reason)
+        tenant_gate = PermissionGate.require_tenant_context(self.state.context)
+        if not tenant_gate.allowed:
+            ErrorBanner.show(tenant_gate.reason)
             return
+        view_gate = PermissionGate.check(self.state.context, "stores.view")
+        if not view_gate.allowed:
+            ErrorBanner.show(view_gate.reason)
+            return
+        print("[loading] cargando stores...")
         try:
             stores = self.list_use_case.execute()
-            print("-- Stores --")
-            for store in stores:
-                print(f"{store.id} :: {store.name}")
+            if not stores:
+                print("[empty] No hay stores para el tenant actual.")
+            else:
+                print("[ready] -- Stores --")
+                for store in stores:
+                    print(f"{store.id} :: {store.name}")
+
+            create_gate = PermissionGate.check(self.state.context, "stores.create")
+            if not create_gate.allowed:
+                print(f"[disabled] Crear store ({create_gate.reason})")
+                return
             option = input("Crear store? [s/N]: ").strip().lower()
-            if option == "s":
-                name = input("Store name: ").strip()
-                self.create_use_case.execute(name=name)
-                print("Store creada y listado refrescado.")
+            if option != "s":
+                return
+            name = input("Store name: ").strip()
+            print("[spinner] creando store...")
+            result = self.create_use_case.execute(name=name)
+            if result.get("status") == "already_processed":
+                print("Operación ya procesada previamente.")
+            else:
+                print("Store creada correctamente.")
         except Exception as error:
             ErrorBanner.show(ErrorMapper.to_payload(error))

@@ -24,44 +24,64 @@ class UsersView:
         self.state = state
 
     def render(self) -> None:
-        allowed, reason = PermissionGate.require_tenant_context(self.state.context)
-        if not allowed:
-            ErrorBanner.show(reason)
+        tenant_gate = PermissionGate.require_tenant_context(self.state.context)
+        if not tenant_gate.allowed:
+            ErrorBanner.show(tenant_gate.reason)
             return
+        view_gate = PermissionGate.check(self.state.context, "users.view")
+        if not view_gate.allowed:
+            ErrorBanner.show(view_gate.reason)
+            return
+
+        print("[loading] cargando users...")
         try:
             users = self.list_use_case.execute()
-            stores = self.list_stores_use_case.execute()
-            print("-- Users --")
-            for user in users:
-                print(f"{user.id} :: {user.email}")
-            print("Stores disponibles para alta de usuario:")
-            for store in stores:
-                print(f"- {store.id} ({store.name})")
+            if not users:
+                print("[empty] No hay usuarios para el tenant actual.")
+            else:
+                print("[ready] -- Users --")
+                for user in users:
+                    print(f"{user.id} :: {user.email}")
 
-            option = input("Crear user? [s/N]: ").strip().lower()
-            if option == "s":
+            create_gate = PermissionGate.check(self.state.context, "users.create")
+            if create_gate.allowed and input("Crear user? [s/N]: ").strip().lower() == "s":
                 email = input("Email: ").strip()
                 password = input("Password: ").strip()
                 store_id = input("Store ID (opcional): ").strip() or None
-                self.create_use_case.execute(email=email, password=password, store_id=store_id)
-                print("User creado y listado refrescado.")
+                print("[spinner] creando usuario...")
+                result = self.create_use_case.execute(email=email, password=password, store_id=store_id)
+                if result.get("status") == "already_processed":
+                    print("Operación ya procesada previamente.")
+                else:
+                    print("Usuario creado correctamente.")
+            elif not create_gate.allowed:
+                print(f"[disabled] Crear usuario ({create_gate.reason})")
 
-            if PermissionGate.can(self.state.context, "users.actions.write"):
-                action = input("Acción user (set_status/set_role/reset_password/skip): ").strip()
-                if action in {"set_status", "set_role", "reset_password"}:
-                    user_id = input("User ID: ").strip()
-                    payload_value = input("Valor (status/role/new_password): ").strip()
-                    payload = (
-                        {"status": payload_value}
-                        if action == "set_status"
-                        else {"role": payload_value}
-                        if action == "set_role"
-                        else {"new_password": payload_value}
-                    )
-                    self.actions_use_case.execute(user_id=user_id, action=action, payload=payload)
-                    print("Acción aplicada y listado refrescado.")
+            actions_gate = PermissionGate.check(self.state.context, "users.actions")
+            if not actions_gate.allowed:
+                print(f"[disabled] Acciones de usuario ({actions_gate.reason})")
+                return
+
+            action = input("Acción user (set_status/set_role/reset_password/skip): ").strip()
+            if action not in {"set_status", "set_role", "reset_password"}:
+                return
+            if input(f"Confirmar acción {action}? [s/N]: ").strip().lower() != "s":
+                print("Acción cancelada.")
+                return
+            user_id = input("User ID: ").strip()
+            payload_value = input("Valor (status/role/new_password): ").strip()
+            payload = (
+                {"status": payload_value}
+                if action == "set_status"
+                else {"role": payload_value}
+                if action == "set_role"
+                else {"new_password": payload_value}
+            )
+            print("[spinner] aplicando acción...")
+            result = self.actions_use_case.execute(user_id=user_id, action=action, payload=payload)
+            if result.get("status") == "already_processed":
+                print("Operación ya procesada previamente.")
+            else:
+                print("Acción aplicada correctamente.")
         except Exception as error:
-            payload = ErrorMapper.to_payload(error)
-            if payload["code"] == "TENANT_STORE_MISMATCH":
-                payload["message"] = "La tienda seleccionada no corresponde al tenant efectivo."
-            ErrorBanner.show(payload)
+            ErrorBanner.show(ErrorMapper.to_payload(error))

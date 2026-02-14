@@ -11,5 +11,7 @@ class LoginUseCase:
         result = self.auth_adapter.login(username_or_email=username_or_email, password=password)
         self.state.context.actor_role = result.get("role")
         self.state.context.token_tenant_id = result.get("tenant_id")
+        if self.state.context.actor_role != "SUPERADMIN":
+            self.state.context.selected_tenant_id = self.state.context.token_tenant_id
         self.state.context.must_change_password = bool(result.get("must_change_password", False))
         self.state.context.refresh_effective_tenant()

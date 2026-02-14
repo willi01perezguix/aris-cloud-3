@@ -11,6 +11,7 @@ class SessionState:
     stores_filter: str = ""
     users_filter: str = ""
     selected_store_row: str | None = None
+    selected_user_store_id: str | None = None
     selected_user_row: str | None = None
     stores_page: int = 1
     users_page: int = 1
@@ -21,6 +22,7 @@ class SessionState:
         self.stores_filter = ""
         self.users_filter = ""
         self.selected_store_row = None
+        self.selected_user_store_id = None
         self.selected_user_row = None
         self.stores_page = 1
         self.users_page = 1

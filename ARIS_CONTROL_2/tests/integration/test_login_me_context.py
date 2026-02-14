@@ -50,6 +50,7 @@ def test_login_me_and_session_context() -> None:
 
     assert state.context.actor_role == "ADMIN"
     assert state.context.token_tenant_id == "tenant-from-token"
+    assert state.context.selected_tenant_id == "tenant-from-token"
     assert state.context.effective_tenant_id == "tenant-from-token"
     assert state.context.effective_permissions == ["stores.read", "users.actions.write"]
     assert state.context.must_change_password is False

@@ -13,6 +13,9 @@ class StoresView:
         self.state = state
 
     def render(self) -> None:
+        if not self.state.context.selected_tenant_id:
+            ErrorBanner.show("Debes seleccionar tenant antes de listar o crear stores.")
+            return
         tenant_gate = PermissionGate.require_tenant_context(self.state.context)
         if not tenant_gate.allowed:
             ErrorBanner.show(tenant_gate.reason)
@@ -21,25 +24,36 @@ class StoresView:
         if not view_gate.allowed:
             ErrorBanner.show(view_gate.reason)
             return
-        print("[loading] cargando stores...")
+        print(f"[loading] cargando stores para tenant={self.state.context.selected_tenant_id}...")
         try:
             stores = self.list_use_case.execute()
-            if not stores:
-                print("[empty] No hay stores para el tenant actual.")
-            else:
-                print("[ready] -- Stores --")
-                for store in stores:
-                    print(f"{store.id} :: {store.name}")
+        except Exception as error:
+            ErrorBanner.show(ErrorMapper.to_payload(error))
+            return
 
-            create_gate = PermissionGate.check(self.state.context, "stores.create")
-            if not create_gate.allowed:
-                print(f"[disabled] Crear store ({create_gate.reason})")
-                return
-            option = input("Crear store? [s/N]: ").strip().lower()
-            if option != "s":
-                return
-            name = input("Store name: ").strip()
-            print("[spinner] creando store...")
+        if not stores:
+            print("[empty] No hay stores para el tenant seleccionado.")
+        else:
+            print("[ready] -- Stores --")
+            for store in stores:
+                print(f"{store.id} :: {store.name}")
+
+        create_gate = PermissionGate.check(self.state.context, "stores.create")
+        if not create_gate.allowed:
+            print(f"[disabled] Crear store ({create_gate.reason})")
+            return
+
+        option = input("Crear store? [s/N]: ").strip().lower()
+        if option != "s":
+            return
+
+        name = input("Store name: ").strip()
+        if not name:
+            print("[error] El nombre del store es obligatorio.")
+            return
+
+        print("[spinner] creando store...")
+        try:
             result = self.create_use_case.execute(name=name)
             if result.get("status") == "already_processed":
                 print("Operación ya procesada previamente.")

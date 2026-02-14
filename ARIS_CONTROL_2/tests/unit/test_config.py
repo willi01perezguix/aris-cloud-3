@@ -1,31 +1,26 @@
-import os
-
-from aris_control_2.app.config import AppConfig
+from clients.aris3_client_sdk.config import DEFAULT_BASE_URL, SDKConfig, parse_bool
 
 
-def test_config_defaults(monkeypatch) -> None:
-    for key in [
-        "ARIS3_BASE_URL",
-        "ARIS3_TIMEOUT_SECONDS",
-        "ARIS3_VERIFY_SSL",
-        "ARIS3_RETRY_MAX_ATTEMPTS",
-        "ARIS3_RETRY_BACKOFF_MS",
-    ]:
-        monkeypatch.delenv(key, raising=False)
+def test_base_url_normalizes_trailing_slash(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_BASE_URL", "https://example.com/api")
+    monkeypatch.delenv("ARIS3_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("ARIS3_VERIFY_SSL", raising=False)
 
-    config = AppConfig.from_env(".missing-env")
+    cfg = SDKConfig.from_env(env_file=".missing-env")
 
-    assert config.base_url == "http://localhost:8000"
-    assert config.retry_max_attempts == 3
+    assert cfg.base_url == "https://example.com/api/"
 
 
-def test_config_validation(monkeypatch) -> None:
-    monkeypatch.setenv("ARIS3_TIMEOUT_SECONDS", "0")
-    try:
-        AppConfig.from_env(".missing-env")
-        raised = False
-    except ValueError:
-        raised = True
+def test_base_url_default_is_official(monkeypatch) -> None:
+    monkeypatch.delenv("ARIS3_BASE_URL", raising=False)
+    cfg = SDKConfig.from_env(env_file=".missing-env")
+    assert cfg.base_url == DEFAULT_BASE_URL
 
-    assert raised
-    os.environ.pop("ARIS3_TIMEOUT_SECONDS", None)
+
+def test_parse_verify_ssl_variants() -> None:
+    assert parse_bool("true") is True
+    assert parse_bool("FALSE") is False
+    assert parse_bool("1") is True
+    assert parse_bool("0") is False
+    assert parse_bool("invalid", default=True) is True
+    assert parse_bool("invalid", default=False) is False

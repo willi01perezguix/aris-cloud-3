@@ -78,7 +78,7 @@ class AdminConsole:
             return
         tenant_id = input("tenant_id a seleccionar: ").strip()
         if not tenant_id:
-            print("tenant_id es requerido.")
+            self._print_validation_error("tenant_id es requerido.")
             return
         session.selected_tenant_id = tenant_id
         self._persist_context()
@@ -105,7 +105,7 @@ class AdminConsole:
         code = input("code: ").strip()
         name = input("name: ").strip()
         if not code or not name:
-            print("code y name son requeridos.")
+            self._print_validation_error("code y name son requeridos.")
             return
         payload = {"code": code, "name": name}
         result = self.tenants.create_tenant(session.access_token or "", payload, generate_idempotency_key())
@@ -135,7 +135,7 @@ class AdminConsole:
         code = input("code: ").strip()
         name = input("name: ").strip()
         if not code or not name:
-            print("code y name son requeridos.")
+            self._print_validation_error("code y name son requeridos.")
             return
         payload = {"tenant_id": tenant_id, "code": code, "name": name}
         created = self.stores.create_store(session.access_token or "", payload, generate_idempotency_key())
@@ -235,7 +235,7 @@ class AdminConsole:
             auto_refresh_label = "ON" if self._auto_refresh_by_module.get(module, False) else "OFF"
             print(
                 "\nComandos: n=next, p=prev, g=goto, z=page_size, r=actualizar, "
-                f"a=auto-refresh ({auto_refresh_label}), f=filtros, c=limpiar filtros, x=export csv, b=back"
+                f"a=auto-refresh ({auto_refresh_label}), d=duplicar filtros relacionados, f=filtros, c=limpiar filtros, x=export csv, b=back"
             )
             command = input("cmd: ").strip().lower()
 
@@ -271,6 +271,8 @@ class AdminConsole:
                 enabled = not self._auto_refresh_by_module.get(module, False)
                 self._auto_refresh_by_module[module] = enabled
                 print(f"[refresh] Auto-refresh {'activado' if enabled else 'desactivado'} (solo lectura).")
+            elif command == "d":
+                self._duplicate_related_filters(session, module)
             elif command == "f":
                 self._update_filters_for_module(session, module, filter_keys)
                 page_state.page = 1
@@ -308,17 +310,17 @@ class AdminConsole:
         password = input("password: ").strip()
         store_id = input("store_id: ").strip()
         if not username or not email or not role or not password or not store_id:
-            print("username, email, role, password y store_id son requeridos.")
+            self._print_validation_error("username, email, role, password y store_id son requeridos.")
             return
 
         stores_listing = self.stores.list_stores(session.access_token or "", tenant_id, page=1, page_size=500)
         stores_rows = stores_listing.get("rows", stores_listing if isinstance(stores_listing, list) else [])
         store = next((item for item in stores_rows if str(item.get("id")) == store_id), None)
         if not store:
-            print("Guardrail: store_id no pertenece al tenant operativo. Operación cancelada.")
+            self._print_validation_error("store_id no pertenece al tenant operativo. Operación cancelada.", code="TENANT_STORE_GUARDRAIL")
             return
         if str(store.get("tenant_id") or "") and str(store.get("tenant_id")) != tenant_id:
-            print("Guardrail: mismatch tenant/store detectado. Operación cancelada.")
+            self._print_validation_error("mismatch tenant/store detectado. Operación cancelada.", code="TENANT_STORE_GUARDRAIL")
             return
 
         payload = {
@@ -337,8 +339,12 @@ class AdminConsole:
         self._resolve_tenant(session)
         user_id = input("user_id: ").strip()
         action = input("action [set_role|set_status|reset_password]: ").strip()
+        if not user_id:
+            self._print_validation_error("user_id es requerido para ejecutar acciones.")
+            return
         payload = self._build_user_action_payload(action)
         if payload is None:
+            self._print_validation_error("acción inválida o payload incompleto para user_action.")
             return
         result = self.users.user_action(
             session.access_token or "",
@@ -387,6 +393,43 @@ class AdminConsole:
         session.filters_by_module[module] = {}
         self._persist_context()
         print("[filters] Filtros limpiados. Tenant seleccionado preservado.")
+
+    def _duplicate_related_filters(self, session: SessionState, module: str) -> None:
+        related = {"stores": "users", "users": "stores"}
+        target_module = related.get(module)
+        if not target_module:
+            print(f"[filters] {module} no tiene vista relacionada para duplicar filtros.")
+            return
+
+        source_filters = session.filters_by_module.get(module, {})
+        if not source_filters:
+            print(f"[filters] {module} no tiene filtros activos para duplicar.")
+            return
+
+        copied_keys = {"q", "status"}
+        target_filters = session.filters_by_module.get(target_module, {}).copy()
+        for key in copied_keys:
+            if key in source_filters:
+                target_filters[key] = source_filters[key]
+
+        session.filters_by_module[target_module] = clean_filters(target_filters)
+        self._persist_context()
+        print(
+            f"[filters] Duplicados {module} -> {target_module} "
+            f"(tenant={session.selected_tenant_id or session.effective_tenant_id or 'N/A'}): "
+            f"{session.filters_by_module[target_module] or 'sin filtros'}"
+        )
+
+    def _print_validation_error(self, message: str, code: str = "UI_VALIDATION") -> None:
+        print_error_banner(
+            {
+                "category": "validación",
+                "code": code,
+                "message": message,
+                "trace_id": None,
+                "action": "Corregir formulario y reintentar",
+            }
+        )
 
     def _load_pagination_state(self, session: SessionState, module: str) -> PaginationState:
         current = session.pagination_by_module.get(module, {})

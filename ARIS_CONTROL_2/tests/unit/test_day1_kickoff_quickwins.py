@@ -111,3 +111,33 @@ def test_listing_loop_prints_clear_empty_and_error_status(monkeypatch, capsys) -
     out = capsys.readouterr().out
     assert "[loading] Cargando stores tenant=tenant-a" in out
     assert "[empty] STORES: sin resultados para los filtros actuales." in out
+
+
+
+def test_tenant_change_clears_incompatible_users_store_filter(capsys) -> None:
+    console = AdminConsole(tenants=_StubClient(), stores=_StubClient(), users=_StubClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+    session.filters_by_module["users"] = {"q": "alice", "store_id": "store-1"}
+
+    console._set_selected_tenant(session, "tenant-b")
+
+    out = capsys.readouterr().out
+    assert "Tenant cambiado" in out
+    assert session.selected_tenant_id == "tenant-b"
+    assert session.filters_by_module["users"] == {"q": "alice"}
+
+
+def test_stores_shortcut_sets_users_store_filter(monkeypatch) -> None:
+    console = AdminConsole(tenants=_StubClient(), stores=_StubClient(), users=_StubClient())
+    session = SessionState(access_token="token", role="SUPERADMIN", effective_tenant_id="tenant-a", selected_tenant_id="tenant-a")
+
+    called: list[str] = []
+    monkeypatch.setattr(console, "_list_users", lambda _session: called.append("users"))
+    answers = iter(["store-9"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    opened = console._handle_navigation_shortcut(session, "stores")
+
+    assert opened is True
+    assert called == ["users"]
+    assert session.filters_by_module["users"]["store_id"] == "store-9"

@@ -44,7 +44,11 @@ def load_config(env_file: str | None = None) -> ClientConfig:
     load_dotenv(env_file)
     env_name = os.getenv("ARIS3_ENV", "dev")
     env_key = env_name.upper()
-    api_base_url = os.getenv(f"ARIS3_API_BASE_URL_{env_key}") or os.getenv("ARIS3_API_BASE_URL")
+    api_base_url = (
+        os.getenv(f"ARIS3_API_BASE_URL_{env_key}")
+        or os.getenv("ARIS3_API_BASE_URL")
+        or "https://aris-cloud-3-api-pecul.ondigitalocean.app/"
+    )
     timeout_seconds = float(os.getenv("ARIS3_TIMEOUT_SECONDS", "10"))
     connect_timeout_seconds = float(
         os.getenv("ARIS3_CONNECT_TIMEOUT_SECONDS", str(min(timeout_seconds, 5.0)))
@@ -57,9 +61,7 @@ def load_config(env_file: str | None = None) -> ClientConfig:
     max_connections = int(os.getenv("ARIS3_MAX_CONNECTIONS", "20"))
     verify_ssl = _coerce_bool(os.getenv("ARIS3_VERIFY_SSL"), True)
 
-    values = {
-        "ARIS3_API_BASE_URL": api_base_url,
-    }
+    values = {"ARIS3_API_BASE_URL": api_base_url}
     _require(values, ["ARIS3_API_BASE_URL"])
     assert api_base_url is not None
 

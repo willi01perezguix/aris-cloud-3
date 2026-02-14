@@ -8,12 +8,18 @@ from pathlib import Path
 
 from release_tools import redact_text, timestamp_slug
 
+SENSITIVE_ENV_MARKERS = ("TOKEN", "SECRET", "PASSWORD", "AUTH", "KEY")
+
 
 def _collect_env_profile() -> tuple[dict[str, str], int]:
     included = {}
     redactions = 0
     for key, value in os.environ.items():
         if not key.startswith("ARIS3_"):
+            continue
+        if any(marker in key.upper() for marker in SENSITIVE_ENV_MARKERS):
+            included[key] = "<REDACTED>"
+            redactions += 1
             continue
         masked, count = redact_text(f"{key}={value}")
         redactions += count

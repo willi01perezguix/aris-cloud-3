@@ -35,11 +35,12 @@ def test_admin_refresh_keeps_tenant_and_filters(monkeypatch, capsys) -> None:
         session=session,
         fetch_page=fetch_page,
         columns=[("id", "id"), ("name", "name"), ("status", "status")],
+        filter_keys=["q", "status"],
     )
 
     output = capsys.readouterr().out
     assert "[loading] Cargando stores" in output
-    assert "[refresh] Recargando listado y preservando tenant/filtros activos..." in output
+    assert "[refresh] Recargando listado y preservando tenant/filtros/paginación activos..." in output
     assert len(calls) == 2
     assert calls[0] == calls[1]
     assert session.selected_tenant_id == "tenant-a"

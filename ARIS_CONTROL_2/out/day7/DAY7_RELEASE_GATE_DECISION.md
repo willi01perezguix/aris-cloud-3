@@ -32,3 +32,9 @@ Resultado operativo:
 - Bitácora monitoreo 72h: **iniciada**.
 - Resumen ejecutivo de cierre: **emitido**.
 - Backlog v1.0.3 Top 10: **emitido**.
+
+## Checkpoint Δ4 — Acta formal de salida
+- Δ Resultado formal del comité: **NO-GO**.
+- Δ Acción autorizada: **mantener RC y abrir/ejecutar hotfix operativo** (`out/day7/DAY7_HOTFIX_PLAN.md`).
+- Δ Restricción confirmada: **sin cambios de contrato API/endpoints** durante el hotfix.
+- Δ Próxima decisión: re-gate cuando HF-01..HF-05 estén en estado **Done**.

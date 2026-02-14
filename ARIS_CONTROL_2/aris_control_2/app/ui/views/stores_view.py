@@ -9,7 +9,9 @@ from aris_control_2.app.application.use_cases.create_store_use_case import Creat
 from aris_control_2.app.application.use_cases.list_stores_use_case import ListStoresUseCase
 from aris_control_2.app.infrastructure.errors.error_mapper import ErrorMapper
 from aris_control_2.app.ui.components.error_banner import ErrorBanner
+from aris_control_2.app.ui.components.mutation_feedback import print_mutation_error, print_mutation_success
 from aris_control_2.app.ui.components.permission_gate import PermissionGate
+from aris_control_2.clients.aris3_client_sdk.http_client import APIError
 
 
 class StoresView:
@@ -73,11 +75,17 @@ class StoresView:
             if result.get("status") == "already_processed":
                 print("Operación ya procesada previamente.")
             else:
-                print("[success] Store creada correctamente.")
+                print_mutation_success("store.create", result, highlighted_id=result.get("id"))
             clear_attempt(self.state, operation)
             print("[refresh] recargando stores...")
             for store in self.list_use_case.execute():
-                print(f"{store.id} :: {store.name}")
+                marker = " <- actualizado" if result.get("id") and store.id == result.get("id") else ""
+                print(f"{store.id} :: {store.name}{marker}")
+        except APIError as error:
+            print_mutation_error("store.create", error)
+            ErrorBanner.show(ErrorMapper.to_payload(error))
+            if input("Reintentar create store? [s/N]: ").strip().lower() == "s":
+                self.render()
         except Exception as error:
             ErrorBanner.show(ErrorMapper.to_payload(error))
             if input("Reintentar create store? [s/N]: ").strip().lower() == "s":

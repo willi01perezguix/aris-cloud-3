@@ -24,8 +24,8 @@ class UserActionsUseCase:
     ) -> dict:
         if not self.state.context.can("users.actions"):
             raise APIError(code="PERMISSION_DENIED", message="Missing users.actions")
-        allowed, reason = TenantContextPolicy.can_access_tenant_scoped_resources(self.state.context)
-        if not allowed:
+        tenant_id, reason = TenantContextPolicy.resolve_mutation_tenant_id(self.state.context)
+        if not tenant_id:
             raise APIError(code=reason, message=reason)
         try:
             request = {

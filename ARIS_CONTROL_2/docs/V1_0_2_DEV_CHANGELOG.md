@@ -1,4 +1,29 @@
-# ARIS_CONTROL_2 — Changelog interno v1.0.2-dev
+# ARIS_CONTROL_2 — Changelog interno v1.0.3-dev
+
+## 2026-02-14 — Kickoff Day 1 (v1.0.3-dev)
+
+### Alcance
+- Sin cambios de contrato API ni endpoints.
+- Endpoint base por defecto se mantiene: `https://aris-cloud-3-api-pecul.ondigitalocean.app/`.
+- Cambios pequeños y reversibles para UX operativa y productividad en módulos admin.
+
+### Cambios implementados (quick wins)
+1. **QW1 UX operativa**
+   - Error visible unificado en formularios críticos: `code + message + trace_id`.
+   - `trace_id` muestra `n/a` cuando no está disponible.
+2. **QW2 Productividad UI admin**
+   - Estado `[loading]` explícito al listar datos.
+   - Atajo `[r] refresh` con mensaje de preservación de tenant/filtros activos.
+
+### Validación rápida Day 1
+- Login: sin cambios de flujo ni contrato.
+- Tenant seleccionado: se preserva y se reutiliza en refresh.
+- Listados stores/users: continúan tenant-scoped.
+- Error API: formato unificado visible en consola.
+
+### Riesgo y rollback
+- Riesgo: bajo (solo capa de presentación/flujo CLI).
+- Rollback simple: revertir commit de `feature/v1.0.3-day1-kickoff`.
 
 ## 2026-02-14 — Kickoff Day 1
 

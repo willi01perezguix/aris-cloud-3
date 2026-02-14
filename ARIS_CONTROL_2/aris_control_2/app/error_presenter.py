@@ -25,12 +25,13 @@ def build_error_payload(error: Exception) -> dict[str, Any]:
 
 
 def print_error_banner(payload: dict[str, Any]) -> None:
+    trace_id = payload.get("trace_id") or "n/a"
     print(
         "[ERROR] "
-        f"category={payload.get('category')} "
         f"code={payload.get('code')} "
         f"message={payload.get('message')} "
-        f"trace_id={payload.get('trace_id')} "
+        f"trace_id={trace_id} "
+        f"category={payload.get('category')} "
         f"acción={payload.get('action')}"
     )
 

@@ -168,6 +168,7 @@ class AdminConsole:
         page_state = PaginationState(page=1, page_size=int(page_size_input) if page_size_input.isdigit() else 20)
 
         while True:
+            print(f"[loading] Cargando {module} page={page_state.page} page_size={page_state.page_size}...")
             listing = fetch_page(page_state.page, page_state.page_size)
             rows = listing.get("rows", [])
             page_state.page = int(listing.get("page") or page_state.page)
@@ -190,6 +191,7 @@ class AdminConsole:
                 if requested.isdigit():
                     goto_page(page_state, int(requested))
             elif command == "r":
+                print("[refresh] Recargando listado y preservando tenant/filtros activos...")
                 continue
             elif command == "x":
                 exported = export_current_view(module=module, rows=rows, headers=[key for key, _ in columns])

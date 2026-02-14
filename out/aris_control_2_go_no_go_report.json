@@ -1,0 +1,21 @@
+{
+  "overall": "GO",
+  "gates": {
+    "G1": "PASS",
+    "G2": "PASS",
+    "G3": "PASS",
+    "G4": "PASS",
+    "G5": "PASS",
+    "G6": "PASS",
+    "G7": "PASS",
+    "G8": "PASS"
+  },
+  "tests_summary": {
+    "passed": 21,
+    "failed": 0,
+    "skipped": 0
+  },
+  "contract_compatibility": true,
+  "open_risks": [],
+  "recommended_next_step": "Iniciar app Python"
+}

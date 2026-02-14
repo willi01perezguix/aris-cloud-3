@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -20,6 +21,10 @@ class HttpClient:
             timeout=self.config.timeout_seconds,
             verify=self.config.verify_ssl,
         )
+        self._auth_error_handler: Callable[[ApiError], None] | None = None
+
+    def register_auth_error_handler(self, handler: Callable[[ApiError], None] | None) -> None:
+        self._auth_error_handler = handler
 
     def request(
         self,
@@ -54,7 +59,10 @@ class HttpClient:
             ) from exc
 
         if response.status_code >= 400:
-            raise ApiError.from_http_response(response)
+            error = ApiError.from_http_response(response)
+            if error.status_code in {401, 403} and self._auth_error_handler:
+                self._auth_error_handler(error)
+            raise error
 
         try:
             payload = response.json()

@@ -13,6 +13,7 @@ def build_error_payload(error: Exception) -> dict[str, Any]:
             "code": error.code,
             "message": error.message,
             "trace_id": error.trace_id,
+            "status_code": error.status_code,
             "action": _suggest_action(category),
         }
     return {
@@ -20,6 +21,7 @@ def build_error_payload(error: Exception) -> dict[str, Any]:
         "code": "INTERNAL_ERROR",
         "message": str(error),
         "trace_id": None,
+        "status_code": None,
         "action": "Contactar soporte",
     }
 
@@ -41,6 +43,8 @@ def _classify_api_error(error: ApiError) -> str:
         return "red/timeout"
     if error.status_code == 403:
         return "403"
+    if error.status_code == 401:
+        return "401"
     if error.status_code == 409:
         return "409"
     if error.status_code == 422:
@@ -53,4 +57,8 @@ def _classify_api_error(error: ApiError) -> str:
 def _suggest_action(category: str) -> str:
     if category in {"red/timeout", "500", "409"}:
         return "Reintentar"
+    if category == "401":
+        return "Ir a login"
+    if category == "403":
+        return "Volver al inicio"
     return "Contactar soporte"

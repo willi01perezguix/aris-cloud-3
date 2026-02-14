@@ -18,9 +18,17 @@ from clients.aris3_client_sdk.tenants_client import TenantsClient
 from clients.aris3_client_sdk.users_client import UsersClient
 
 from aris_control_2.app.admin_console import AdminConsole
-from aris_control_2.app.context_store import restore_compatible_context, save_context
+from aris_control_2.app.context_store import (
+    clear_auth_recovery_context,
+    clear_context,
+    load_auth_recovery_context,
+    restore_compatible_context,
+    save_auth_recovery_context,
+    save_context,
+)
 from aris_control_2.app.diagnostics import APP_VERSION, ConnectivityResult, build_diagnostic_report, report_to_text, run_health_check
 from aris_control_2.app.error_presenter import build_error_payload, print_error_banner
+from aris_control_2.app.session_guard import SessionGuard
 from aris_control_2.app.state import SessionState
 
 
@@ -95,6 +103,59 @@ def _restore_operator_context(session: SessionState) -> None:
             for key, value in restored_pagination.items()
             if isinstance(value, dict)
         }
+
+
+def _restore_auth_recovery_context(session: SessionState) -> None:
+    payload = load_auth_recovery_context()
+    if not payload:
+        return
+
+    if session.role != "SUPERADMIN" and session.selected_tenant_id and session.selected_tenant_id != session.effective_tenant_id:
+        clear_auth_recovery_context()
+        return
+
+    session.current_module = str(payload.get("current_module") or session.current_module)
+    recovered_tenant = payload.get("selected_tenant_id")
+    if session.role == "SUPERADMIN" or recovered_tenant == session.effective_tenant_id:
+        session.selected_tenant_id = recovered_tenant
+
+    recovered_filters = payload.get("filters_by_module")
+    if isinstance(recovered_filters, dict):
+        session.filters_by_module = {str(key): value for key, value in recovered_filters.items() if isinstance(value, dict)}
+    recovered_pagination = payload.get("pagination_by_module")
+    if isinstance(recovered_pagination, dict):
+        session.pagination_by_module = {
+            str(key): value
+            for key, value in recovered_pagination.items()
+            if isinstance(value, dict)
+        }
+    clear_auth_recovery_context()
+
+
+def _logout_session(session: SessionState, *, keep_recovery_context: bool = False) -> None:
+    session.clear()
+    if not keep_recovery_context:
+        clear_auth_recovery_context()
+    clear_context()
+
+
+def _show_session_banner(*, reason: str, action: str, trace_id: str | None = None) -> None:
+    safe_trace = trace_id or "n/a"
+    message_by_reason = {
+        "expired_token": "Tu sesión expiró. Vuelve a iniciar sesión para continuar.",
+        "missing_token": "No hay sesión activa. Inicia sesión para acceder.",
+        "corrupt_token": "Se detectó una sesión inválida. Debes autenticarte de nuevo.",
+        "401": "Sesión inválida o expirada.",
+        "403": "No tienes permisos para esta acción.",
+    }
+    code = "AUTH_FORBIDDEN" if reason == "403" else "AUTH_SESSION_INVALID"
+    print(
+        "[SESION] "
+        f"code={code} "
+        f"message={message_by_reason.get(reason, 'Error de sesión.')} "
+        f"trace_id={safe_trace} "
+        f"action={action}"
+    )
 
 
 def _copy_to_clipboard(text: str) -> bool:
@@ -179,6 +240,28 @@ def main() -> None:
     last_error: dict | None = None
     connectivity: ConnectivityResult | None = run_health_check(http_client)
 
+    def _handle_invalid_session(reason: str) -> None:
+        save_auth_recovery_context(
+            reason=reason,
+            current_module=session.current_module,
+            selected_tenant_id=session.selected_tenant_id,
+            filters_by_module=session.filters_by_module,
+            pagination_by_module=session.pagination_by_module,
+        )
+        _logout_session(session, keep_recovery_context=True)
+        _show_session_banner(reason=reason, action="Ir a login")
+
+    session_guard = SessionGuard(on_invalid_session=_handle_invalid_session)
+
+    def _handle_http_auth_error(error: ApiError) -> None:
+        if error.status_code == 401:
+            _handle_invalid_session("401")
+            return
+        if error.status_code == 403:
+            _show_session_banner(reason="403", action="Volver al inicio", trace_id=error.trace_id)
+
+    http_client.register_auth_error_handler(_handle_http_auth_error)
+
     admin_console = AdminConsole(
         TenantsClient(http_client),
         StoresClient(http_client),
@@ -207,10 +290,10 @@ def main() -> None:
                 session.access_token = response.get("access_token")
                 session.refresh_token = response.get("refresh_token")
                 session.must_change_password = bool(response.get("must_change_password", False))
+                _restore_auth_recovery_context(session)
                 print("Login OK")
             elif option == "2":
-                if not session.is_authenticated():
-                    print("Debes iniciar sesión primero.")
+                if not session_guard.require_session(session, module="me"):
                     continue
                 me_payload = me_client.get_me(access_token=session.access_token or "")
                 session.apply_me(me_payload)
@@ -218,12 +301,11 @@ def main() -> None:
                 _persist_operator_context(session)
                 print(f"/me => {me_payload}")
             elif option == "3":
-                if not session.is_authenticated():
-                    print("Debes iniciar sesión primero.")
+                if not session_guard.require_session(session, module="admin_core"):
                     continue
                 admin_console.run(session)
             elif option == "4":
-                session.clear()
+                _logout_session(session)
                 print("Sesión cerrada.")
             elif option == "5":
                 return

@@ -229,3 +229,35 @@ def test_forbidden_and_unauthorized_scope(monkeypatch) -> None:
         reports.get_sales_daily()
     with pytest.raises(NotFoundError):
         exports.get_export_status("exp-404")
+
+
+@responses.activate
+def test_export_polling_emits_state_telemetry(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+
+    created = {
+        "export_id": "exp-2", "tenant_id": "tenant-1", "store_id": "store-1", "source_type": "reports_daily", "format": "csv",
+        "filters_snapshot": {}, "status": "CREATED", "row_count": 0, "checksum_sha256": None, "failure_reason_code": None,
+        "generated_by_user_id": "u1", "generated_at": None, "trace_id": "trace-2", "file_size_bytes": None,
+        "content_type": None, "file_name": None, "created_at": "2024-01-01T00:00:00Z", "updated_at": None,
+    }
+    ready = {**created, "status": "READY", "file_name": "report.csv", "content_type": "text/csv", "file_size_bytes": 12, "checksum_sha256": "abc"}
+    responses.add(responses.GET, "https://api.example.com/aris3/exports/exp-2", json=created, status=200)
+    responses.add(responses.GET, "https://api.example.com/aris3/exports/exp-2", json=ready, status=200)
+
+    events: list[dict[str, object]] = []
+    client = ExportsClient(http=http, access_token="token")
+
+    result = client.wait_for_export_ready(
+        "exp-2",
+        timeout_sec=1.0,
+        poll_interval_sec=0.01,
+        telemetry_hook=events.append,
+    )
+
+    assert result.outcome.value == "COMPLETED"
+    assert [event["state"] for event in events] == ["CREATED", "READY"]
+    assert events[0]["is_terminal"] is False
+    assert events[-1]["is_terminal"] is True
+    assert isinstance(events[-1]["elapsed_ms"], int)

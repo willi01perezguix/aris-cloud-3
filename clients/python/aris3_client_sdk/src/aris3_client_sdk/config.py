@@ -19,6 +19,9 @@ class ClientConfig:
     read_timeout_seconds: float = 15.0
     retries: int = 3
     retry_backoff_seconds: float = 0.3
+    retry_jitter_enabled: bool = False
+    retry_jitter_min_seconds: float = 0.0
+    retry_jitter_max_seconds: float = 0.0
     max_connections: int = 20
     verify_ssl: bool = True
 
@@ -111,6 +114,34 @@ def load_config(env_file: str | None = None) -> ClientConfig:
         ),
     )
 
+    retry_jitter_enabled = _coerce_bool(
+        os.getenv("ARIS3_RETRY_JITTER_ENABLED"),
+        False,
+    )
+    retry_jitter_min_seconds = _read_float("ARIS3_RETRY_JITTER_MIN_SECONDS", "0")
+    _validate(
+        retry_jitter_min_seconds >= 0,
+        (
+            "Invalid ARIS3_RETRY_JITTER_MIN_SECONDS: "
+            f"expected >= 0, got {retry_jitter_min_seconds}"
+        ),
+    )
+    retry_jitter_max_seconds = _read_float("ARIS3_RETRY_JITTER_MAX_SECONDS", "0")
+    _validate(
+        retry_jitter_max_seconds >= 0,
+        (
+            "Invalid ARIS3_RETRY_JITTER_MAX_SECONDS: "
+            f"expected >= 0, got {retry_jitter_max_seconds}"
+        ),
+    )
+    _validate(
+        retry_jitter_max_seconds >= retry_jitter_min_seconds,
+        (
+            "Invalid ARIS3_RETRY_JITTER_MAX_SECONDS: "
+            "expected >= ARIS3_RETRY_JITTER_MIN_SECONDS"
+        ),
+    )
+
     max_connections = _read_int("ARIS3_MAX_CONNECTIONS", "20")
     _validate(
         max_connections >= 1,
@@ -129,6 +160,9 @@ def load_config(env_file: str | None = None) -> ClientConfig:
         read_timeout_seconds=read_timeout_seconds,
         retries=retries,
         retry_backoff_seconds=retry_backoff_seconds,
+        retry_jitter_enabled=retry_jitter_enabled,
+        retry_jitter_min_seconds=retry_jitter_min_seconds,
+        retry_jitter_max_seconds=retry_jitter_max_seconds,
         max_connections=max_connections,
         verify_ssl=verify_ssl,
     )

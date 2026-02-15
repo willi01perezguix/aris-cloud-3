@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -106,17 +107,25 @@ def check_export_polling_flow() -> SmokeCheck:
             transaction_id="txn-smoke",
         )
         status = client.request_export(request, idempotency_key="idem-smoke")
-        final = client.wait_for_export_ready("exp-smoke", timeout_sec=2.0, poll_interval_sec=0.01)
-        if status.export_id != "exp-smoke" or final.status.status != "READY":
+        telemetry_events: list[dict[str, object]] = []
+        final = client.wait_for_export_ready(
+            "exp-smoke",
+            timeout_sec=2.0,
+            poll_interval_sec=0.01,
+            telemetry_hook=telemetry_events.append,
+        )
+        has_created = any(event.get("state") == "CREATED" for event in telemetry_events)
+        has_ready = any(event.get("state") == "READY" and bool(event.get("is_terminal")) for event in telemetry_events)
+        if status.export_id != "exp-smoke" or final.status.status != "READY" or not has_created or not has_ready:
             return SmokeCheck(
                 name="request_export_wait_ready_flow",
                 passed=False,
-                details="El flujo CREATED->READY no produjo el estado esperado.",
+                details="El flujo CREATED->READY no produjo el estado esperado o faltó telemetría.",
             )
         return SmokeCheck(
             name="request_export_wait_ready_flow",
             passed=True,
-            details="Flujo CREATED->READY validado con request_export + wait_for_export_ready.",
+            details="Flujo CREATED->READY validado con request_export + wait_for_export_ready + telemetría.",
         )
     except Exception as exc:  # noqa: BLE001
         return SmokeCheck(
@@ -166,7 +175,12 @@ def check_get_cache_stays_enabled_outside_polling() -> SmokeCheck:
         )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="SDK post-release smoke CLI")
+    parser.add_argument("--artifacts-dir", default="artifacts", help="Directory where JSON/log artifacts will be written")
+    parser.add_argument("--suite-name", default="post_release_smoke", help="Suite name included in the JSON artifact")
+    args = parser.parse_args(argv)
+
     checks = [
         check_config_strict(),
         check_export_polling_flow(),
@@ -176,7 +190,7 @@ def main() -> int:
 
     output = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "suite": "post_release_smoke",
+        "suite": args.suite_name,
         "checks": [asdict(item) for item in checks],
         "summary": {
             "passed": sum(1 for item in checks if item.passed),
@@ -185,7 +199,7 @@ def main() -> int:
         },
     }
 
-    artifacts_dir = Path("artifacts")
+    artifacts_dir = Path(args.artifacts_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     json_path = artifacts_dir / "post_release_smoke_result.json"
     log_path = artifacts_dir / "post_release_smoke_result.log"

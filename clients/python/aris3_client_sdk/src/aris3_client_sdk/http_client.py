@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -175,7 +176,7 @@ class HttpClient:
                 if response.status_code < 500 or attempt >= attempts - 1:
                     break
                 last_transport_error = None
-            time.sleep(self.config.retry_backoff_seconds * (2**attempt))
+            time.sleep(self._retry_delay_seconds(attempt))
 
         if response is None:
             raise RuntimeError(f"HTTP request failed without response: {last_transport_error}")
@@ -216,6 +217,15 @@ class HttpClient:
         trace_context.update_from_payload(payload if isinstance(payload, dict) else {})
         self._record_operation(module, operation, started, "error", trace_context.trace_id)
         raise map_error(response.status_code, payload, trace_context.trace_id)
+
+    def _retry_delay_seconds(self, attempt: int) -> float:
+        delay = self.config.retry_backoff_seconds * (2**attempt)
+        if self.config.retry_jitter_enabled:
+            delay += random.uniform(
+                self.config.retry_jitter_min_seconds,
+                self.config.retry_jitter_max_seconds,
+            )
+        return max(delay, 0.0)
 
     def normalize_error(self, error: Exception) -> NormalizedError:
         if isinstance(error, TransportError):

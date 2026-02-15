@@ -101,8 +101,23 @@ class AdminConsole:
             except ApiError as error:
                 payload = build_error_payload(error)
                 self.support_center.record_incident(module=session.current_module, payload=payload)
-                self.support_center.record_operation(module=session.current_module, screen=session.current_module, action="admin_operation", result="error", latency_ms=0, trace_id=payload.get("trace_id"), code=payload.get("code"), message=payload.get("message"))
-                self._print_action_result_panel(operation=session.current_module, status="error", code=payload.get("code"), message=payload.get("message"), trace_id=payload.get("trace_id"))
+                self.support_center.record_operation(
+                    module=session.current_module,
+                    screen=session.current_module,
+                    action="admin_operation",
+                    result="error",
+                    latency_ms=0,
+                    trace_id=payload.get("trace_id"),
+                    code=payload.get("code"),
+                    message=payload.get("message"),
+                )
+                self._print_action_result_panel(
+                    operation=session.current_module,
+                    status="error",
+                    code=payload.get("code"),
+                    message=payload.get("message"),
+                    trace_id=payload.get("trace_id"),
+                )
                 print_error_banner(payload)
 
     def _select_tenant(self, session: SessionState) -> None:
@@ -128,7 +143,12 @@ class AdminConsole:
                 page_size=page_size,
                 q=session.filters_by_module.get("tenants", {}).get("q"),
             ),
-            columns=[ColumnDef("id", "id"), ColumnDef("code", "code"), ColumnDef("name", "name"), ColumnDef("status", "status")],
+            columns=[
+                ColumnDef("id", "id"),
+                ColumnDef("code", "code"),
+                ColumnDef("name", "name"),
+                ColumnDef("status", "status"),
+            ],
             filter_keys=["q"],
         )
 
@@ -158,7 +178,13 @@ class AdminConsole:
                 q=session.filters_by_module.get("stores", {}).get("q"),
                 status=session.filters_by_module.get("stores", {}).get("status"),
             ),
-            columns=[ColumnDef("id", "id"), ColumnDef("code", "code"), ColumnDef("name", "name"), ColumnDef("status", "status"), ColumnDef("tenant_id", "tenant_id")],
+            columns=[
+                ColumnDef("id", "id"),
+                ColumnDef("code", "code"),
+                ColumnDef("name", "name"),
+                ColumnDef("status", "status"),
+                ColumnDef("tenant_id", "tenant_id"),
+            ],
             filter_keys=["q", "status"],
         )
 
@@ -173,8 +199,22 @@ class AdminConsole:
         started = time.monotonic()
         created = self.stores.create_store(session.access_token or "", payload, generate_idempotency_key())
         latency_ms = int((time.monotonic() - started) * 1000)
-        self.support_center.record_operation(module="stores", screen="create_store", action="create_store", result="success", latency_ms=latency_ms, code="OK", message="store creada")
-        self._print_action_result_panel(operation="create_store", status="success", code="OK", message="Store creada", trace_id=None)
+        self.support_center.record_operation(
+            module="stores",
+            screen="create_store",
+            action="create_store",
+            result="success",
+            latency_ms=latency_ms,
+            code="OK",
+            message="store creada",
+        )
+        self._print_action_result_panel(
+            operation="create_store",
+            status="success",
+            code="OK",
+            message="Store creada",
+            trace_id=None,
+        )
         self._invalidate_read_cache("stores")
         print(f"Store creada: {created}")
 
@@ -414,10 +454,16 @@ class AdminConsole:
         stores_rows = stores_listing.get("rows", stores_listing if isinstance(stores_listing, list) else [])
         store = next((item for item in stores_rows if str(item.get("id")) == store_id), None)
         if not store:
-            self._print_validation_error("store_id no pertenece al tenant operativo. Operación cancelada.", code="TENANT_STORE_GUARDRAIL")
+            self._print_validation_error(
+                "store_id no pertenece al tenant operativo. Operación cancelada.",
+                code="TENANT_STORE_GUARDRAIL",
+            )
             return
         if str(store.get("tenant_id") or "") and str(store.get("tenant_id")) != tenant_id:
-            self._print_validation_error("mismatch tenant/store detectado. Operación cancelada.", code="TENANT_STORE_GUARDRAIL")
+            self._print_validation_error(
+                "mismatch tenant/store detectado. Operación cancelada.",
+                code="TENANT_STORE_GUARDRAIL",
+            )
             return
 
         payload = {
@@ -431,8 +477,22 @@ class AdminConsole:
         started = time.monotonic()
         created = self.users.create_user(session.access_token or "", payload, generate_idempotency_key())
         latency_ms = int((time.monotonic() - started) * 1000)
-        self.support_center.record_operation(module="users", screen="create_user", action="create_user", result="success", latency_ms=latency_ms, code="OK", message="user creado")
-        self._print_action_result_panel(operation="create_user", status="success", code="OK", message="User creado", trace_id=None)
+        self.support_center.record_operation(
+            module="users",
+            screen="create_user",
+            action="create_user",
+            result="success",
+            latency_ms=latency_ms,
+            code="OK",
+            message="user creado",
+        )
+        self._print_action_result_panel(
+            operation="create_user",
+            status="success",
+            code="OK",
+            message="User creado",
+            trace_id=None,
+        )
         self._invalidate_read_cache("users")
         print(f"User creado: {created}")
 
@@ -456,13 +516,34 @@ class AdminConsole:
             idempotency_key=generate_idempotency_key(),
         )
         latency_ms = int((time.monotonic() - started) * 1000)
-        self.support_center.record_operation(module="users", screen="user_action", action=action, result="success", latency_ms=latency_ms, code="OK", message="acción aplicada")
-        self._print_action_result_panel(operation=f"user_action:{action}", status="success", code="OK", message="Acción aplicada", trace_id=None)
+        self.support_center.record_operation(
+            module="users",
+            screen="user_action",
+            action=action,
+            result="success",
+            latency_ms=latency_ms,
+            code="OK",
+            message="acción aplicada",
+        )
+        self._print_action_result_panel(
+            operation=f"user_action:{action}",
+            status="success",
+            code="OK",
+            message="Acción aplicada",
+            trace_id=None,
+        )
         self._invalidate_read_cache("users")
         print(f"Acción aplicada: {result}")
 
-
-    def _print_action_result_panel(self, *, operation: str, status: str, code: str | None, message: str | None, trace_id: str | None) -> None:
+    def _print_action_result_panel(
+        self,
+        *,
+        operation: str,
+        status: str,
+        code: str | None,
+        message: str | None,
+        trace_id: str | None,
+    ) -> None:
         print("\n[RESULTADO OPERACIÓN]")
         print(f"  operación: {operation}")
         print(f"  estado_final: {status}")
@@ -487,16 +568,23 @@ class AdminConsole:
 
     def _set_selected_tenant(self, session: SessionState, tenant_id: str) -> None:
         previous = session.selected_tenant_id
+
+        # Preservar filtros de users ANTES de resetear estado de módulos.
+        preserved_users_filters = dict(session.filters_by_module.get("users") or {})
+
         session.selected_tenant_id = tenant_id
         if previous and previous != tenant_id:
             session.reset_module_state("stores")
             session.reset_module_state("users")
             self._invalidate_read_cache("stores")
             self._invalidate_read_cache("users")
-            users_filters = session.filters_by_module.get("users", {}).copy()
-            users_filters.pop("store_id", None)
-            session.filters_by_module["users"] = clean_filters(users_filters)
+
+            # Limpiar solo store_id (incompatible entre tenants), conservar q/role/status.
+            preserved_users_filters.pop("store_id", None)
+            session.filters_by_module["users"] = clean_filters(preserved_users_filters)
+
             print("[context] Tenant cambiado: store_id de users reiniciado para evitar mezcla de contexto.")
+
         self._persist_context()
 
     def _ensure_users_store_filter_is_valid(self, session: SessionState, tenant_id: str) -> bool:
@@ -528,7 +616,7 @@ class AdminConsole:
             self._list_stores(session)
             return True
         if module == "stores":
-            store_id = input("store_id para filtrar users [vacío=sin filtro]: ").strip()
+            store_id = session.filters_by_module.get("users", {}).get("store_id") or input("store_id a copiar: ").strip()
             users_filters = session.filters_by_module.get("users", {}).copy()
             if store_id:
                 users_filters["store_id"] = store_id
@@ -557,7 +645,7 @@ class AdminConsole:
                 return
             print(f"[copy] store_id={store_id}")
             return
-        print(f"[copy] Usa y en tenants/stores para copiar IDs operativos.")
+        print("[copy] Usa y en tenants/stores para copiar IDs operativos.")
 
     def _contextual_empty_message(self, session: SessionState, module: str) -> str:
         tenant = session.selected_tenant_id or session.effective_tenant_id
@@ -724,14 +812,31 @@ class AdminConsole:
                 elapsed_ms = int(elapsed * 1000)
                 self._last_load_duration_ms_by_module[module] = elapsed_ms
                 self._health_status_by_module[module] = "DEGRADED" if elapsed >= 1.2 else "OK"
-                self.support_center.record_operation(module=module, screen=module, action="list", result="success", latency_ms=elapsed_ms, code="OK", message="listado actualizado")
+                self.support_center.record_operation(
+                    module=module,
+                    screen=module,
+                    action="list",
+                    result="success",
+                    latency_ms=elapsed_ms,
+                    code="OK",
+                    message="listado actualizado",
+                )
                 if elapsed >= 1.2:
                     print("[network] Conexión lenta, la respuesta demoró más de lo habitual.")
                 if attempt > 1:
                     print("[network] Servicio recuperado. Continuando operación.")
                 return listing
             except ApiError as error:
-                self.support_center.record_operation(module=module, screen=module, action="list", result="error", latency_ms=int((time.monotonic() - start) * 1000), trace_id=error.trace_id, code=error.code, message=error.message)
+                self.support_center.record_operation(
+                    module=module,
+                    screen=module,
+                    action="list",
+                    result="error",
+                    latency_ms=int((time.monotonic() - start) * 1000),
+                    trace_id=error.trace_id,
+                    code=error.code,
+                    message=error.message,
+                )
                 if error.code == "NETWORK_ERROR":
                     self._health_status_by_module[module] = "OFFLINE"
                     print("[network] Sin conexión. Verifica red/VPN y vuelve a intentar.")

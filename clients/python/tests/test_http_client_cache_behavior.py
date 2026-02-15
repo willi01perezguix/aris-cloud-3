@@ -59,3 +59,25 @@ def test_request_get_use_get_cache_true_preserves_current_behavior(monkeypatch) 
     assert second == {"value": 1}
     assert len(responses.calls) == 1
     assert len(http._cache or {}) == 1
+
+
+@responses.activate
+def test_request_get_use_get_cache_false_ignores_existing_cache(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+    cache_key = http._cache_key("GET", "https://api.example.com/aris3/reports/overview", {"Accept": "application/json"}, None)
+    assert cache_key is not None
+    http._cache[cache_key] = (9999999999.0, {"value": 111})
+
+    responses.add(
+        responses.GET,
+        "https://api.example.com/aris3/reports/overview",
+        json={"value": 222},
+        status=200,
+    )
+
+    response = http.request("GET", "/aris3/reports/overview", use_get_cache=False)
+
+    assert response == {"value": 222}
+    assert len(responses.calls) == 1
+    assert http._cache[cache_key][1] == {"value": 111}

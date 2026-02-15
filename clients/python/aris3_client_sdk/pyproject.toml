@@ -1,6 +1,6 @@
 [project]
 name = "aris3-client-sdk"
-version = "1.1.0"
+version = "1.1.1"
 description = "ARIS 3 Python client SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,6 +9,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "requests>=2.32",
   "platformdirs>=4.2",
+  'tomli>=2.0; python_version < "3.11"',
 ]
 
 [project.optional-dependencies]

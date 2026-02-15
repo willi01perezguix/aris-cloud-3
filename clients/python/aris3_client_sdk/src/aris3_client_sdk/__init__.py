@@ -1,3 +1,26 @@
+from __future__ import annotations
+
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python >=3.11 in CI
+    import tomli as tomllib
+
+
+def _sdk_version() -> str:
+    try:
+        return version("aris3-client-sdk")
+    except PackageNotFoundError:
+        pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        project = data.get("project", {})
+        return str(project["version"])
+
+
+__version__ = _sdk_version()
+
 from .auth_store import AuthStore
 from .config import ClientConfig, ConfigError, load_config
 from .exceptions import (
@@ -191,6 +214,7 @@ from .tracing import TraceContext
 from .ui_errors import UserFacingError, to_user_facing_error
 
 __all__ = [
+    "__version__",
     "ApiError",
     "AuthError",
     "ApiSession",

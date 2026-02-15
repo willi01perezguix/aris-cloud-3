@@ -41,6 +41,8 @@ class GuiApp:
         )
         if hasattr(self.window, "set_module_open_handler"):
             self.window.set_module_open_handler(self.open_module)
+        if hasattr(self.window, "set_logout_handler"):
+            self.window.set_logout_handler(self.logout)
         self._refresh_header()
 
     def run(self) -> None:
@@ -136,6 +138,9 @@ class GuiApp:
             message=f"module {module} open",
         )
         self._refresh_header()
+        if hasattr(self.window, "show_module_placeholder"):
+            self.window.show_module_placeholder(module_label=module.capitalize())
+            return
         if self._authenticated_view_active:
             self._navigate_to_authenticated_view_refresh()
 
@@ -148,6 +153,13 @@ class GuiApp:
         self.window.set_session_context(user=username, role=role, effective_tenant_id=tenant_id)
         self._sync_module_launcher_state()
         self.window.show_authenticated_view()
+
+
+    def logout(self) -> None:
+        self.controller.session.clear()
+        self._authenticated_view_active = False
+        self.window.show_home_view()
+        self._refresh_header()
 
     def open_diagnostics(self) -> None:
         connectivity = self.controller.refresh_connectivity()

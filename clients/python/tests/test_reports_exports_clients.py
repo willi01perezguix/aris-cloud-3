@@ -126,6 +126,34 @@ def test_export_request_and_polling(monkeypatch) -> None:
 
 
 @responses.activate
+def test_export_polling_bypasses_cache_without_disabling_global_cache(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+    created = {
+        "export_id": "exp-1", "tenant_id": "tenant-1", "store_id": "store-1", "source_type": "reports_daily", "format": "csv",
+        "filters_snapshot": {}, "status": "CREATED", "row_count": 0, "checksum_sha256": None, "failure_reason_code": None,
+        "generated_by_user_id": "u1", "generated_at": None, "trace_id": "trace-1", "file_size_bytes": None,
+        "content_type": None, "file_name": None, "created_at": "2024-01-01T00:00:00Z", "updated_at": None,
+    }
+    ready = {**created, "status": "READY", "file_name": "report.csv", "content_type": "text/csv", "file_size_bytes": 12, "checksum_sha256": "abc"}
+    responses.add(responses.GET, "https://api.example.com/aris3/exports/exp-1", json=created, status=200)
+    responses.add(responses.GET, "https://api.example.com/aris3/exports/exp-1", json=ready, status=200)
+
+    client = ExportsClient(http=http, access_token="token")
+
+    warm_status = client.get_export_status("exp-1")
+    assert warm_status.status == "CREATED"
+
+    final = client.wait_for_export_ready("exp-1", timeout_sec=1.0, poll_interval_sec=0.01)
+    assert final.outcome.value == "COMPLETED"
+    assert http.enable_get_cache is True
+
+    cached_status = client.get_export_status("exp-1")
+    assert cached_status.status == "CREATED"
+    assert len(responses.calls) == 2
+
+
+@responses.activate
 def test_export_poll_timeout(monkeypatch) -> None:
     monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
     http = _client("https://api.example.com")

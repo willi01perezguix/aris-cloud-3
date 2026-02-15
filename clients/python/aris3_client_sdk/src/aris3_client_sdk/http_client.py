@@ -93,6 +93,7 @@ class HttpClient:
         retry_mutation: bool = False,
         module: str = "unknown",
         operation: str = "unknown",
+        use_get_cache: bool = True,
         context_key: str | None = None,
         context_version: int | None = None,
         invalidate_paths: list[str] | None = None,
@@ -118,7 +119,10 @@ class HttpClient:
         can_retry = normalized_method in {"GET", "HEAD"} or retry_mutation
         attempts = self.config.retries + 1 if can_retry else 1
         cache_key = self._cache_key(normalized_method, url, request_headers, params)
-        if self.enable_get_cache and normalized_method == "GET" and cache_key:
+        should_use_get_cache = (
+            self.enable_get_cache and use_get_cache and normalized_method == "GET"
+        )
+        if should_use_get_cache and cache_key:
             cached = self._read_cache(cache_key)
             if cached is not None:
                 self.last_operation = LastOperation(
@@ -197,7 +201,7 @@ class HttpClient:
                 self._invalidate_cache(invalidate_paths or [])
                 return None
             parsed = response.json()
-            if self.enable_get_cache and normalized_method == "GET" and cache_key:
+            if should_use_get_cache and cache_key:
                 self._write_cache(cache_key, parsed)
             if normalized_method != "GET":
                 self._invalidate_cache(invalidate_paths or [])

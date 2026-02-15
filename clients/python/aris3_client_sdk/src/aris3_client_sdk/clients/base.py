@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ..http_client import HttpClient
 
@@ -25,7 +26,20 @@ class BaseClient:
             headers["X-Device-ID"] = self.device_id
         return headers
 
-    def _request(self, method: str, path: str, **kwargs):
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        use_get_cache: bool = True,
+        **kwargs: Any,
+    ):
         headers = kwargs.pop("headers", {})
         merged = {**self._auth_headers(), **headers}
-        return self.http.request(method, path, headers=merged, **kwargs)
+        return self.http.request(
+            method,
+            path,
+            headers=merged,
+            use_get_cache=use_get_cache,
+            **kwargs,
+        )

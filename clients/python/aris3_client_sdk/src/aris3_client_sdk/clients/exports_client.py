@@ -42,8 +42,14 @@ class ExportsClient(BaseClient):
             raise ValueError("Expected export request response to be a JSON object")
         return ExportStatus.model_validate(data)
 
-    def get_export_status(self, export_id: str) -> ExportStatus:
-        data = self._request("GET", f"/aris3/exports/{export_id}")
+    def get_export_status(
+        self, export_id: str, *, use_get_cache: bool = True
+    ) -> ExportStatus:
+        data = self._request(
+            "GET",
+            f"/aris3/exports/{export_id}",
+            use_get_cache=use_get_cache,
+        )
         if not isinstance(data, dict):
             raise ValueError("Expected export status response to be a JSON object")
         return ExportStatus.model_validate(data)
@@ -85,57 +91,51 @@ class ExportsClient(BaseClient):
         interval = max(poll_interval_sec, 0.2)
         last_status: ExportStatus | None = None
 
-        # Evita leer estado stale desde cache GET durante polling.
-        original_get_cache = self.http.enable_get_cache
-        self.http.enable_get_cache = False
-        try:
-            while True:
-                if cancel_check and cancel_check():
-                    raise TimeoutError(f"Polling cancelled for export {export_id}")
-                try:
-                    status = self.get_export_status(export_id)
-                except NotFoundError:
-                    if last_status is not None:
-                        return ExportWaitResult(
-                            export_id=export_id,
-                            outcome=ExportTerminalState.EXPIRED,
-                            status=last_status,
-                        )
-                    raise
+        while True:
+            if cancel_check and cancel_check():
+                raise TimeoutError(f"Polling cancelled for export {export_id}")
+            try:
+                status = self.get_export_status(export_id, use_get_cache=False)
+            except NotFoundError:
+                if last_status is not None:
+                    return ExportWaitResult(
+                        export_id=export_id,
+                        outcome=ExportTerminalState.EXPIRED,
+                        status=last_status,
+                    )
+                raise
 
-                last_status = status
-                state = status.status.upper()
-                if state in {"READY", "COMPLETED"}:
-                    return ExportWaitResult(
-                        export_id=export_id,
-                        outcome=ExportTerminalState.COMPLETED,
-                        status=status,
-                    )
-                if state in {"FAILED", "ERROR"}:
-                    return ExportWaitResult(
-                        export_id=export_id,
-                        outcome=ExportTerminalState.FAILED,
-                        status=status,
-                    )
-                if state in {"EXPIRED", "NOT_FOUND"}:
-                    outcome = (
-                        ExportTerminalState.EXPIRED
-                        if state == "EXPIRED"
-                        else ExportTerminalState.NOT_FOUND
-                    )
-                    return ExportWaitResult(
-                        export_id=export_id,
-                        outcome=outcome,
-                        status=status,
-                    )
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting for export {export_id}; "
-                        f"last_status={status.status}"
-                    )
-                time.sleep(interval)
-        finally:
-            self.http.enable_get_cache = original_get_cache
+            last_status = status
+            state = status.status.upper()
+            if state in {"READY", "COMPLETED"}:
+                return ExportWaitResult(
+                    export_id=export_id,
+                    outcome=ExportTerminalState.COMPLETED,
+                    status=status,
+                )
+            if state in {"FAILED", "ERROR"}:
+                return ExportWaitResult(
+                    export_id=export_id,
+                    outcome=ExportTerminalState.FAILED,
+                    status=status,
+                )
+            if state in {"EXPIRED", "NOT_FOUND"}:
+                outcome = (
+                    ExportTerminalState.EXPIRED
+                    if state == "EXPIRED"
+                    else ExportTerminalState.NOT_FOUND
+                )
+                return ExportWaitResult(
+                    export_id=export_id,
+                    outcome=outcome,
+                    status=status,
+                )
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Timed out waiting for export {export_id}; "
+                    f"last_status={status.status}"
+                )
+            time.sleep(interval)
 
     def wait_until_ready(
         self,

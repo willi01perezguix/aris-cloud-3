@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.1 (stable)
+
+- Cierre de release Day 10 completado con gate técnico final en verde (`pytest` + `release_gate.py`) y decisión formal **GO**.
+- Versionado del SDK consolidado en `1.1.1` como fuente única desde `pyproject.toml` y verificación de artefactos de distribución (`sdist` + `wheel`).
+- Evidencia operativa agregada para smoke en entorno limpio y plan de monitoreo post-release de 72h.
+
 ## v1.1.1 Day 9
 
 - Top 3 P0 ejecutados: telemetría opcional de polling de exports, retries con jitter configurable y CLI smoke post-release con argumentos de salida.

@@ -7,6 +7,17 @@ from typing import Callable
 from aris_control_2.app.gui_controller import LoginResult
 
 
+MODULE_LABELS: tuple[tuple[str, str], ...] = (
+    ("tenants", "Tenants"),
+    ("stores", "Stores"),
+    ("users", "Users"),
+    ("stock", "Stock"),
+    ("transfers", "Transfers"),
+    ("pos", "POS"),
+    ("reports", "Reports"),
+)
+
+
 class MainWindow:
     def __init__(
         self,
@@ -33,6 +44,9 @@ class MainWindow:
         self._on_diagnostics = on_diagnostics
         self._on_support = on_support
         self._on_exit = on_exit
+        self._on_open_module: Callable[[str], None] = lambda _module: None
+        self._module_notice = tk.StringVar(value="")
+        self._module_enabled: dict[str, bool] = {key: False for key, _ in MODULE_LABELS}
 
         frame = tk.Frame(root, padx=16, pady=16)
         frame.pack(fill="both", expand=True)
@@ -78,6 +92,24 @@ class MainWindow:
         tk.Label(self._frame, text="Estado de conectividad:", anchor="w").pack(fill="x")
         tk.Label(self._frame, textvariable=self.status_value, font=("TkDefaultFont", 11, "bold"), anchor="w").pack(fill="x", pady=(0, 10))
 
+        tk.Label(self._frame, text="Módulos", font=("TkDefaultFont", 11, "bold"), anchor="w").pack(fill="x")
+        if self._module_notice.get():
+            tk.Label(self._frame, textvariable=self._module_notice, fg="#8a6d3b", anchor="w", justify="left").pack(fill="x", pady=(2, 6))
+
+        module_buttons = tk.Frame(self._frame)
+        module_buttons.pack(fill="x", pady=(0, 10))
+        for index, (module, label) in enumerate(MODULE_LABELS):
+            row = index // 3
+            column = index % 3
+            button_state = "normal" if self._module_enabled.get(module, False) else "disabled"
+            tk.Button(
+                module_buttons,
+                text=label,
+                width=12,
+                state=button_state,
+                command=lambda selected=module: self._on_open_module(selected),
+            ).grid(row=row, column=column, padx=4, pady=3, sticky="w")
+
         buttons = tk.Frame(self._frame)
         buttons.pack(fill="x")
         tk.Button(buttons, text="Diagnóstico", width=12, command=self._on_diagnostics).pack(side="left", padx=(0, 6))
@@ -96,6 +128,13 @@ class MainWindow:
         self.user_value.set(user)
         self.role_value.set(role)
         self.tenant_value.set(effective_tenant_id)
+
+    def set_module_open_handler(self, handler: Callable[[str], None]) -> None:
+        self._on_open_module = handler
+
+    def set_module_launcher_state(self, *, enabled_by_module: dict[str, bool], notice: str = "") -> None:
+        self._module_enabled = {key: bool(enabled_by_module.get(key)) for key, _ in MODULE_LABELS}
+        self._module_notice.set(notice)
 
 
 class LoginDialog:

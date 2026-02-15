@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from aris3_client_sdk.config import ConfigError, load_config
@@ -21,3 +19,50 @@ def test_load_config_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = load_config()
     assert cfg.api_base_url == "https://staging.example.com"
     assert cfg.env_name == "staging"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "snippet"),
+    [
+        ("ARIS3_TIMEOUT_SECONDS", "0", "ARIS3_TIMEOUT_SECONDS"),
+        ("ARIS3_CONNECT_TIMEOUT_SECONDS", "0", "ARIS3_CONNECT_TIMEOUT_SECONDS"),
+        ("ARIS3_READ_TIMEOUT_SECONDS", "0", "ARIS3_READ_TIMEOUT_SECONDS"),
+        ("ARIS3_RETRIES", "-1", "ARIS3_RETRIES"),
+        ("ARIS3_RETRY_BACKOFF_SECONDS", "-0.1", "ARIS3_RETRY_BACKOFF_SECONDS"),
+        ("ARIS3_MAX_CONNECTIONS", "0", "ARIS3_MAX_CONNECTIONS"),
+    ],
+)
+def test_load_config_rejects_invalid_ranges(
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    value: str,
+    snippet: str,
+) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ConfigError, match=snippet):
+        load_config()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("ARIS3_TIMEOUT_SECONDS", "abc"),
+        ("ARIS3_CONNECT_TIMEOUT_SECONDS", "abc"),
+        ("ARIS3_READ_TIMEOUT_SECONDS", "abc"),
+        ("ARIS3_RETRIES", "abc"),
+        ("ARIS3_RETRY_BACKOFF_SECONDS", "abc"),
+        ("ARIS3_MAX_CONNECTIONS", "abc"),
+    ],
+)
+def test_load_config_rejects_invalid_types(
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    value: str,
+) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ConfigError, match=key):
+        load_config()

@@ -23,7 +23,7 @@ cp .env.example .env
 
 Supported config keys:
 - `ARIS3_ENV` (`dev`, `staging`, `prod`)
-- `ARIS3_API_BASE_URL` or `ARIS3_API_BASE_URL_<ENV>`
+- `ARIS3_API_BASE_URL` or `ARIS3_API_BASE_URL_<ENV>` (required via env; no runtime fallback)
 - `ARIS3_TIMEOUT_SECONDS`
 - `ARIS3_RETRIES`
 - `ARIS3_VERIFY_SSL`

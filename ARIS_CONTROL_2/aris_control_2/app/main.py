@@ -332,7 +332,7 @@ def _resolve_quick_action(option: str) -> str:
     }
     return quick_actions.get(normalized, option)
 
-def main() -> None:
+def run_cli() -> None:
     config = SDKConfig.from_env()
     environment = os.getenv("ARIS3_ENV", "dev").strip().lower() or "dev"
     http_client = HttpClient(config=config)
@@ -511,6 +511,23 @@ def main() -> None:
             last_error = payload
             support_center.record_incident(module=session.current_module, payload=payload)
             print_error_banner(payload)
+
+
+def resolve_ui_mode(raw_mode: str | None = None) -> str:
+    source = raw_mode if raw_mode is not None else os.getenv("ARIS_CONTROL_UI", "gui")
+    normalized = source.strip().lower()
+    return "cli" if normalized == "cli" else "gui"
+
+
+def main() -> None:
+    mode = resolve_ui_mode()
+    if mode == "cli":
+        run_cli()
+        return
+
+    from aris_control_2.app.gui_app import run_gui_app
+
+    run_gui_app()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from .access_control import AccessControlClient
 from .admin_client import AdminClient
+from .admin_data_access import AdminDataAccessClient, RetryableMutation
 from .auth import AuthClient
 from .exports_client import ExportsClient
 from .health import HealthClient
@@ -15,6 +16,7 @@ from .transfers_client import TransfersClient
 __all__ = [
     "AccessControlClient",
     "AdminClient",
+    "AdminDataAccessClient",
     "AuthClient",
     "ExportsClient",
     "HealthClient",
@@ -26,4 +28,5 @@ __all__ = [
     "SmokeClient",
     "StockClient",
     "TransfersClient",
+    "RetryableMutation",
 ]

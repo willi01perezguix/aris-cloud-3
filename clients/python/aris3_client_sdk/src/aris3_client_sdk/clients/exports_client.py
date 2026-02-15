@@ -28,7 +28,9 @@ class ExportsClient(BaseClient):
         idempotency_key: str | None = None,
     ) -> ExportStatus:
         request = _coerce_model(payload, ExportRequest)
-        keys = _resolve_idempotency(transaction_id or request.transaction_id, idempotency_key)
+        keys = _resolve_idempotency(
+            transaction_id or request.transaction_id, idempotency_key
+        )
         request = request.model_copy(update={"transaction_id": keys.transaction_id})
         data = self._request(
             "POST",
@@ -82,27 +84,58 @@ class ExportsClient(BaseClient):
         deadline = time.monotonic() + max(timeout_sec, 0)
         interval = max(poll_interval_sec, 0.2)
         last_status: ExportStatus | None = None
-        while True:
-            if cancel_check and cancel_check():
-                raise TimeoutError(f"Polling cancelled for export {export_id}")
-            try:
-                status = self.get_export_status(export_id)
-            except NotFoundError:
-                if last_status is not None:
-                    return ExportWaitResult(export_id=export_id, outcome=ExportTerminalState.EXPIRED, status=last_status)
-                raise
-            last_status = status
-            state = status.status.upper()
-            if state in {"READY", "COMPLETED"}:
-                return ExportWaitResult(export_id=export_id, outcome=ExportTerminalState.COMPLETED, status=status)
-            if state in {"FAILED", "ERROR"}:
-                return ExportWaitResult(export_id=export_id, outcome=ExportTerminalState.FAILED, status=status)
-            if state in {"EXPIRED", "NOT_FOUND"}:
-                outcome = ExportTerminalState.EXPIRED if state == "EXPIRED" else ExportTerminalState.NOT_FOUND
-                return ExportWaitResult(export_id=export_id, outcome=outcome, status=status)
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out waiting for export {export_id}; last_status={status.status}")
-            time.sleep(interval)
+
+        # Evita leer estado stale desde cache GET durante polling.
+        original_get_cache = self.http.enable_get_cache
+        self.http.enable_get_cache = False
+        try:
+            while True:
+                if cancel_check and cancel_check():
+                    raise TimeoutError(f"Polling cancelled for export {export_id}")
+                try:
+                    status = self.get_export_status(export_id)
+                except NotFoundError:
+                    if last_status is not None:
+                        return ExportWaitResult(
+                            export_id=export_id,
+                            outcome=ExportTerminalState.EXPIRED,
+                            status=last_status,
+                        )
+                    raise
+
+                last_status = status
+                state = status.status.upper()
+                if state in {"READY", "COMPLETED"}:
+                    return ExportWaitResult(
+                        export_id=export_id,
+                        outcome=ExportTerminalState.COMPLETED,
+                        status=status,
+                    )
+                if state in {"FAILED", "ERROR"}:
+                    return ExportWaitResult(
+                        export_id=export_id,
+                        outcome=ExportTerminalState.FAILED,
+                        status=status,
+                    )
+                if state in {"EXPIRED", "NOT_FOUND"}:
+                    outcome = (
+                        ExportTerminalState.EXPIRED
+                        if state == "EXPIRED"
+                        else ExportTerminalState.NOT_FOUND
+                    )
+                    return ExportWaitResult(
+                        export_id=export_id,
+                        outcome=outcome,
+                        status=status,
+                    )
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for export {export_id}; "
+                        f"last_status={status.status}"
+                    )
+                time.sleep(interval)
+        finally:
+            self.http.enable_get_cache = original_get_cache
 
     def wait_until_ready(
         self,
@@ -131,7 +164,10 @@ class ExportsClient(BaseClient):
             method="GET",
             url=self.http._build_url(f"/aris3/exports/{export_id}/download"),
             headers=headers,
-            timeout=(self.http.config.connect_timeout_seconds, self.http.config.read_timeout_seconds),
+            timeout=(
+                self.http.config.connect_timeout_seconds,
+                self.http.config.read_timeout_seconds,
+            ),
             verify=self.http.config.verify_ssl,
         )
         if trace_context:
@@ -143,13 +179,22 @@ class ExportsClient(BaseClient):
             except ValueError:
                 payload = {"message": response.text}
             mapped_trace = trace_context.trace_id if trace_context else None
-            raise map_error(response.status_code, payload if isinstance(payload, dict) else None, mapped_trace)
+            raise map_error(
+                response.status_code,
+                payload if isinstance(payload, dict) else None,
+                mapped_trace,
+            )
         return response.content
 
 
-def _resolve_idempotency(transaction_id: str | None, idempotency_key: str | None) -> IdempotencyKeys:
+def _resolve_idempotency(
+    transaction_id: str | None, idempotency_key: str | None
+) -> IdempotencyKeys:
     if transaction_id and idempotency_key:
-        return IdempotencyKeys(transaction_id=transaction_id, idempotency_key=idempotency_key)
+        return IdempotencyKeys(
+            transaction_id=transaction_id,
+            idempotency_key=idempotency_key,
+        )
     generated = new_idempotency_keys()
     return IdempotencyKeys(
         transaction_id=transaction_id or generated.transaction_id,

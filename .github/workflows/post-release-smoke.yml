@@ -1,0 +1,35 @@
+name: post-release-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r clients/python/requirements.txt
+          pip install -e clients/python/aris3_client_sdk
+
+      - name: Run post-release smoke
+        run: |
+          mkdir -p artifacts
+          python clients/python/scripts/post_release_smoke.py 2>&1 | tee artifacts/post_release_smoke_stdout.log
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-release-smoke-artifacts
+          path: |
+            artifacts/post_release_smoke_result.json
+            artifacts/post_release_smoke_result.log
+            artifacts/post_release_smoke_stdout.log

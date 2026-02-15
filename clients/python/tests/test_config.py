@@ -66,3 +66,25 @@ def test_load_config_rejects_invalid_types(
 
     with pytest.raises(ConfigError, match=key):
         load_config()
+
+
+def test_load_config_retry_jitter_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("ARIS3_RETRY_JITTER_ENABLED", "true")
+    monkeypatch.setenv("ARIS3_RETRY_JITTER_MIN_SECONDS", "0.05")
+    monkeypatch.setenv("ARIS3_RETRY_JITTER_MAX_SECONDS", "0.2")
+
+    cfg = load_config()
+
+    assert cfg.retry_jitter_enabled is True
+    assert cfg.retry_jitter_min_seconds == 0.05
+    assert cfg.retry_jitter_max_seconds == 0.2
+
+
+def test_load_config_rejects_invalid_retry_jitter_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("ARIS3_RETRY_JITTER_MIN_SECONDS", "0.2")
+    monkeypatch.setenv("ARIS3_RETRY_JITTER_MAX_SECONDS", "0.1")
+
+    with pytest.raises(ConfigError, match="ARIS3_RETRY_JITTER_MAX_SECONDS"):
+        load_config()

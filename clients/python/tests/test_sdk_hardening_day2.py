@@ -40,6 +40,37 @@ def test_http_client_retries_get_on_5xx() -> None:
     assert len(responses.calls) == 2
 
 
+
+
+@responses.activate
+def test_http_client_retry_jitter_within_expected_bounds(monkeypatch) -> None:
+    cfg = ClientConfig(
+        env_name="test",
+        api_base_url="https://api.example.com",
+        retries=1,
+        retry_backoff_seconds=0.2,
+        retry_jitter_enabled=True,
+        retry_jitter_min_seconds=0.1,
+        retry_jitter_max_seconds=0.3,
+    )
+    http = HttpClient(cfg, trace=TraceContext())
+
+    sleeps: list[float] = []
+
+    def _sleep(value: float) -> None:
+        sleeps.append(value)
+
+    monkeypatch.setattr("aris3_client_sdk.http_client.time.sleep", _sleep)
+    monkeypatch.setattr("aris3_client_sdk.http_client.random.uniform", lambda a, b: 0.15)
+
+    responses.add(responses.GET, "https://api.example.com/aris3/health", status=503, json={"code": "UNAVAILABLE"})
+    responses.add(responses.GET, "https://api.example.com/aris3/health", status=200, json={"ok": True})
+
+    payload = http.request("GET", "/aris3/health")
+
+    assert payload == {"ok": True}
+    assert sleeps == [0.35]
+
 def test_http_client_does_not_retry_mutation_by_default(monkeypatch) -> None:
     http = HttpClient(_cfg(), trace=TraceContext())
     attempts = {"count": 0}

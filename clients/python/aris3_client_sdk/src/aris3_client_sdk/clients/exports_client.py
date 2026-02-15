@@ -18,6 +18,8 @@ from ..models_exports import (
 )
 from .base import BaseClient
 
+TelemetryHook = Callable[[dict[str, Any]], None]
+
 
 @dataclass
 class ExportsClient(BaseClient):
@@ -86,16 +88,20 @@ class ExportsClient(BaseClient):
         timeout_sec: float = 30.0,
         poll_interval_sec: float = 2.0,
         cancel_check: Callable[[], bool] | None = None,
+        telemetry_hook: TelemetryHook | None = None,
     ) -> ExportWaitResult:
-        deadline = time.monotonic() + max(timeout_sec, 0)
+        started = time.monotonic()
+        deadline = started + max(timeout_sec, 0)
         interval = max(poll_interval_sec, 0.2)
         last_status: ExportStatus | None = None
+        attempts = 0
 
         while True:
             if cancel_check and cancel_check():
                 raise TimeoutError(f"Polling cancelled for export {export_id}")
             try:
                 status = self.get_export_status(export_id, use_get_cache=False)
+                attempts += 1
             except NotFoundError:
                 if last_status is not None:
                     return ExportWaitResult(
@@ -107,6 +113,17 @@ class ExportsClient(BaseClient):
 
             last_status = status
             state = status.status.upper()
+            if telemetry_hook:
+                telemetry_hook(
+                    {
+                        "event": "export_poll_status",
+                        "export_id": export_id,
+                        "state": state,
+                        "attempt": attempts,
+                        "elapsed_ms": int((time.monotonic() - started) * 1000),
+                        "is_terminal": state in {"READY", "COMPLETED", "FAILED", "ERROR", "EXPIRED", "NOT_FOUND"},
+                    }
+                )
             if state in {"READY", "COMPLETED"}:
                 return ExportWaitResult(
                     export_id=export_id,
@@ -131,6 +148,17 @@ class ExportsClient(BaseClient):
                     status=status,
                 )
             if time.monotonic() >= deadline:
+                if telemetry_hook:
+                    telemetry_hook(
+                        {
+                            "event": "export_poll_timeout",
+                            "export_id": export_id,
+                            "state": state,
+                            "attempt": attempts,
+                            "elapsed_ms": int((time.monotonic() - started) * 1000),
+                            "is_terminal": True,
+                        }
+                    )
                 raise TimeoutError(
                     f"Timed out waiting for export {export_id}; "
                     f"last_status={status.status}"

@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.1 Day 9
+
+- Top 3 P0 ejecutados: telemetría opcional de polling de exports, retries con jitter configurable y CLI smoke post-release con argumentos de salida.
+- `wait_for_export_ready` ahora puede emitir eventos de estado/latencia por `telemetry_hook` sin romper compatibilidad.
+- `ClientConfig` incorpora configuración de jitter en retries (`ARIS3_RETRY_JITTER_*`) manteniendo defaults backward-compatible.
+- Se agregan pruebas de cobertura para telemetría de polling, jitter y ejecución CLI con artifact JSON/log.
+
 ## v1.1.0
 
 - Configuración estricta del SDK: `load_config` requiere `ARIS3_API_BASE_URL` (sin fallback implícito en runtime).

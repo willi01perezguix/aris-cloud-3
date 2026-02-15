@@ -146,6 +146,7 @@ def test_export_polling_bypasses_cache_without_disabling_global_cache(monkeypatc
 
     final = client.wait_for_export_ready("exp-1", timeout_sec=1.0, poll_interval_sec=0.01)
     assert final.outcome.value == "COMPLETED"
+    assert final.status.status == "READY"
     assert http.enable_get_cache is True
 
     cached_status = client.get_export_status("exp-1")

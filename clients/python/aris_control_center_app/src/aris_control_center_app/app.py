@@ -16,26 +16,28 @@ from aris3_client_sdk.models import EffectivePermissionsResponse, PermissionEntr
 @dataclass
 class MenuItem:
     label: str
-    permission_key: str
+    permission_keys: tuple[str, ...]
     enabled: bool = False
 
 
 CONTROL_CENTER_MENU = [
-    MenuItem("Tenants", "tenants.view"),
-    MenuItem("Stores", "stores.view"),
-    MenuItem("Users", "users.view"),
-    MenuItem("RBAC", "rbac.view"),
-    MenuItem("Settings", "settings.view"),
-    MenuItem("Audit", "audit.view"),
-    MenuItem("Permissions Inspector", "rbac.view"),
-    MenuItem("Operational Insights", "reports.view"),
-    MenuItem("Media Inspector", "stock.view"),
+    MenuItem("Tenants", ("tenants.view", "TENANTS_VIEW")),
+    MenuItem("Stores", ("stores.view", "STORES_VIEW", "STORE_VIEW")),
+    MenuItem("Users", ("users.view", "USERS_VIEW")),
+    MenuItem("Stock", ("stock.view", "STOCK_VIEW")),
+    MenuItem("Transfers", ("transfers.view", "TRANSFERS_VIEW")),
+    MenuItem("POS", ("pos.view", "pos_sales.view", "POS_VIEW", "POS_SALES_VIEW")),
+    MenuItem("Reports", ("reports.view", "REPORTS_VIEW")),
 ]
 
 
 def build_menu_items(allowed_permissions: set[str]) -> list[MenuItem]:
     return [
-        MenuItem(item.label, item.permission_key, item.permission_key in allowed_permissions)
+        MenuItem(
+            item.label,
+            item.permission_keys,
+            any(permission in allowed_permissions for permission in item.permission_keys),
+        )
         for item in CONTROL_CENTER_MENU
     ]
 
@@ -85,6 +87,8 @@ class ControlCenterAppShell:
         self.media_var2_var = tk.StringVar(value="")
         self.media_result_var = tk.StringVar(value="")
         self.media_trace_var = tk.StringVar(value="")
+        self.current_screen = "login"
+        self.active_module = ""
 
     def start(self, headless: bool = False) -> None:
         if headless:
@@ -97,9 +101,18 @@ class ControlCenterAppShell:
         self._build_login_ui()
         self.root.mainloop()
 
+    def _clear_root(self) -> None:
+        if self.root is None:
+            return
+        for child in self.root.winfo_children():
+            child.destroy()
+
     def _build_login_ui(self) -> None:
         if self.root is None:
             return
+        self.current_screen = "login"
+        self.active_module = ""
+        self._clear_root()
         frame = ttk.Frame(self.root, padding=20)
         frame.pack(fill="both", expand=True)
 
@@ -140,43 +153,70 @@ class ControlCenterAppShell:
 
         self.allowed_permissions = allowed_permission_set(permissions.permissions)
         self.inspector_user_id_var.set(user.id)
-        self._show_main_ui(user.username, user.role or "")
+        self._show_main_ui()
         self._apply_menu_state(build_menu_items(self.allowed_permissions))
 
-    def _show_main_ui(self, username: str, role: str) -> None:
+    def _show_main_ui(self) -> None:
         if self.root is None:
             return
-        for child in self.root.winfo_children():
-            child.destroy()
+        self.current_screen = "authenticated"
+        self._clear_root()
         frame = ttk.Frame(self.root, padding=20)
         frame.pack(fill="both", expand=True)
 
-        status_text = f"Connected: {username} ({role}) [env: {self.config.env_name}]"
+        session_user = self.session.user
+        username = session_user.username if session_user else "-"
+        role = session_user.role if session_user and session_user.role else "-"
+        tenant = session_user.tenant_id if session_user and session_user.tenant_id else "-"
+        connectivity = "Online" if self.session.token else "Offline"
+        status_text = f"Usuario: {username} | Rol: {role} | Tenant efectivo: {tenant} | Conectividad: {connectivity}"
         ttk.Label(frame, text=status_text).pack(anchor="w")
 
-        menu_frame = ttk.LabelFrame(frame, text="Main Menu", padding=10)
+        menu_frame = ttk.LabelFrame(frame, text="Módulos", padding=10)
         menu_frame.pack(fill="x", pady=(10, 0))
         self.content_frame = ttk.Frame(frame)
         self.content_frame.pack(fill="both", expand=True, pady=(10, 0))
 
         self.menu_buttons = []
         for item in CONTROL_CENTER_MENU:
-            if item.label == "Permissions Inspector":
-                command = self._show_permissions_inspector
-            elif item.label == "Operational Insights":
-                command = self._show_operational_insights
-            elif item.label == "Media Inspector":
-                command = self._show_media_inspector
-            else:
-                command = lambda label=item.label: self._show_placeholder(label)
+            command = lambda label=item.label: self._open_module(label)
             button = ttk.Button(menu_frame, text=item.label, state=tk.DISABLED, command=command)
             button.pack(fill="x", pady=2)
             self.menu_buttons.append(button)
-        self._show_placeholder("Select a menu option.")
+
+        logout_button = ttk.Button(menu_frame, text="Logout", command=self._logout)
+        logout_button.pack(fill="x", pady=(8, 2))
+        self.menu_buttons.append(logout_button)
+        self._show_placeholder("Selecciona un módulo.")
 
     def _apply_menu_state(self, menu_items: list[MenuItem]) -> None:
         for button, item in zip(self.menu_buttons, menu_items):
             button.configure(state=tk.NORMAL if item.enabled else tk.DISABLED)
+        if self.menu_buttons:
+            self.menu_buttons[-1].configure(state=tk.NORMAL)
+
+    def _open_module(self, module_label: str) -> None:
+        self.active_module = module_label
+        self.current_screen = "module"
+        if self.content_frame is None:
+            return
+        for child in self.content_frame.winfo_children():
+            child.destroy()
+        container = ttk.Frame(self.content_frame)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text=module_label, font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
+        ttk.Label(container, text=f"Vista placeholder de {module_label}.", foreground="gray").pack(anchor="w", pady=(8, 0))
+        ttk.Button(container, text="Volver", command=self._return_to_shell).pack(anchor="w", pady=(12, 0))
+
+    def _return_to_shell(self) -> None:
+        self.current_screen = "authenticated"
+        self.active_module = ""
+        self._show_placeholder("Selecciona un módulo.")
+
+    def _logout(self) -> None:
+        self.session.logout()
+        self.allowed_permissions = set()
+        self._build_login_ui()
 
     def _show_placeholder(self, message: str) -> None:
         if self.content_frame is None:

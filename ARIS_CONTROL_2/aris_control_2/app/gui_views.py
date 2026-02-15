@@ -30,7 +30,7 @@ class MainWindow:
     ) -> None:
         self.root = root
         root.title("ARIS_CONTROL_2 - GUI v1")
-        root.geometry("460x240")
+        root.geometry("520x360")
         root.resizable(False, False)
 
         self.status_value = tk.StringVar(value="No evaluada")
@@ -45,6 +45,7 @@ class MainWindow:
         self._on_support = on_support
         self._on_exit = on_exit
         self._on_open_module: Callable[[str], None] = lambda _module: None
+        self._on_logout: Callable[[], None] = lambda: None
         self._module_notice = tk.StringVar(value="")
         self._module_enabled: dict[str, bool] = {key: False for key, _ in MODULE_LABELS}
 
@@ -77,20 +78,23 @@ class MainWindow:
         tk.Button(buttons, text="Soporte", width=12, command=self._on_support).pack(side="left", padx=6)
         tk.Button(buttons, text="Salir", width=12, command=self._on_exit).pack(side="right")
 
-    def show_authenticated_view(self) -> None:
+    def _render_authenticated_shell(self) -> tk.Frame:
         self._clear_frame()
 
         tk.Label(self._frame, text="Sesión autenticada", font=("TkDefaultFont", 12, "bold"), anchor="w").pack(fill="x", pady=(0, 8))
 
-        tk.Label(self._frame, text="Usuario:", anchor="w").pack(fill="x")
-        tk.Label(self._frame, textvariable=self.user_value, anchor="w").pack(fill="x", pady=(0, 6))
-        tk.Label(self._frame, text="Rol:", anchor="w").pack(fill="x")
-        tk.Label(self._frame, textvariable=self.role_value, anchor="w").pack(fill="x", pady=(0, 6))
-        tk.Label(self._frame, text="Tenant efectivo:", anchor="w").pack(fill="x")
-        tk.Label(self._frame, textvariable=self.tenant_value, anchor="w").pack(fill="x", pady=(0, 10))
-
-        tk.Label(self._frame, text="Estado de conectividad:", anchor="w").pack(fill="x")
-        tk.Label(self._frame, textvariable=self.status_value, font=("TkDefaultFont", 11, "bold"), anchor="w").pack(fill="x", pady=(0, 10))
+        header = tk.Label(
+            self._frame,
+            text=(
+                f"Usuario: {self.user_value.get()} | "
+                f"Rol: {self.role_value.get()} | "
+                f"Tenant efectivo: {self.tenant_value.get()} | "
+                f"Conectividad: {self.status_value.get()}"
+            ),
+            anchor="w",
+            justify="left",
+        )
+        header.pack(fill="x", pady=(0, 8))
 
         tk.Label(self._frame, text="Módulos", font=("TkDefaultFont", 11, "bold"), anchor="w").pack(fill="x")
         if self._module_notice.get():
@@ -99,8 +103,8 @@ class MainWindow:
         module_buttons = tk.Frame(self._frame)
         module_buttons.pack(fill="x", pady=(0, 10))
         for index, (module, label) in enumerate(MODULE_LABELS):
-            row = index // 3
-            column = index % 3
+            row = index // 4
+            column = index % 4
             button_state = "normal" if self._module_enabled.get(module, False) else "disabled"
             tk.Button(
                 module_buttons,
@@ -110,11 +114,21 @@ class MainWindow:
                 command=lambda selected=module: self._on_open_module(selected),
             ).grid(row=row, column=column, padx=4, pady=3, sticky="w")
 
-        buttons = tk.Frame(self._frame)
-        buttons.pack(fill="x")
-        tk.Button(buttons, text="Diagnóstico", width=12, command=self._on_diagnostics).pack(side="left", padx=(0, 6))
-        tk.Button(buttons, text="Soporte", width=12, command=self._on_support).pack(side="left", padx=6)
-        tk.Button(buttons, text="Salir", width=12, command=self._on_exit).pack(side="right")
+        tk.Button(module_buttons, text="Logout", width=12, command=self._on_logout).grid(row=2, column=0, padx=4, pady=(8, 0), sticky="w")
+
+        content = tk.Frame(self._frame)
+        content.pack(fill="both", expand=True)
+        return content
+
+    def show_authenticated_view(self) -> None:
+        content = self._render_authenticated_shell()
+        tk.Label(content, text="Selecciona un módulo.", fg="gray", anchor="w").pack(fill="x", pady=(8, 0))
+
+    def show_module_placeholder(self, *, module_label: str) -> None:
+        content = self._render_authenticated_shell()
+        tk.Label(content, text=module_label, font=("TkDefaultFont", 12, "bold"), anchor="w").pack(fill="x", pady=(8, 4))
+        tk.Label(content, text=f"Vista placeholder de {module_label}.", fg="gray", anchor="w").pack(fill="x")
+        tk.Button(content, text="Volver", width=12, command=self.show_authenticated_view).pack(anchor="w", pady=(12, 0))
 
     def show_home_view(self) -> None:
         self._build_home_view()
@@ -131,6 +145,9 @@ class MainWindow:
 
     def set_module_open_handler(self, handler: Callable[[str], None]) -> None:
         self._on_open_module = handler
+
+    def set_logout_handler(self, handler: Callable[[], None]) -> None:
+        self._on_logout = handler
 
     def set_module_launcher_state(self, *, enabled_by_module: dict[str, bool], notice: str = "") -> None:
         self._module_enabled = {key: bool(enabled_by_module.get(key)) for key, _ in MODULE_LABELS}

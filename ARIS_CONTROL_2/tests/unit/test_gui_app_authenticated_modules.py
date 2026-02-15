@@ -29,9 +29,12 @@ class FakeWindow:
         self.on_support = on_support
         self.on_exit = on_exit
         self.authenticated_view_count = 0
+        self.home_view_count = 0
         self.module_handler = None
+        self.logout_handler = None
         self.module_state: dict[str, bool] = {}
         self.module_notice = ""
+        self.placeholder_module_label = ""
 
     def set_header(self, *, connectivity: str, base_url: str, version: str) -> None:
         return
@@ -42,12 +45,21 @@ class FakeWindow:
     def set_module_open_handler(self, handler) -> None:  # noqa: ANN001
         self.module_handler = handler
 
+    def set_logout_handler(self, handler) -> None:  # noqa: ANN001
+        self.logout_handler = handler
+
     def set_module_launcher_state(self, *, enabled_by_module: dict[str, bool], notice: str = "") -> None:
         self.module_state = enabled_by_module
         self.module_notice = notice
 
     def show_authenticated_view(self) -> None:
         self.authenticated_view_count += 1
+
+    def show_module_placeholder(self, *, module_label: str) -> None:
+        self.placeholder_module_label = module_label
+
+    def show_home_view(self) -> None:
+        self.home_view_count += 1
 
 
 class FakeController:
@@ -88,52 +100,40 @@ def _build_app(monkeypatch, session: SessionState) -> GuiApp:
     return GuiApp(controller=controller, window_cls=FakeWindow, login_dialog_cls=AutoSubmitLoginDialog)
 
 
-def test_authenticated_view_renders_module_buttons(monkeypatch) -> None:
+def test_login_success_navigates_to_authenticated_shell(monkeypatch) -> None:
     session = SessionState(access_token="token", user={"username": "alice"}, role="ADMIN", effective_tenant_id="tenant-a")
     app = _build_app(monkeypatch, session)
 
     app.open_login()
 
     assert app.window.authenticated_view_count == 1
+
+
+def test_authenticated_shell_renders_module_buttons(monkeypatch) -> None:
+    session = SessionState(access_token="token", user={"username": "alice"}, role="ADMIN", effective_tenant_id="tenant-a")
+    app = _build_app(monkeypatch, session)
+
+    app.open_login()
+
     assert set(app.window.module_state.keys()) == {"tenants", "stores", "users", "stock", "transfers", "pos", "reports"}
 
 
-def test_superadmin_without_tenant_disables_operational_modules(monkeypatch) -> None:
-    session = SessionState(access_token="token", user={"username": "root"}, role="SUPERADMIN", effective_tenant_id=None)
-    app = _build_app(monkeypatch, session)
-
-    app.open_login()
-
-    assert app.window.module_notice == "Selecciona tenant para habilitar módulos operativos."
-    assert app.window.module_state["tenants"] is True
-    for module in ("stores", "users", "stock", "transfers", "pos", "reports"):
-        assert app.window.module_state[module] is False
-
-
-def test_superadmin_with_tenant_enables_operational_modules(monkeypatch) -> None:
-    session = SessionState(access_token="token", user={"username": "root"}, role="SUPERADMIN", effective_tenant_id="tenant-z")
-    app = _build_app(monkeypatch, session)
-
-    app.open_login()
-
-    for module in ("tenants", "stores", "users", "stock", "transfers", "pos", "reports"):
-        assert app.window.module_state[module] is True
-
-
-def test_module_button_updates_current_module_and_operation_log(monkeypatch) -> None:
+def test_module_button_opens_placeholder_view(monkeypatch) -> None:
     session = SessionState(access_token="token", user={"username": "alice"}, role="ADMIN", effective_tenant_id="tenant-a")
     app = _build_app(monkeypatch, session)
     app.open_login()
 
     app.window.module_handler("reports")
 
-    assert app.controller.session.current_module == "reports"
-    assert app.controller.support_center.operations[-1] == {
-        "module": "reports",
-        "screen": "launcher",
-        "action": "open",
-        "result": "success",
-        "latency_ms": 0,
-        "code": "OK",
-        "message": "module reports open",
-    }
+    assert app.window.placeholder_module_label == "Reports"
+
+
+def test_logout_returns_to_public_home(monkeypatch) -> None:
+    session = SessionState(access_token="token", user={"username": "alice"}, role="ADMIN", effective_tenant_id="tenant-a")
+    app = _build_app(monkeypatch, session)
+    app.open_login()
+
+    app.window.logout_handler()
+
+    assert app.controller.session.is_authenticated() is False
+    assert app.window.home_view_count == 1

@@ -1,6 +1,0 @@
-# PyInstaller spec template for ARIS Control 2 (initial scaffolding)
-block_cipher = None
-
-a = Analysis(['-m', 'aris_control_2.app.main'], pathex=['.'], binaries=[], datas=[], hiddenimports=[], cipher=block_cipher)
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-exe = EXE(pyz, a.scripts, a.binaries, a.zipfiles, a.datas, name='aris_control_2', console=True)

@@ -7,13 +7,14 @@ from aris_control_2.app.gui_controller import GuiController, LoginResult
 from aris_control_2.app.gui_views import LoginDialog, MainWindow
 
 
+# ARIS Control 2 alcance v1: solo admin core
 MODULE_PERMISSIONS: dict[str, set[str]] = {
     "tenants": {"tenants.view", "tenants.read", "admin.read"},
     "stores": {"stores.view", "stores.read", "admin.read"},
     "users": {"users.view", "users.read", "admin.read"},
 }
 
-# En Control_2, stores/users dependen de tenant efectivo seleccionado.
+# Para SUPERADMIN sin tenant seleccionado: se bloquea operativo (stores/users)
 OPERATIONAL_MODULES = {"stores", "users"}
 
 
@@ -94,7 +95,7 @@ class GuiApp:
         notice = ""
 
         if role == "SUPERADMIN" and not has_tenant:
-            notice = "Selecciona tenant para habilitar Stores/Users."
+            notice = "Selecciona tenant para habilitar modulos operativos."
             for module in OPERATIONAL_MODULES:
                 enabled_by_module[module] = False
             enabled_by_module["tenants"] = True
@@ -125,41 +126,40 @@ class GuiApp:
         return set()
 
     def open_module(self, module: str) -> None:
-        allowed_modules = {"tenants", "stores", "users"}
-        selected = str(module or "").strip().lower()
+        module_key = str(module or "").strip().lower()
 
-        if selected not in allowed_modules:
+        # Guardrail de alcance Control2: bloquear cualquier modulo fuera de tenants/stores/users
+        if module_key not in MODULE_PERMISSIONS:
             self.controller.support_center.record_operation(
-                module=selected or "unknown",
+                module=module_key or "unknown",
                 screen="launcher",
                 action="open",
-                result="denied",
+                result="blocked",
                 latency_ms=0,
                 code="MODULE_NOT_ENABLED",
-                message=f"module {module} not enabled in ARIS_CONTROL_2",
+                message=f"module {module_key or 'unknown'} not enabled in control2 scope",
             )
             messagebox.showwarning(
-                "Módulo no habilitado",
-                "Este módulo no está habilitado en ARIS_CONTROL_2.\n"
-                "Usa ARIS-CORE-3 para módulos operativos.",
+                "Modulo no disponible",
+                "Este modulo no esta habilitado en ARIS Control 2.\nPermitidos: tenants, stores, users.",
                 parent=self.root,
             )
             self._refresh_header()
             return
 
-        self.controller.session.current_module = selected
+        self.controller.session.current_module = module_key
         self.controller.support_center.record_operation(
-            module=selected,
+            module=module_key,
             screen="launcher",
             action="open",
             result="success",
             latency_ms=0,
             code="OK",
-            message=f"module {selected} open",
+            message=f"module {module_key} open",
         )
         self._refresh_header()
         if hasattr(self.window, "show_module_placeholder"):
-            self.window.show_module_placeholder(module_label=selected.capitalize())
+            self.window.show_module_placeholder(module_label=module_key.capitalize())
             return
         if self._authenticated_view_active:
             self._navigate_to_authenticated_view_refresh()
@@ -185,7 +185,7 @@ class GuiApp:
         self._refresh_header()
         text = self.controller.diagnostic_text()
         messagebox.showinfo(
-            "Diagnóstico",
+            "Diagnostico",
             f"Estado: {connectivity.status}\n\n{text}",
             parent=self.root,
         )

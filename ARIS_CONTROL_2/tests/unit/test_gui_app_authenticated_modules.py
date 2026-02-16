@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from aris_control_2.app.gui_app import GuiApp
 from aris_control_2.app.gui_controller import LoginResult
@@ -145,8 +145,8 @@ def test_disallowed_module_is_blocked_and_warns(monkeypatch) -> None:
 
     assert app.window.placeholder_module_label == ""
     assert warnings
-    assert "no está habilitado" in str(warnings[0]["message"]).lower()
-    assert app.controller.support_center.operations[-1]["result"] == "denied"
+    assert "no esta habilitado" in str(warnings[0]["message"]).lower()
+    assert app.controller.support_center.operations[-1]["result"] == "blocked"
     assert app.controller.support_center.operations[-1]["code"] == "MODULE_NOT_ENABLED"
 
 
@@ -171,3 +171,6 @@ def test_logout_returns_to_public_home(monkeypatch) -> None:
 
     assert app.controller.session.is_authenticated() is False
     assert app.window.home_view_count == 1
+
+
+

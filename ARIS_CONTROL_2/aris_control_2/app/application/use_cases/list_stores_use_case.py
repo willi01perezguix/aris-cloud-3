@@ -12,9 +12,15 @@ class ListStoresUseCase:
     def execute(self) -> list:
         if not self.state.context.can("stores.view"):
             raise APIError(code="PERMISSION_DENIED", message="Missing stores.view")
+
         allowed, reason = TenantContextPolicy.can_access_tenant_scoped_resources(self.state.context)
         if not allowed:
             raise APIError(code=reason, message=reason)
-        stores = self.adapter.list_stores(self.state.context.effective_tenant_id)
+
+        tenant_id = TenantContextPolicy.resolve_effective_tenant_id(self.state.context)
+        if not tenant_id:
+            raise APIError(code="TENANT_SCOPE_REQUIRED", message="TENANT_SCOPE_REQUIRED")
+
+        stores = self.adapter.list_stores(tenant_id)
         self.state.stores_cache = stores
         return stores

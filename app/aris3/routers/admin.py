@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, or_, select
 
 from app.aris3.core.context import build_request_context
 from app.aris3.core.deps import (
@@ -15,7 +16,28 @@ from app.aris3.core.deps import (
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import enforce_store_scope, is_superadmin
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import ReturnPolicySettings, Store, Tenant, User, VariantFieldSettings
+from app.aris3.db.models import (
+    ExportRecord,
+    PosCashDayClose,
+    PosCashMovement,
+    PosCashSession,
+    PosPayment,
+    PosReturnEvent,
+    PosSale,
+    PosSaleLine,
+    ReturnPolicySettings,
+    StockItem,
+    Store,
+    StoreRolePolicy,
+    Tenant,
+    TenantRolePolicy,
+    Transfer,
+    TransferLine,
+    TransferMovement,
+    User,
+    UserPermissionOverride,
+    VariantFieldSettings,
+)
 from app.aris3.db.session import get_db
 from app.aris3.repos.rbac import RoleTemplateRepository
 from app.aris3.repos.settings import ReturnPolicySettingsRepository, VariantFieldSettingsRepository
@@ -41,6 +63,8 @@ from app.aris3.schemas.admin import (
     UserUpdateRequest,
     ReturnPolicySettingsPatchRequest,
     ReturnPolicySettingsResponse,
+    AdminDeleteConflictResponse,
+    AdminDeleteResponse,
     VariantFieldSettingsPatchRequest,
     VariantFieldSettingsResponse,
 )
@@ -202,6 +226,111 @@ def _ensure_role_assignment_allowed(
                 },
             )
     return normalized
+
+
+def _count_query(db, stmt) -> int:
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
+def _store_dependency_counts(db, *, store_id: str) -> dict[str, int]:
+    return {
+        "users": _count_query(db, select(func.count()).select_from(User).where(User.store_id == store_id)),
+        "transfers": _count_query(
+            db,
+            select(func.count()).select_from(Transfer).where(
+                or_(Transfer.origin_store_id == store_id, Transfer.destination_store_id == store_id)
+            ),
+        ),
+        "store_role_policies": _count_query(
+            db,
+            select(func.count()).select_from(StoreRolePolicy).where(StoreRolePolicy.store_id == store_id),
+        ),
+        "sales": _count_query(db, select(func.count()).select_from(PosSale).where(PosSale.store_id == store_id)),
+        "returns": _count_query(
+            db,
+            select(func.count()).select_from(PosReturnEvent).where(PosReturnEvent.store_id == store_id),
+        ),
+        "cash_sessions": _count_query(
+            db,
+            select(func.count()).select_from(PosCashSession).where(PosCashSession.store_id == store_id),
+        ),
+        "cash_movements": _count_query(
+            db,
+            select(func.count()).select_from(PosCashMovement).where(PosCashMovement.store_id == store_id),
+        ),
+        "cash_day_closes": _count_query(
+            db,
+            select(func.count()).select_from(PosCashDayClose).where(PosCashDayClose.store_id == store_id),
+        ),
+        "exports": _count_query(
+            db,
+            select(func.count()).select_from(ExportRecord).where(ExportRecord.store_id == store_id),
+        ),
+    }
+
+
+def _tenant_dependency_counts(db, *, tenant_id: str) -> dict[str, int]:
+    return {
+        "stores": _count_query(db, select(func.count()).select_from(Store).where(Store.tenant_id == tenant_id)),
+        "users": _count_query(db, select(func.count()).select_from(User).where(User.tenant_id == tenant_id)),
+        "stock_items": _count_query(
+            db,
+            select(func.count()).select_from(StockItem).where(StockItem.tenant_id == tenant_id),
+        ),
+        "transfers": _count_query(
+            db,
+            select(func.count()).select_from(Transfer).where(Transfer.tenant_id == tenant_id),
+        ),
+        "transfer_lines": _count_query(
+            db,
+            select(func.count()).select_from(TransferLine).where(TransferLine.tenant_id == tenant_id),
+        ),
+        "transfer_movements": _count_query(
+            db,
+            select(func.count()).select_from(TransferMovement).where(TransferMovement.tenant_id == tenant_id),
+        ),
+        "sales": _count_query(db, select(func.count()).select_from(PosSale).where(PosSale.tenant_id == tenant_id)),
+        "sale_lines": _count_query(
+            db,
+            select(func.count()).select_from(PosSaleLine).where(PosSaleLine.tenant_id == tenant_id),
+        ),
+        "returns": _count_query(
+            db,
+            select(func.count()).select_from(PosReturnEvent).where(PosReturnEvent.tenant_id == tenant_id),
+        ),
+        "payments": _count_query(
+            db,
+            select(func.count()).select_from(PosPayment).where(PosPayment.tenant_id == tenant_id),
+        ),
+        "cash_sessions": _count_query(
+            db,
+            select(func.count()).select_from(PosCashSession).where(PosCashSession.tenant_id == tenant_id),
+        ),
+        "cash_movements": _count_query(
+            db,
+            select(func.count()).select_from(PosCashMovement).where(PosCashMovement.tenant_id == tenant_id),
+        ),
+        "cash_day_closes": _count_query(
+            db,
+            select(func.count()).select_from(PosCashDayClose).where(PosCashDayClose.tenant_id == tenant_id),
+        ),
+        "exports": _count_query(
+            db,
+            select(func.count()).select_from(ExportRecord).where(ExportRecord.tenant_id == tenant_id),
+        ),
+        "tenant_role_policies": _count_query(
+            db,
+            select(func.count()).select_from(TenantRolePolicy).where(TenantRolePolicy.tenant_id == tenant_id),
+        ),
+        "store_role_policies": _count_query(
+            db,
+            select(func.count()).select_from(StoreRolePolicy).where(StoreRolePolicy.tenant_id == tenant_id),
+        ),
+        "user_permission_overrides": _count_query(
+            db,
+            select(func.count()).select_from(UserPermissionOverride).where(UserPermissionOverride.tenant_id == tenant_id),
+        ),
+    }
 
 
 @router.get("/access-control/permission-catalog", response_model=PermissionCatalogResponse)
@@ -1056,6 +1185,88 @@ async def update_tenant(
     return response
 
 
+@router.delete(
+    "/tenants/{tenant_id}",
+    response_model=AdminDeleteResponse,
+    responses={
+        404: {"description": "Tenant not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "Tenant not found", "details": None, "trace_id": "trace-123"}}}},
+        409: {"description": "Tenant has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete tenant with active dependencies", "dependencies": {"stores": 2, "users": 7}, "trace_id": "trace-123"}}}},
+        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "tenant_id"}, "trace_id": "trace-123"}}}},
+    },
+)
+async def delete_tenant(
+    request: Request,
+    tenant_id: str,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint({"tenant_id": tenant_id})
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=token_data.tenant_id or "platform",
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    tenant = TenantRepository(db).get_by_id(tenant_id)
+    if tenant is None:
+        payload = {"message": "Tenant not found", "trace_id": getattr(request.state, "trace_id", "")}
+        context.record_failure(status_code=404, response_body=payload)
+        return JSONResponse(status_code=404, content=payload)
+
+    dependencies = {name: count for name, count in _tenant_dependency_counts(db, tenant_id=tenant_id).items() if count > 0}
+    if dependencies:
+        payload = {
+            "message": "Cannot delete tenant with active dependencies",
+            "dependencies": dependencies,
+            "trace_id": getattr(request.state, "trace_id", ""),
+        }
+        context.record_failure(status_code=409, response_body=payload)
+        return JSONResponse(status_code=409, content=payload)
+
+    db.delete(tenant)
+    db.commit()
+
+    response = AdminDeleteResponse(
+        resource="tenant",
+        resource_id=tenant_id,
+        deleted=True,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=str(tenant.id),
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            actor_role=current_user.role,
+            action="admin.tenant.delete",
+            entity_type="tenant",
+            entity_id=tenant_id,
+            before={"name": tenant.name, "status": tenant.status},
+            after=None,
+            metadata={"hard_delete": True, "dependencies_checked": True},
+            result="success",
+        )
+    )
+    return response
+
+
 @router.post("/tenants/{tenant_id}/actions", response_model=TenantActionResponse)
 async def tenant_actions(
     request: Request,
@@ -1292,6 +1503,88 @@ async def update_store(
     return response
 
 
+@router.delete(
+    "/stores/{store_id}",
+    response_model=AdminDeleteResponse,
+    responses={
+        404: {"description": "Store not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "Store not found", "details": None, "trace_id": "trace-123"}}}},
+        409: {"description": "Store has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete store with active dependencies", "dependencies": {"users": 3, "sales": 18}, "trace_id": "trace-123"}}}},
+        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "store_id"}, "trace_id": "trace-123"}}}},
+    },
+)
+async def delete_store(
+    request: Request,
+    store_id: str,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint({"store_id": store_id})
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=token_data.tenant_id or "platform",
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    store = StoreRepository(db).get_by_id(store_id)
+    if store is None:
+        payload = {"message": "Store not found", "trace_id": getattr(request.state, "trace_id", "")}
+        context.record_failure(status_code=404, response_body=payload)
+        return JSONResponse(status_code=404, content=payload)
+
+    dependencies = {name: count for name, count in _store_dependency_counts(db, store_id=store_id).items() if count > 0}
+    if dependencies:
+        payload = {
+            "message": "Cannot delete store with active dependencies",
+            "dependencies": dependencies,
+            "trace_id": getattr(request.state, "trace_id", ""),
+        }
+        context.record_failure(status_code=409, response_body=payload)
+        return JSONResponse(status_code=409, content=payload)
+
+    db.delete(store)
+    db.commit()
+
+    response = AdminDeleteResponse(
+        resource="store",
+        resource_id=store_id,
+        deleted=True,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=str(store.tenant_id),
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            actor_role=current_user.role,
+            action="admin.store.delete",
+            entity_type="store",
+            entity_id=store_id,
+            before={"name": store.name, "tenant_id": str(store.tenant_id)},
+            after=None,
+            metadata={"hard_delete": True, "dependencies_checked": True},
+            result="success",
+        )
+    )
+    return response
+
+
 @router.get("/users", response_model=UserListResponse)
 async def list_users(
     request: Request,
@@ -1490,6 +1783,99 @@ async def update_user(
             before=before,
             after={"username": user.username, "email": user.email, "store_id": str(user.store_id)},
             metadata=None,
+            result="success",
+        )
+    )
+    return response
+
+
+@router.delete(
+    "/users/{user_id}",
+    response_model=AdminDeleteResponse,
+    responses={
+        404: {"description": "User not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "User not found", "details": None, "trace_id": "trace-123"}}}},
+        409: {"description": "User has critical dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete user with critical dependencies", "dependencies": {"transfers": 2}, "trace_id": "trace-123"}}}},
+        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "user_id"}, "trace_id": "trace-123"}}}},
+    },
+)
+async def delete_user(
+    request: Request,
+    user_id: str,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint({"user_id": user_id})
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=token_data.tenant_id or "platform",
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None:
+        payload = {"message": "User not found", "trace_id": getattr(request.state, "trace_id", "")}
+        context.record_failure(status_code=404, response_body=payload)
+        return JSONResponse(status_code=404, content=payload)
+
+    transfer_dependencies = _count_query(
+        db,
+        select(func.count()).select_from(Transfer).where(
+            or_(
+                Transfer.created_by_user_id == user_id,
+                Transfer.updated_by_user_id == user_id,
+                Transfer.dispatched_by_user_id == user_id,
+                Transfer.canceled_by_user_id == user_id,
+            )
+        ),
+    )
+    if transfer_dependencies > 0:
+        payload = {
+            "message": "Cannot delete user with critical dependencies",
+            "dependencies": {"transfers": transfer_dependencies},
+            "trace_id": getattr(request.state, "trace_id", ""),
+        }
+        context.record_failure(status_code=409, response_body=payload)
+        return JSONResponse(status_code=409, content=payload)
+
+    db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == user_id).delete(synchronize_session=False)
+    db.delete(user)
+    db.commit()
+
+    response = AdminDeleteResponse(
+        resource="user",
+        resource_id=user_id,
+        deleted=True,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+
+    AuditService(db).record_event(
+        AuditEventPayload(
+            tenant_id=str(user.tenant_id),
+            user_id=str(current_user.id),
+            store_id=str(current_user.store_id) if current_user.store_id else None,
+            trace_id=getattr(request.state, "trace_id", "") or None,
+            actor=current_user.username,
+            actor_role=current_user.role,
+            action="admin.user.delete",
+            entity_type="user",
+            entity_id=user_id,
+            before={"username": user.username, "email": user.email, "role": user.role},
+            after=None,
+            metadata={"hard_delete": True, "dependencies_checked": ["transfers"]},
             result="success",
         )
     )

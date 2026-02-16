@@ -117,6 +117,19 @@ class UserActionResponse(BaseModel):
     trace_id: str
 
 
+class AdminDeleteResponse(BaseModel):
+    resource: Literal["tenant", "store", "user"]
+    resource_id: str
+    deleted: bool = True
+    trace_id: str
+
+
+class AdminDeleteConflictResponse(BaseModel):
+    message: str
+    dependencies: dict[str, int]
+    trace_id: str
+
+
 class VariantFieldSettingsResponse(BaseModel):
     var1_label: str | None
     var2_label: str | None

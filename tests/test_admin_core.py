@@ -5,6 +5,7 @@ from app.aris3.db.models import (
     AuditEvent,
     Store,
     Tenant,
+    Transfer,
     User,
     UserPermissionOverride,
 )
@@ -340,3 +341,139 @@ def test_admin_user_actions_idempotency_replay_and_conflict(client, db_session):
     )
     assert conflict_reset.status_code == 409
     assert conflict_reset.json()["code"] == "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD"
+
+
+
+def test_superadmin_can_delete_user_with_idempotency_replay(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Delete-User")
+    target = _create_user(db_session, tenant=tenant, store=store, role="USER", username="delete-user", password="Pass1234!")
+    target_id = str(target.id)
+
+    token = _login(client, "superadmin", "change-me")
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-user-1"}
+
+    response = client.delete(f"/aris3/admin/users/{target_id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["deleted"] is True
+
+    replay = client.delete(f"/aris3/admin/users/{target_id}", headers=headers)
+    assert replay.status_code == 200
+    assert replay.json() == response.json()
+    assert replay.headers.get("X-Idempotency-Result") == "IDEMPOTENCY_REPLAY"
+
+    db_session.expire_all()
+    assert db_session.get(User, target_id) is None
+
+
+def test_delete_user_requires_superadmin_and_valid_token(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Delete-User-Auth")
+    _create_user(db_session, tenant=tenant, store=store, role="ADMIN", username="admin-delete", password="Pass1234!")
+    target = _create_user(db_session, tenant=tenant, store=store, role="USER", username="user-delete", password="Pass1234!")
+
+    admin_token = _login(client, "admin-delete", "Pass1234!")
+    forbidden = client.delete(
+        f"/aris3/admin/users/{target.id}",
+        headers={"Authorization": f"Bearer {admin_token}", "Idempotency-Key": "delete-user-auth-1"},
+    )
+    assert forbidden.status_code == 403
+
+    unauthorized = client.delete(
+        f"/aris3/admin/users/{target.id}",
+        headers={"Authorization": "Bearer invalid.token", "Idempotency-Key": "delete-user-auth-2"},
+    )
+    assert unauthorized.status_code == 401
+
+
+def test_delete_user_conflict_with_critical_dependencies(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Delete-User-Conflict")
+    target = _create_user(db_session, tenant=tenant, store=store, role="USER", username="user-conflict", password="Pass1234!")
+    db_session.add(
+        Transfer(
+            tenant_id=tenant.id,
+            origin_store_id=store.id,
+            destination_store_id=store.id,
+            created_by_user_id=target.id,
+        )
+    )
+    db_session.commit()
+
+    token = _login(client, "superadmin", "change-me")
+    response = client.delete(
+        f"/aris3/admin/users/{target.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-user-conflict-1"},
+    )
+    assert response.status_code == 409
+    assert response.json()["message"] == "Cannot delete user with critical dependencies"
+
+
+def test_superadmin_delete_store_success_and_not_found(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Delete-Store")
+    store_id = str(store.id)
+    token = _login(client, "superadmin", "change-me")
+
+    response = client.delete(
+        f"/aris3/admin/stores/{store_id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-store-1"},
+    )
+    assert response.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Store, store_id) is None
+
+    missing = client.delete(
+        f"/aris3/admin/stores/{uuid.uuid4()}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-store-2"},
+    )
+    assert missing.status_code == 404
+
+
+def test_delete_store_conflict_with_dependencies(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Delete-Store-Conflict")
+    _create_user(db_session, tenant=tenant, store=store, role="USER", username="user-store-dep", password="Pass1234!")
+
+    token = _login(client, "superadmin", "change-me")
+    response = client.delete(
+        f"/aris3/admin/stores/{store.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-store-conflict-1"},
+    )
+    assert response.status_code == 409
+    assert response.json()["message"] == "Cannot delete store with active dependencies"
+    assert response.json()["dependencies"]["users"] >= 1
+
+
+def test_delete_tenant_success_conflict_and_not_found(client, db_session):
+    run_seed(db_session)
+    clean_tenant = Tenant(id=uuid.uuid4(), name="Delete Tenant Clean")
+    clean_tenant_id = str(clean_tenant.id)
+    db_session.add(clean_tenant)
+    db_session.commit()
+
+    token = _login(client, "superadmin", "change-me")
+
+    success = client.delete(
+        f"/aris3/admin/tenants/{clean_tenant_id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-tenant-1"},
+    )
+    assert success.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Tenant, clean_tenant_id) is None
+
+    tenant_dep, store_dep = _create_tenant_store(db_session, name_suffix="Delete-Tenant-Conflict")
+    _create_user(db_session, tenant=tenant_dep, store=store_dep, role="USER", username="user-tenant-dep", password="Pass1234!")
+    conflict = client.delete(
+        f"/aris3/admin/tenants/{tenant_dep.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-tenant-2"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["message"] == "Cannot delete tenant with active dependencies"
+    assert conflict.json()["dependencies"]["stores"] >= 1
+
+    missing = client.delete(
+        f"/aris3/admin/tenants/{uuid.uuid4()}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-tenant-3"},
+    )
+    assert missing.status_code == 404

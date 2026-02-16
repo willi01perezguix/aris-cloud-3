@@ -109,13 +109,13 @@ def test_login_success_navigates_to_authenticated_shell(monkeypatch) -> None:
     assert app.window.authenticated_view_count == 1
 
 
-def test_authenticated_shell_renders_module_buttons(monkeypatch) -> None:
+def test_authenticated_shell_renders_only_control2_modules(monkeypatch) -> None:
     session = SessionState(access_token="token", user={"username": "alice"}, role="ADMIN", effective_tenant_id="tenant-a")
     app = _build_app(monkeypatch, session)
 
     app.open_login()
 
-    assert set(app.window.module_state.keys()) == {"tenants", "stores", "users", "stock", "transfers", "pos", "reports"}
+    assert set(app.window.module_state.keys()) == {"tenants", "stores", "users"}
 
 
 def test_module_button_opens_placeholder_view(monkeypatch) -> None:
@@ -123,9 +123,43 @@ def test_module_button_opens_placeholder_view(monkeypatch) -> None:
     app = _build_app(monkeypatch, session)
     app.open_login()
 
+    app.window.module_handler("users")
+
+    assert app.window.placeholder_module_label == "Users"
+
+
+def test_disallowed_module_is_blocked_and_warns(monkeypatch) -> None:
+    warnings: list[dict[str, object]] = []
+
+    def _fake_showwarning(title: str, message: str, parent=None):  # noqa: ANN001
+        warnings.append({"title": title, "message": message, "parent": parent})
+        return "ok"
+
+    monkeypatch.setattr("aris_control_2.app.gui_app.messagebox.showwarning", _fake_showwarning)
+
+    session = SessionState(access_token="token", user={"username": "alice"}, role="ADMIN", effective_tenant_id="tenant-a")
+    app = _build_app(monkeypatch, session)
+    app.open_login()
+
     app.window.module_handler("reports")
 
-    assert app.window.placeholder_module_label == "Reports"
+    assert app.window.placeholder_module_label == ""
+    assert warnings
+    assert "no está habilitado" in str(warnings[0]["message"]).lower()
+    assert app.controller.support_center.operations[-1]["result"] == "denied"
+    assert app.controller.support_center.operations[-1]["code"] == "MODULE_NOT_ENABLED"
+
+
+def test_superadmin_without_tenant_disables_stores_users(monkeypatch) -> None:
+    session = SessionState(access_token="token", user={"username": "root"}, role="SUPERADMIN", effective_tenant_id=None)
+    app = _build_app(monkeypatch, session)
+
+    app.open_login()
+
+    assert app.window.module_state["tenants"] is True
+    assert app.window.module_state["stores"] is False
+    assert app.window.module_state["users"] is False
+    assert "Selecciona tenant" in app.window.module_notice
 
 
 def test_logout_returns_to_public_home(monkeypatch) -> None:

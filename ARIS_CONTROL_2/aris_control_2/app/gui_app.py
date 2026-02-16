@@ -11,12 +11,10 @@ MODULE_PERMISSIONS: dict[str, set[str]] = {
     "tenants": {"tenants.view", "tenants.read", "admin.read"},
     "stores": {"stores.view", "stores.read", "admin.read"},
     "users": {"users.view", "users.read", "admin.read"},
-    "stock": {"stock.view", "stock.read", "inventory.view", "admin.read"},
-    "transfers": {"transfers.view", "transfers.read", "admin.read"},
-    "pos": {"pos.view", "pos.read", "admin.read"},
-    "reports": {"reports.view", "reports.read", "admin.read"},
 }
-OPERATIONAL_MODULES = {"stores", "users", "stock", "transfers", "pos", "reports"}
+
+# En Control_2, stores/users dependen de tenant efectivo seleccionado.
+OPERATIONAL_MODULES = {"stores", "users"}
 
 
 class GuiApp:
@@ -96,7 +94,7 @@ class GuiApp:
         notice = ""
 
         if role == "SUPERADMIN" and not has_tenant:
-            notice = "Selecciona tenant para habilitar módulos operativos."
+            notice = "Selecciona tenant para habilitar Stores/Users."
             for module in OPERATIONAL_MODULES:
                 enabled_by_module[module] = False
             enabled_by_module["tenants"] = True
@@ -127,19 +125,41 @@ class GuiApp:
         return set()
 
     def open_module(self, module: str) -> None:
-        self.controller.session.current_module = module
+        allowed_modules = {"tenants", "stores", "users"}
+        selected = str(module or "").strip().lower()
+
+        if selected not in allowed_modules:
+            self.controller.support_center.record_operation(
+                module=selected or "unknown",
+                screen="launcher",
+                action="open",
+                result="denied",
+                latency_ms=0,
+                code="MODULE_NOT_ENABLED",
+                message=f"module {module} not enabled in ARIS_CONTROL_2",
+            )
+            messagebox.showwarning(
+                "Módulo no habilitado",
+                "Este módulo no está habilitado en ARIS_CONTROL_2.\n"
+                "Usa ARIS-CORE-3 para módulos operativos.",
+                parent=self.root,
+            )
+            self._refresh_header()
+            return
+
+        self.controller.session.current_module = selected
         self.controller.support_center.record_operation(
-            module=module,
+            module=selected,
             screen="launcher",
             action="open",
             result="success",
             latency_ms=0,
             code="OK",
-            message=f"module {module} open",
+            message=f"module {selected} open",
         )
         self._refresh_header()
         if hasattr(self.window, "show_module_placeholder"):
-            self.window.show_module_placeholder(module_label=module.capitalize())
+            self.window.show_module_placeholder(module_label=selected.capitalize())
             return
         if self._authenticated_view_active:
             self._navigate_to_authenticated_view_refresh()
@@ -153,7 +173,6 @@ class GuiApp:
         self.window.set_session_context(user=username, role=role, effective_tenant_id=tenant_id)
         self._sync_module_launcher_state()
         self.window.show_authenticated_view()
-
 
     def logout(self) -> None:
         self.controller.session.clear()

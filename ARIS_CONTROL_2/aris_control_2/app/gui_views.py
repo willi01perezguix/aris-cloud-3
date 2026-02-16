@@ -11,10 +11,6 @@ MODULE_LABELS: tuple[tuple[str, str], ...] = (
     ("tenants", "Tenants"),
     ("stores", "Stores"),
     ("users", "Users"),
-    ("stock", "Stock"),
-    ("transfers", "Transfers"),
-    ("pos", "POS"),
-    ("reports", "Reports"),
 )
 
 
@@ -63,7 +59,12 @@ class MainWindow:
         self._clear_frame()
 
         tk.Label(self._frame, text="Estado de conectividad:", anchor="w").pack(fill="x")
-        tk.Label(self._frame, textvariable=self.status_value, font=("TkDefaultFont", 11, "bold"), anchor="w").pack(fill="x", pady=(0, 8))
+        tk.Label(
+            self._frame,
+            textvariable=self.status_value,
+            font=("TkDefaultFont", 11, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
 
         tk.Label(self._frame, text="Base URL:", anchor="w").pack(fill="x")
         tk.Label(self._frame, textvariable=self.base_url_value, anchor="w").pack(fill="x", pady=(0, 8))
@@ -81,7 +82,12 @@ class MainWindow:
     def _render_authenticated_shell(self) -> tk.Frame:
         self._clear_frame()
 
-        tk.Label(self._frame, text="Sesión autenticada", font=("TkDefaultFont", 12, "bold"), anchor="w").pack(fill="x", pady=(0, 8))
+        tk.Label(
+            self._frame,
+            text="Sesión autenticada",
+            font=("TkDefaultFont", 12, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
 
         header = tk.Label(
             self._frame,
@@ -98,7 +104,13 @@ class MainWindow:
 
         tk.Label(self._frame, text="Módulos", font=("TkDefaultFont", 11, "bold"), anchor="w").pack(fill="x")
         if self._module_notice.get():
-            tk.Label(self._frame, textvariable=self._module_notice, fg="#8a6d3b", anchor="w", justify="left").pack(fill="x", pady=(2, 6))
+            tk.Label(
+                self._frame,
+                textvariable=self._module_notice,
+                fg="#8a6d3b",
+                anchor="w",
+                justify="left",
+            ).pack(fill="x", pady=(2, 6))
 
         module_buttons = tk.Frame(self._frame)
         module_buttons.pack(fill="x", pady=(0, 10))
@@ -114,7 +126,13 @@ class MainWindow:
                 command=lambda selected=module: self._on_open_module(selected),
             ).grid(row=row, column=column, padx=4, pady=3, sticky="w")
 
-        tk.Button(module_buttons, text="Logout", width=12, command=self._on_logout).grid(row=2, column=0, padx=4, pady=(8, 0), sticky="w")
+        logout_row = ((len(MODULE_LABELS) - 1) // 4) + 1 if MODULE_LABELS else 0
+        tk.Button(
+            module_buttons,
+            text="Logout",
+            width=12,
+            command=self._on_logout,
+        ).grid(row=logout_row, column=0, padx=4, pady=(8, 0), sticky="w")
 
         content = tk.Frame(self._frame)
         content.pack(fill="both", expand=True)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -9,10 +9,12 @@ from time import perf_counter
 from typing import Any
 
 from clients.aris3_client_sdk.auth_client import AuthClient
+from aris_control_2.clients.aris3_client_sdk.auth_store import AuthStore
 from clients.aris3_client_sdk.config import SDKConfig
 from clients.aris3_client_sdk.errors import ApiError
 from clients.aris3_client_sdk.http_client import HttpClient
 from clients.aris3_client_sdk.me_client import MeClient
+from aris_control_2.clients.aris3_client_sdk.modules.tenants_client import TenantsClient
 
 from aris_control_2.app.context_store import restore_compatible_context, save_context
 from aris_control_2.app.diagnostics import APP_VERSION, ConnectivityResult, build_diagnostic_report, report_to_text, run_health_check
@@ -45,6 +47,11 @@ class GuiController:
         self.http_client = http_client or HttpClient(config=self.config)
         self.auth_client = auth_client or AuthClient(self.http_client)
         self.me_client = me_client or MeClient(self.http_client)
+
+        # Clientes auxiliares para mÃ³dulos admin (tenants) en GUI
+        self._auth_store = AuthStore()
+        self.tenants_client = TenantsClient(http=self.http_client, auth_store=self._auth_store)
+
         self.session = session or SessionState()
         self.support_center = support_center or OperationalSupportCenter.load()
         self.last_error: dict[str, Any] | None = None
@@ -61,9 +68,23 @@ class GuiController:
         self.connectivity = run_health_check(self.http_client)
         return self.connectivity
 
+    def list_tenants(self) -> list[dict[str, str]]:
+        # Sincroniza token de sesiÃ³n con el auth_store usado por TenantsClient
+        self._auth_store.set_token(self.session.access_token or "")
+        items = self.tenants_client.list()
+
+        tenants: list[dict[str, str]] = []
+        for item in items:
+            tenant_id = str(item.get("id") or "").strip()
+            if not tenant_id:
+                continue
+            name = str(item.get("name") or tenant_id).strip()
+            tenants.append({"id": tenant_id, "name": name})
+        return tenants
+
     def login(self, *, username_or_email: str, password: str) -> LoginResult:
         if not username_or_email.strip() or not password.strip():
-            return LoginResult(success=False, message="Completa usuario y contraseña.")
+            return LoginResult(success=False, message="Completa usuario y contraseÃ±a.")
 
         started = perf_counter()
         try:
@@ -71,6 +92,9 @@ class GuiController:
             self.session.access_token = response.get("access_token")
             self.session.refresh_token = response.get("refresh_token")
             self.session.must_change_password = bool(response.get("must_change_password", False))
+
+            # Deja el token listo para clientes SDK que usan AuthStore
+            self._auth_store.set_token(self.session.access_token or "")
 
             me_payload = self.me_client.get_me(access_token=self.session.access_token or "")
             self.session.apply_me(me_payload)
@@ -87,21 +111,21 @@ class GuiController:
                 message="login ok",
             )
             self.last_error = None
-            return LoginResult(success=True, message="Inicio de sesión exitoso.")
+            return LoginResult(success=True, message="Inicio de sesiÃ³n exitoso.")
         except ApiError as error:
             payload = build_error_payload(error)
             self.last_error = payload
             self.support_center.record_incident(module="auth", payload=payload)
             return LoginResult(
                 success=False,
-                message=str(payload.get("message") or "No fue posible iniciar sesión."),
+                message=str(payload.get("message") or "No fue posible iniciar sesiÃ³n."),
                 trace_id=payload.get("trace_id"),
             )
         except Exception as error:  # noqa: BLE001
             payload = build_error_payload(error)
             self.last_error = payload
             self.support_center.record_incident(module="auth", payload=payload)
-            return LoginResult(success=False, message="Error inesperado al iniciar sesión.", trace_id=payload.get("trace_id"))
+            return LoginResult(success=False, message="Error inesperado al iniciar sesiÃ³n.", trace_id=payload.get("trace_id"))
 
     def diagnostic_text(self) -> str:
         report = build_diagnostic_report(
@@ -179,3 +203,5 @@ def _export_support_files(*, package: dict[str, Any], output_dir: Path) -> tuple
     json_path.write_text(json.dumps(package, ensure_ascii=False, indent=2), encoding="utf-8")
     txt_path.write_text(format_technical_summary(package=package), encoding="utf-8")
     return json_path, txt_path
+
+

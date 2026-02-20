@@ -56,9 +56,13 @@ def test_admin_store_tenant_scope_and_idempotency(client, db_session):
 
     token = _login(client, "admin-a", "Pass1234!")
     headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "store-create-1"}
-    payload = {"name": "Tenant A Store"}
+    payload = {"name": "Tenant A Store", "tenant_id": str(tenant_b.id)}
 
-    response = client.post("/aris3/admin/stores", headers=headers, json=payload)
+    response = client.post(
+        f"/aris3/admin/stores?tenant_id={tenant_b.id}",
+        headers={**headers, "X-Tenant-Id": str(tenant_b.id)},
+        json=payload,
+    )
     assert response.status_code == 201
     body = response.json()
     assert body["store"]["tenant_id"] == str(tenant_a.id)

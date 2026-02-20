@@ -1,8 +1,9 @@
+import logging
 import secrets
 import string
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 
@@ -91,6 +92,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _tenant_id_or_error(token_data) -> str:
@@ -1368,17 +1370,48 @@ async def list_stores(
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
+    query_tenant_id: str | None = Query(default=None),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
+    token_tenant_id = _tenant_id_or_error(token_data)
+    request_tenant_id = (
+        payload.tenant_id
+        or query_tenant_id
+        or request.headers.get("X-Tenant-Id")
+        or request.headers.get("X-Tenant-ID")
+    )
+    user_role = (current_user.role or "").upper()
+
+    if user_role in {"SUPERADMIN", "PLATFORM_ADMIN"}:
+        if not request_tenant_id:
+            raise AppError(
+                ErrorCatalog.TENANT_ID_REQUIRED_FOR_SUPERADMIN,
+                details={
+                    "message": "tenant_id is required in body, query, or X-Tenant-Id header",
+                },
+            )
+        resolved_tenant_id = request_tenant_id
+    else:
+        resolved_tenant_id = token_tenant_id
+
+    logger.debug(
+        "Resolved tenant for admin store creation",
+        extra={
+            "user_role": current_user.role,
+            "token_tenant_id": token_tenant_id,
+            "request_tenant_id": request_tenant_id,
+            "resolved_tenant_id": resolved_tenant_id,
+        },
+    )
+
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
     context, replay = idempotency_service.start(
-        tenant_id=tenant_id,
+        tenant_id=resolved_tenant_id,
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,
@@ -1393,7 +1426,7 @@ async def create_store(
     request.state.idempotency = context
 
     repo = StoreRepository(db)
-    store = repo.create(Store(tenant_id=tenant_id, name=payload.name))
+    store = repo.create(Store(tenant_id=resolved_tenant_id, name=payload.name))
 
     response = StoreResponse(
         store=_store_item(store),
@@ -1403,7 +1436,7 @@ async def create_store(
 
     AuditService(db).record_event(
         AuditEventPayload(
-            tenant_id=tenant_id,
+            tenant_id=resolved_tenant_id,
             user_id=str(current_user.id),
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,

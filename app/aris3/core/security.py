@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.aris3.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/aris3/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/aris3/auth/token")
 
 
 class TokenData(BaseModel):

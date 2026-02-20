@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
@@ -5,7 +7,13 @@ from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.deps import require_active_user
 from app.aris3.db.session import get_db
 from app.aris3.repos.users import UserRepository
-from app.aris3.schemas.auth import ChangePasswordRequest, ChangePasswordResponse, LoginRequest, TokenResponse
+from app.aris3.schemas.auth import (
+    ChangePasswordRequest,
+    ChangePasswordResponse,
+    LoginRequest,
+    OAuth2TokenResponse,
+    TokenResponse,
+)
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.auth import AuthService
 from app.aris3.services.idempotency import (
@@ -16,7 +24,12 @@ from app.aris3.services.idempotency import (
 router = APIRouter()
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Login (JSON)",
+    description="Login for JSON clients (UI/admin/scripts) using email or username_or_email.",
+)
 async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
     service = AuthService(db)
     repo = UserRepository(db)
@@ -98,8 +111,36 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
     return response
 
 
-@router.post("/change-password", response_model=ChangePasswordResponse)
-@router.patch("/change-password", response_model=ChangePasswordResponse)
+@router.post(
+    "/token",
+    response_model=OAuth2TokenResponse,
+    summary="OAuth2 Token (Swagger/Auth)",
+    description="OAuth2 Password Flow endpoint for Swagger Authorize using form-data username/password.",
+)
+async def oauth2_token(
+    request: Request,
+    db=Depends(get_db),
+):
+    raw_body = (await request.body()).decode()
+    form_data = parse_qs(raw_body)
+    username = (form_data.get("username") or [""])[0]
+    password = (form_data.get("password") or [""])[0]
+
+    service = AuthService(db)
+    _, token = service.login(username, password)
+    return OAuth2TokenResponse(access_token=token)
+
+
+@router.post(
+    "/change-password",
+    response_model=ChangePasswordResponse,
+    summary="Change Password (Authenticated User)",
+)
+@router.patch(
+    "/change-password",
+    response_model=ChangePasswordResponse,
+    summary="Change Password (Authenticated User)",
+)
 async def change_password(
     request: Request,
     payload: ChangePasswordRequest,

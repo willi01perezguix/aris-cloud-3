@@ -21,9 +21,8 @@ class TokenResponse(BaseModel):
 
 
 class ChangePasswordResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    must_change_password: bool
+    ok: bool
+    message: str
     trace_id: str
 
 

@@ -1,5 +1,5 @@
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.core.security import verify_password, get_password_hash, create_user_access_token
+from app.aris3.core.security import create_user_access_token, get_password_hash, verify_password
 from app.aris3.repos.users import UserRepository
 
 
@@ -32,10 +32,10 @@ class AuthService:
     def change_password(self, user, current_password: str, new_password: str):
         if not verify_password(current_password, user.hashed_password):
             raise AppError(ErrorCatalog.CURRENT_PASSWORD_INVALID)
-        self._validate_new_password(user, current_password, new_password)
+        self._validate_new_password(user, new_password)
         hashed = get_password_hash(new_password)
         updated_user = self.repo.update_password(user, hashed)
-        return updated_user, create_user_access_token(updated_user)
+        return updated_user
 
     @staticmethod
     def _ensure_user_active(user) -> None:
@@ -43,11 +43,11 @@ class AuthService:
             raise AppError(ErrorCatalog.USER_INACTIVE)
 
     @staticmethod
-    def _validate_new_password(user, current_password: str, new_password: str) -> None:
-        if len(new_password) < 8:
-            raise AppError(ErrorCatalog.PASSWORD_TOO_SHORT)
-        if new_password == current_password:
+    def _validate_new_password(user, new_password: str) -> None:
+        if verify_password(new_password, user.hashed_password):
             raise AppError(ErrorCatalog.PASSWORD_MUST_DIFFER)
+        if not new_password or not new_password.strip() or len(new_password) < 12:
+            raise AppError(ErrorCatalog.PASSWORD_TOO_SHORT)
         has_letter = any(char.isalpha() for char in new_password)
         has_digit = any(char.isdigit() for char in new_password)
         if not (has_letter and has_digit):

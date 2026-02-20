@@ -98,12 +98,25 @@ def test_must_change_password_flow(client, db_session):
     change_response = client.post(
         "/aris3/auth/change-password",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "change-1"},
-        json={"current_password": "OldPass123", "new_password": "NewPass456"},
+        json={"current_password": "OldPass123", "new_password": "NewPass4567878"},
     )
     assert change_response.status_code == 200
-    new_token = change_response.json()["access_token"]
-    assert change_response.json()["must_change_password"] is False
+    assert change_response.json()["ok"] is True
+    assert change_response.json()["message"]
     assert change_response.json()["trace_id"]
+
+    old_login = client.post(
+        "/aris3/auth/login",
+        json={"email": "jane@example.com", "password": "OldPass123"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = client.post(
+        "/aris3/auth/login",
+        json={"email": "jane@example.com", "password": "NewPass4567878"},
+    )
+    assert new_login.status_code == 200
+    new_token = new_login.json()["access_token"]
 
     me_response = client.get("/aris3/me", headers={"Authorization": f"Bearer {new_token}"})
     assert me_response.status_code == 200
@@ -135,3 +148,79 @@ def test_me_authorized(client, db_session):
     assert payload["status"] == "active"
     assert payload["is_active"] is True
     assert payload["trace_id"]
+
+
+def test_change_password_requires_auth(client):
+    response = client.post(
+        "/aris3/auth/change-password",
+        json={"current_password": "OldPass123", "new_password": "NewPass4567878"},
+    )
+    assert response.status_code == 401
+
+
+def test_change_password_fails_with_wrong_current_password(client, db_session):
+    _create_user(db_session, email="jane5@example.com", username="jane5", must_change_password=False)
+    login = client.post(
+        "/aris3/auth/login",
+        json={"email": "jane5@example.com", "password": "OldPass123"},
+    )
+    token = login.json()["access_token"]
+
+    response = client.post(
+        "/aris3/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "WrongPass000", "new_password": "NewPass4567878"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "CURRENT_PASSWORD_INVALID"
+
+
+def test_change_password_fails_when_same_password(client, db_session):
+    _create_user(db_session, email="jane6@example.com", username="jane6", must_change_password=False)
+    login = client.post(
+        "/aris3/auth/login",
+        json={"email": "jane6@example.com", "password": "OldPass123"},
+    )
+    token = login.json()["access_token"]
+
+    response = client.post(
+        "/aris3/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "OldPass123", "new_password": "OldPass123"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "PASSWORD_MUST_DIFFER"
+
+
+def test_change_password_fails_when_new_password_too_short(client, db_session):
+    _create_user(db_session, email="jane7@example.com", username="jane7", must_change_password=False)
+    login = client.post(
+        "/aris3/auth/login",
+        json={"email": "jane7@example.com", "password": "OldPass123"},
+    )
+    token = login.json()["access_token"]
+
+    response = client.post(
+        "/aris3/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "OldPass123", "new_password": "Short123"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "PASSWORD_TOO_SHORT"
+
+
+def test_change_password_allows_patch_alias(client, db_session):
+    _create_user(db_session, email="jane8@example.com", username="jane8", must_change_password=False)
+    login = client.post(
+        "/aris3/auth/login",
+        json={"email": "jane8@example.com", "password": "OldPass123"},
+    )
+    token = login.json()["access_token"]
+
+    response = client.patch(
+        "/aris3/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "OldPass123", "new_password": "PatchPass1234"},
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True

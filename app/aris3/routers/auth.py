@@ -99,6 +99,7 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
 
 
 @router.post("/change-password", response_model=ChangePasswordResponse)
+@router.patch("/change-password", response_model=ChangePasswordResponse)
 async def change_password(
     request: Request,
     payload: ChangePasswordRequest,
@@ -106,27 +107,29 @@ async def change_password(
     db=Depends(get_db),
 ):
     trace_id = getattr(request.state, "trace_id", "")
-    idempotency_key = extract_idempotency_key(request.headers, required=True)
-    request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
-    idempotency_service = IdempotencyService(db)
-    context, replay = idempotency_service.start(
-        tenant_id=str(current_user.tenant_id),
-        endpoint=str(request.url.path),
-        method=request.method,
-        idempotency_key=idempotency_key,
-        request_hash=request_hash,
-    )
-    if replay:
-        return JSONResponse(
-            status_code=replay.status_code,
-            content=replay.response_body,
-            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+    idempotency_key = extract_idempotency_key(request.headers, required=False)
+    context = None
+    if idempotency_key:
+        request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
+        idempotency_service = IdempotencyService(db)
+        context, replay = idempotency_service.start(
+            tenant_id=str(current_user.tenant_id),
+            endpoint=str(request.url.path),
+            method=request.method,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
         )
-    request.state.idempotency = context
+        if replay:
+            return JSONResponse(
+                status_code=replay.status_code,
+                content=replay.response_body,
+                headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+            )
+        request.state.idempotency = context
 
     service = AuthService(db)
     try:
-        user, token = service.change_password(current_user, payload.current_password, payload.new_password)
+        user = service.change_password(current_user, payload.current_password, payload.new_password)
     except AppError as exc:
         audit = AuditService(db)
         audit.record_event(
@@ -148,11 +151,12 @@ async def change_password(
         raise
 
     response = ChangePasswordResponse(
-        access_token=token,
-        must_change_password=user.must_change_password,
+        ok=True,
+        message="Password updated successfully",
         trace_id=trace_id,
     )
-    context.record_success(status_code=200, response_body=response.model_dump())
+    if context is not None:
+        context.record_success(status_code=200, response_body=response.model_dump())
 
     audit = AuditService(db)
     audit.record_event(

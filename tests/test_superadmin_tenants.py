@@ -136,3 +136,32 @@ def test_tenant_mutations_require_idempotency_key(client, db_session):
     )
     assert action_response.status_code == 400
     assert action_response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+
+
+def test_superadmin_store_creation_requires_explicit_tenant_and_honors_precedence(client, db_session):
+    run_seed(db_session)
+    tenant_a, _ = _create_tenant_store(db_session, name_suffix="StoreTargetA")
+    tenant_b, _ = _create_tenant_store(db_session, name_suffix="StoreTargetB")
+    tenant_c, _ = _create_tenant_store(db_session, name_suffix="StoreTargetC")
+
+    token = _login(client, settings.SUPERADMIN_USERNAME, settings.SUPERADMIN_PASSWORD)
+
+    missing_response = client.post(
+        "/aris3/admin/stores",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "super-store-missing-tenant"},
+        json={"name": "Missing Tenant Store"},
+    )
+    assert missing_response.status_code == 400
+    assert missing_response.json()["code"] == "TENANT_ID_REQUIRED_FOR_SUPERADMIN"
+
+    create_response = client.post(
+        f"/aris3/admin/stores?tenant_id={tenant_b.id}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": "super-store-precedence",
+            "X-Tenant-Id": str(tenant_c.id),
+        },
+        json={"name": "Super Store", "tenant_id": str(tenant_a.id)},
+    )
+    assert create_response.status_code == 201
+    assert create_response.json()["store"]["tenant_id"] == str(tenant_a.id)

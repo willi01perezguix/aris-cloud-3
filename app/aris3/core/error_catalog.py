@@ -111,6 +111,11 @@ class ErrorCatalog:
         "Idempotent replay",
         status.HTTP_200_OK,
     )
+    TENANT_ID_REQUIRED_FOR_SUPERADMIN = ErrorDefinition(
+        "TENANT_ID_REQUIRED_FOR_SUPERADMIN",
+        "tenant_id is required for SUPERADMIN on this endpoint",
+        status.HTTP_400_BAD_REQUEST,
+    )
 
 
 class AppError(Exception):

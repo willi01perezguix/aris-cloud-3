@@ -51,6 +51,49 @@ def test_login_with_username_or_email(client, db_session):
     assert response.json()["trace_id"]
 
 
+def test_oauth2_token_success_with_form_data(client, db_session):
+    _create_user(db_session, username="oauth-user", email="oauth@example.com")
+
+    response = client.post(
+        "/aris3/auth/token",
+        data={"username": "oauth@example.com", "password": "OldPass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["access_token"]
+    assert payload["token_type"] == "bearer"
+
+
+def test_oauth2_token_invalid_credentials(client, db_session):
+    _create_user(db_session, username="oauth-user-2", email="oauth2@example.com")
+
+    response = client.post(
+        "/aris3/auth/token",
+        data={"username": "oauth2@example.com", "password": "wrong-pass"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "INVALID_CREDENTIALS"
+
+
+def test_oauth2_token_works_on_protected_endpoint(client, db_session):
+    _create_user(db_session, username="oauth-user-3", email="oauth3@example.com")
+
+    token_response = client.post(
+        "/aris3/auth/token",
+        data={"username": "oauth3@example.com", "password": "OldPass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert token_response.status_code == 200
+    token = token_response.json()["access_token"]
+
+    me_response = client.get("/aris3/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_response.status_code == 200
+
+
 def test_login_invalid_password(client, db_session):
     _create_user(db_session)
 

@@ -239,9 +239,10 @@ def _apply_access_control_descriptions(path: str, method: str, operation: dict) 
         )
 
     if path == "/aris3/admin/access-control/permission-catalog":
-        operation["deprecated"] = True
+        operation.pop("deprecated", None)
+        operation["summary"] = "Admin permission catalog"
         operation["description"] = (
-            "Deprecated admin alias for permission catalog. Prefer `/aris3/access-control/permission-catalog`."
+            "Lists permission keys available for templates, overlays, and user overrides (admin scope)."
             f"\n\n{hierarchy}"
         )
 

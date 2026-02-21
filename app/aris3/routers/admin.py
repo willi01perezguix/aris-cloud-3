@@ -1553,7 +1553,7 @@ async def create_store(
         deprecated=True,
         description=(
             "Legacy tenant selector kept for backward compatibility. "
-            "Prefer body.tenant_id as the canonical source."
+            "Prefer body.tenant_id as canonical source."
         ),
     ),
     legacy_query_tenant_id: str | None = Depends(_store_create_query_tenant_id),

@@ -126,6 +126,17 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
 }
 
 
+_ACCESS_CONTROL_SUMMARY_OVERRIDES: dict[tuple[str, str], str] = {
+    ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions", "get"): "Effective permissions for store user",
+    ("/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}", "get"): "Get tenant role policy",
+    ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}", "get"): "Get store role policy",
+    ("/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides", "get"): "Get user permission overrides",
+    ("/aris3/access-control/platform/role-policies/{role_name}", "get"): "Get platform role policy",
+    ("/aris3/admin/access-control/role-templates/{role_name}", "put"): "Replace admin role template",
+    ("/aris3/admin/access-control/user-overrides/{user_id}", "patch"): "Patch user overrides (admin)",
+}
+
+
 _ERROR_PROPS = {
     "code": {"type": "string"},
     "message": {"type": "string"},
@@ -400,6 +411,17 @@ def _polish_admin_and_access_control_descriptions(path: str, method: str, operat
     if path in {"/aris3/admin/tenants", "/aris3/admin/stores", "/aris3/admin/users"}:
         description = operation.get("description") or ""
         operation["description"] = description.strip()
+
+    if path == "/aris3/admin/users" and method == "get":
+        for parameter in operation.get("parameters", []):
+            description = parameter.get("description")
+            if not description:
+                continue
+            parameter["description"] = description.replace("--", "").strip()
+
+    summary_override = _ACCESS_CONTROL_SUMMARY_OVERRIDES.get((path, method))
+    if summary_override:
+        operation["summary"] = summary_override
 
 
 def _polish_status_schema_descriptions(schema: dict) -> None:

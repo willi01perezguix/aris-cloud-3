@@ -18,7 +18,7 @@ TAG_METADATA = [
     },
     {"name": "Admin Settings", "description": "Administrative runtime settings endpoints."},
     {
-        "name": "Access Control (Scoped)",
+        "name": "Access Control Scoped",
         "description": "Scope-aware access-control endpoints for catalog/policy retrieval and effective permission resolution.",
     },
 ]
@@ -47,7 +47,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "properties": {
             **_ERROR_PROPS,
             "code": {"type": "string", "example": "NOT_FOUND"},
-            "message": {"type": "string", "example": "Tenant not found"},
+            "message": {"type": "string", "example": "Resource not found"},
         },
     },
     "ConflictError": {
@@ -56,7 +56,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "properties": {
             **_ERROR_PROPS,
             "code": {"type": "string", "example": "CONFLICT"},
-            "message": {"type": "string", "example": "Conflict due to dependencies/state"},
+            "message": {"type": "string", "example": "Resource conflict"},
         },
     },
     "ValidationError": {
@@ -92,7 +92,7 @@ ERROR_RESPONSE_SCHEMAS = {
             "message": "Validation error",
             "details": {
                 "errors": [
-                    {"field": "tenant_id", "message": "Field required", "type": "missing", "loc": ["body", "tenant_id"]}
+                    {"field": "field_name", "message": "Invalid value", "type": "value_error"}
                 ]
             },
             "trace_id": "trace-123",
@@ -104,7 +104,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "properties": {
             **_ERROR_PROPS,
             "code": {"type": "string", "example": "NOT_FOUND"},
-            "message": {"type": "string", "example": "Tenant not found"},
+            "message": {"type": "string", "example": "Resource not found"},
         },
     },
     "ConflictErrorResponse": {
@@ -113,7 +113,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "properties": {
             **_ERROR_PROPS,
             "code": {"type": "string", "example": "CONFLICT"},
-            "message": {"type": "string", "example": "Conflict due to dependencies/state"},
+            "message": {"type": "string", "example": "Resource conflict"},
         },
     },
     "ValidationErrorResponse": {"$ref": "#/components/schemas/ValidationError"},
@@ -127,7 +127,7 @@ def _operation_id(method: str, path: str) -> str:
 
 def _assign_tag(path: str) -> str | None:
     if path.startswith("/aris3/access-control"):
-        return "Access Control (Scoped)"
+        return "Access Control Scoped"
     if path.startswith("/aris3/admin/access-control"):
         return "Admin Access Control"
     if path.startswith("/aris3/admin/tenants"):
@@ -145,7 +145,7 @@ def _is_explicit_scope_path(path: str) -> bool:
     return any(token in path for token in ("{tenant_id}", "{store_id}", "{user_id}"))
 
 
-def _apply_access_control_descriptions(path: str, operation: dict) -> None:
+def _apply_access_control_descriptions(path: str, method: str, operation: dict) -> None:
     hierarchy = (
         "Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), "
         "3) User overrides, 4) Effective permissions."
@@ -155,12 +155,15 @@ def _apply_access_control_descriptions(path: str, operation: dict) -> None:
         if _is_explicit_scope_path(path):
             context = "Scoped endpoint with explicit subject/scope identifiers in the request path."
         else:
-            context = "Scoped endpoint resolved from authenticated context or explicit request payload/query values."
+            if method == "get":
+                context = "Scoped endpoint resolved from authenticated context and optional query parameters."
+            else:
+                context = "Scoped endpoint resolved from authenticated context and optional request body/query parameters."
         operation["description"] = f"{context}\n\n{hierarchy}"
 
     if path.startswith("/aris3/admin/access-control"):
         operation["description"] = (
-            "Admin endpoint: tenant/store scope is resolved from JWT/context unless endpoint parameters explicitly override it."
+            "Admin endpoint: tenant/store scope is resolved from JWT/context unless explicit path/query/body parameters override it."
             f"\n\n{hierarchy}"
         )
 
@@ -194,15 +197,26 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
 
     if method in {"post", "put", "patch", "delete"}:
         responses.setdefault("404", {"description": _not_found_description(path)})
-        responses.setdefault("409", {"description": "Conflict due to dependencies/state"})
+        responses.setdefault("409", {"description": "Resource conflict"})
 
     if "404" in responses:
-        responses["404"]["description"] = _not_found_description(path)
-        responses["404"]["content"] = {"application/json": {"schema": {"$ref": NOT_FOUND_ERROR_REF}}}
+        not_found_message = _not_found_description(path)
+        responses["404"]["description"] = not_found_message
+        responses["404"]["content"] = {
+            "application/json": {
+                "schema": {"$ref": NOT_FOUND_ERROR_REF},
+                "example": {"code": "NOT_FOUND", "message": not_found_message, "details": None, "trace_id": "trace-123"},
+            }
+        }
 
     if "409" in responses:
-        responses["409"]["description"] = "Conflict due to dependencies/state"
-        responses["409"]["content"] = {"application/json": {"schema": {"$ref": CONFLICT_ERROR_REF}}}
+        responses["409"]["description"] = "Resource conflict"
+        responses["409"]["content"] = {
+            "application/json": {
+                "schema": {"$ref": CONFLICT_ERROR_REF},
+                "example": {"code": "CONFLICT", "message": "Resource conflict", "details": None, "trace_id": "trace-123"},
+            }
+        }
 
 
 def harden_openapi_schema(app: FastAPI):
@@ -221,7 +235,7 @@ def harden_openapi_schema(app: FastAPI):
             if tag:
                 operation["tags"] = [tag]
             operation["operationId"] = _operation_id(method, path)
-            _apply_access_control_descriptions(path, operation)
+            _apply_access_control_descriptions(path, method, operation)
             _apply_error_responses(path, method, operation)
 
     app.openapi_schema = schema

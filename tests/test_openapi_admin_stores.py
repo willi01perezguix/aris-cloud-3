@@ -14,7 +14,10 @@ def test_create_store_openapi_has_single_query_tenant_id_parameter():
         query_tenant_params[0].get("description") or ""
     )
     assert [param for param in operation.get("parameters", []) if param.get("name") == "tenant_id"] == []
-    assert "Canonical source" in (operation.get("description") or "")
+    description = operation.get("description") or ""
+    assert "Canonical input" in description
+    assert "Legacy compatibility" in description
+    assert "must match" in description
 
     request_body_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
     schema_name = request_body_ref.rsplit("/", 1)[-1]

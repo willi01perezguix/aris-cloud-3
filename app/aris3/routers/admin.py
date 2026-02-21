@@ -1386,13 +1386,13 @@ def _store_create_query_tenant_id(
     "/stores",
     response_model=StoreResponse,
     status_code=201,
-    summary="Create store (canonical body tenant + legacy query compatibility)",
+    summary="Create store with canonical body tenant ID",
     description=(
-        "Creates a store under a tenant scope.\n\n"
-        "- **Canonical source**: `tenant_id` in request body (recommended).\n"
-        "- **Legacy compatibility**: `query_tenant_id` in query string is still accepted.\n"
-        "- **Consistency rule**: if body `tenant_id` and `query_tenant_id` are both provided, they must match.\n"
-        "- **Admin role rule**: `SUPERADMIN` / `PLATFORM_ADMIN` must send an explicit tenant (no default fallback)."
+        "Creates a store under an explicit tenant scope.\n\n"
+        "- **Canonical input**: send `tenant_id` in the JSON body.\n"
+        "- **Legacy compatibility**: optional `query_tenant_id` is supported only for backward compatibility.\n"
+        "- **Consistency rule**: when both values are sent, `tenant_id` and `query_tenant_id` must match.\n"
+        "- **Admin role rule**: `SUPERADMIN` / `PLATFORM_ADMIN` must provide an explicit tenant; no implicit fallback is used."
     ),
 )
 async def create_store(

@@ -4,79 +4,119 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 
-ADMIN_ERROR_REF = "#/components/schemas/ErrorResponse"
-ADMIN_VALIDATION_ERROR_REF = "#/components/schemas/ValidationErrorResponse"
+VALIDATION_ERROR_REF = "#/components/schemas/ValidationErrorResponse"
+NOT_FOUND_ERROR_REF = "#/components/schemas/NotFoundErrorResponse"
+CONFLICT_ERROR_REF = "#/components/schemas/ConflictErrorResponse"
 
 TAG_METADATA = [
-    {"name": "Admin Tenants", "description": "Tenant administration endpoints."},
-    {"name": "Admin Stores", "description": "Store administration endpoints."},
-    {"name": "Admin Users", "description": "User administration endpoints."},
-    {"name": "Admin Access Control", "description": "Admin access-control endpoints with tenant/store scope resolved from JWT/context unless explicitly provided."},
-    {"name": "Admin Settings", "description": "Administrative settings endpoints."},
-    {"name": "Access Control (Scoped)", "description": "Scoped access-control endpoints with explicit tenant/store/user path parameters."},
+    {"name": "Admin Tenants", "description": "Tenant lifecycle administration (list, create, update, delete, status actions)."},
+    {"name": "Admin Stores", "description": "Store administration endpoints, including tenant-scoped creation and lifecycle actions."},
+    {"name": "Admin Users", "description": "User administration endpoints (CRUD plus operational actions such as status/role/password updates)."},
+    {
+        "name": "Admin Access Control",
+        "description": "Administrative access-control management for role templates, overlays, and overrides with scope resolved from JWT/context when not explicit.",
+    },
+    {"name": "Admin Settings", "description": "Administrative runtime settings endpoints."},
+    {
+        "name": "Access Control (Scoped)",
+        "description": "Scope-aware access-control endpoints for catalog/policy retrieval and effective permission resolution.",
+    },
 ]
 
+
+_ERROR_PROPS = {
+    "code": {"type": "string"},
+    "message": {"type": "string"},
+    "details": {"type": "object", "nullable": True, "additionalProperties": True},
+    "trace_id": {"type": "string", "nullable": True, "example": "trace-123"},
+}
 
 ERROR_RESPONSE_SCHEMAS = {
     "ErrorResponse": {
         "type": "object",
         "required": ["code", "message"],
         "properties": {
+            **_ERROR_PROPS,
             "code": {"type": "string", "example": "NOT_FOUND"},
             "message": {"type": "string", "example": "Resource not found"},
-            "details": {"type": "object", "nullable": True, "additionalProperties": True},
-            "trace_id": {"type": "string", "nullable": True, "example": "trace-123"},
         },
     },
-    "ValidationErrorResponse": {
-        "allOf": [
-            {"$ref": "#/components/schemas/ErrorResponse"},
-            {
+    "NotFoundError": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+            **_ERROR_PROPS,
+            "code": {"type": "string", "example": "NOT_FOUND"},
+            "message": {"type": "string", "example": "Tenant not found"},
+        },
+    },
+    "ConflictError": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+            **_ERROR_PROPS,
+            "code": {"type": "string", "example": "CONFLICT"},
+            "message": {"type": "string", "example": "Conflict due to dependencies/state"},
+        },
+    },
+    "ValidationError": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+            **_ERROR_PROPS,
+            "code": {"type": "string", "example": "VALIDATION_ERROR"},
+            "message": {"type": "string", "example": "Validation error"},
+            "details": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "example": "VALIDATION_ERROR"},
-                    "details": {
-                        "type": "object",
-                        "properties": {
-                            "errors": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "field": {"type": "string", "nullable": True},
-                                        "message": {"type": "string"},
-                                        "type": {"type": "string"},
-                                        "loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "nullable": True},
-                                    },
-                                },
-                            }
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field": {"type": "string", "nullable": True},
+                                "message": {"type": "string"},
+                                "type": {"type": "string"},
+                                "loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "nullable": True},
+                                "input": {"nullable": True},
+                                "ctx": {"type": "object", "nullable": True, "additionalProperties": True},
+                            },
                         },
-                        "nullable": True,
-                    },
+                    }
                 },
+                "nullable": True,
             },
-        ]
+        },
+        "example": {
+            "code": "VALIDATION_ERROR",
+            "message": "Validation error",
+            "details": {
+                "errors": [
+                    {"field": "tenant_id", "message": "Field required", "type": "missing", "loc": ["body", "tenant_id"]}
+                ]
+            },
+            "trace_id": "trace-123",
+        },
     },
     "NotFoundErrorResponse": {
         "type": "object",
         "required": ["code", "message"],
         "properties": {
+            **_ERROR_PROPS,
             "code": {"type": "string", "example": "NOT_FOUND"},
-            "message": {"type": "string", "example": "Resource not found"},
-            "details": {"type": "object", "nullable": True, "additionalProperties": True},
-            "trace_id": {"type": "string", "nullable": True, "example": "trace-123"},
+            "message": {"type": "string", "example": "Tenant not found"},
         },
     },
     "ConflictErrorResponse": {
         "type": "object",
         "required": ["code", "message"],
         "properties": {
+            **_ERROR_PROPS,
             "code": {"type": "string", "example": "CONFLICT"},
-            "message": {"type": "string", "example": "Resource conflict"},
-            "details": {"type": "object", "nullable": True, "additionalProperties": True},
-            "trace_id": {"type": "string", "nullable": True, "example": "trace-123"},
+            "message": {"type": "string", "example": "Conflict due to dependencies/state"},
         },
     },
+    "ValidationErrorResponse": {"$ref": "#/components/schemas/ValidationError"},
 }
 
 
@@ -101,39 +141,68 @@ def _assign_tag(path: str) -> str | None:
     return None
 
 
-def _apply_access_control_descriptions(path: str, method: str, operation: dict) -> None:
+def _is_explicit_scope_path(path: str) -> bool:
+    return any(token in path for token in ("{tenant_id}", "{store_id}", "{user_id}"))
+
+
+def _apply_access_control_descriptions(path: str, operation: dict) -> None:
     hierarchy = (
         "Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), "
-        "3) User overrides, 4) Effective permissions resolution."
+        "3) User overrides, 4) Effective permissions."
     )
+
     if path.startswith("/aris3/access-control"):
-        base = "Scoped endpoint: tenant/store/user scope is explicit in the request path."
-        operation["description"] = f"{base}\n\n{hierarchy}"
+        if _is_explicit_scope_path(path):
+            context = "Scoped endpoint with explicit subject/scope identifiers in the request path."
+        else:
+            context = "Scoped endpoint resolved from authenticated context or explicit request payload/query values."
+        operation["description"] = f"{context}\n\n{hierarchy}"
+
     if path.startswith("/aris3/admin/access-control"):
-        base = "Admin endpoint: tenant/store scope is resolved from JWT/context unless endpoint parameters explicitly override it."
-        operation["description"] = f"{base}\n\n{hierarchy}"
+        operation["description"] = (
+            "Admin endpoint: tenant/store scope is resolved from JWT/context unless endpoint parameters explicitly override it."
+            f"\n\n{hierarchy}"
+        )
 
     if path == "/aris3/admin/access-control/permission-catalog":
         operation["deprecated"] = True
         operation["description"] = (
             "Deprecated admin alias for permission catalog. Prefer `/aris3/access-control/permission-catalog`."
-            "\n\n"
-            f"{hierarchy}"
+            f"\n\n{hierarchy}"
         )
 
 
-def _apply_error_responses(path: str, operation: dict) -> None:
+def _not_found_description(path: str) -> str:
+    if "{store_id}" in path:
+        return "Store not found"
+    if "{user_id}" in path:
+        return "User not found"
+    if "{tenant_id}" in path:
+        return "Tenant not found"
+    return "Resource not found"
+
+
+def _apply_error_responses(path: str, method: str, operation: dict) -> None:
     if not (path.startswith("/aris3/admin") or path.startswith("/aris3/access-control")):
         return
 
     responses = operation.setdefault("responses", {})
-    responses.setdefault("404", {"description": "Not found"})
-    responses.setdefault("409", {"description": "Conflict"})
-    responses.setdefault("422", {"description": "Validation error"})
+    responses["422"] = {
+        "description": "Validation error",
+        "content": {"application/json": {"schema": {"$ref": VALIDATION_ERROR_REF}}},
+    }
 
-    responses["404"]["content"] = {"application/json": {"schema": {"$ref": "#/components/schemas/NotFoundErrorResponse"}}}
-    responses["409"]["content"] = {"application/json": {"schema": {"$ref": "#/components/schemas/ConflictErrorResponse"}}}
-    responses["422"]["content"] = {"application/json": {"schema": {"$ref": ADMIN_VALIDATION_ERROR_REF}}}
+    if method in {"post", "put", "patch", "delete"}:
+        responses.setdefault("404", {"description": _not_found_description(path)})
+        responses.setdefault("409", {"description": "Conflict due to dependencies/state"})
+
+    if "404" in responses:
+        responses["404"]["description"] = _not_found_description(path)
+        responses["404"]["content"] = {"application/json": {"schema": {"$ref": NOT_FOUND_ERROR_REF}}}
+
+    if "409" in responses:
+        responses["409"]["description"] = "Conflict due to dependencies/state"
+        responses["409"]["content"] = {"application/json": {"schema": {"$ref": CONFLICT_ERROR_REF}}}
 
 
 def harden_openapi_schema(app: FastAPI):
@@ -152,8 +221,8 @@ def harden_openapi_schema(app: FastAPI):
             if tag:
                 operation["tags"] = [tag]
             operation["operationId"] = _operation_id(method, path)
-            _apply_access_control_descriptions(path, method, operation)
-            _apply_error_responses(path, operation)
+            _apply_access_control_descriptions(path, operation)
+            _apply_error_responses(path, method, operation)
 
     app.openapi_schema = schema
     return app.openapi_schema

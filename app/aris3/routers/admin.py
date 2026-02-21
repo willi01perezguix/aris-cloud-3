@@ -2045,6 +2045,96 @@ async def delete_user(
         "- `action=reset_password`: optional `temporary_password`; if omitted, server generates one.\n"
         "- `transaction_id` is required for idempotency/audit correlation."
     ),
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "required": ["action", "status", "transaction_id"],
+                                "properties": {
+                                    "action": {"type": "string", "enum": ["set_status"]},
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"],
+                                    },
+                                    "transaction_id": {"type": "string"},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "required": ["action", "role", "transaction_id"],
+                                "properties": {
+                                    "action": {"type": "string", "enum": ["set_role"]},
+                                    "role": {"type": "string", "enum": ["USER", "MANAGER", "ADMIN"]},
+                                    "transaction_id": {"type": "string"},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "required": ["action", "transaction_id"],
+                                "properties": {
+                                    "action": {"type": "string", "enum": ["reset_password"]},
+                                    "temporary_password": {"type": "string"},
+                                    "transaction_id": {"type": "string"},
+                                },
+                            },
+                        ]
+                    },
+                    "examples": {
+                        "set_status": {
+                            "summary": "Change user status",
+                            "value": {"action": "set_status", "status": "SUSPENDED", "transaction_id": "tx-user-status-001"},
+                        },
+                        "set_role": {
+                            "summary": "Change user role",
+                            "value": {"action": "set_role", "role": "MANAGER", "transaction_id": "tx-user-role-001"},
+                        },
+                        "reset_password": {
+                            "summary": "Reset user password",
+                            "value": {
+                                "action": "reset_password",
+                                "temporary_password": "TempPass123",
+                                "transaction_id": "tx-user-password-001",
+                            },
+                        },
+                    },
+                }
+            }
+        },
+        "responses": {
+            "200": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "oneOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "user": {"$ref": "#/components/schemas/UserItem"},
+                                        "action": {"type": "string", "enum": ["set_status", "set_role"]},
+                                        "temporary_password": {"type": "null"},
+                                        "trace_id": {"type": "string"},
+                                    },
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "user": {"$ref": "#/components/schemas/UserItem"},
+                                        "action": {"type": "string", "enum": ["reset_password"]},
+                                        "temporary_password": {"type": "string"},
+                                        "trace_id": {"type": "string"},
+                                    },
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    },
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
 async def user_actions(

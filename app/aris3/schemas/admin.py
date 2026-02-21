@@ -7,6 +7,7 @@ from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorRespons
 
 
 AdminRole = Literal["USER", "MANAGER", "ADMIN"]
+AdminUserRole = Literal["USER", "MANAGER", "ADMIN", "SUPERADMIN", "PLATFORM_ADMIN"]
 AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]
 AdminUserAction = Literal["set_status", "set_role", "reset_password"]
 
@@ -59,7 +60,7 @@ class TenantActionRequest(BaseModel):
 class TenantItem(BaseModel):
     id: str
     name: str
-    status: str = Field(..., json_schema_extra={"enum": ["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]})
+    status: AdminUserStatus = Field(..., description="Current tenant status.")
     created_at: datetime
 
 
@@ -75,7 +76,7 @@ class TenantListResponse(BaseModel):
 
 class TenantActionResponse(BaseModel):
     tenant: TenantItem
-    action: str
+    action: Literal["set_status"]
     trace_id: str
 
 
@@ -99,8 +100,8 @@ class UserItem(BaseModel):
     store_id: str | None
     username: str
     email: str
-    role: str = Field(..., json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
-    status: str = Field(..., json_schema_extra={"enum": ["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]})
+    role: AdminUserRole = Field(..., description="Resolved user role as persisted in runtime.")
+    status: AdminUserStatus = Field(..., description="Runtime user status.")
     is_active: bool
     must_change_password: bool
     created_at: datetime
@@ -136,10 +137,61 @@ class UserActionRequest(BaseModel):
     transaction_id: str | None = Field(None, min_length=1, max_length=255)
 
 
+class SetUserStatusActionRequest(BaseModel):
+    action: Literal["set_status"]
+    status: AdminUserStatus = Field(..., description="Target status.")
+    role: None = Field(default=None, description="Must be omitted for this action.")
+    temporary_password: None = Field(default=None, description="Must be omitted for this action.")
+    transaction_id: str = Field(..., min_length=1, max_length=255)
+
+
+class SetUserRoleActionRequest(BaseModel):
+    action: Literal["set_role"]
+    status: None = Field(default=None, description="Must be omitted for this action.")
+    role: AdminRole = Field(..., description="Target role allowed by policy checks.")
+    temporary_password: None = Field(default=None, description="Must be omitted for this action.")
+    transaction_id: str = Field(..., min_length=1, max_length=255)
+
+
+class ResetUserPasswordActionRequest(BaseModel):
+    action: Literal["reset_password"]
+    status: None = Field(default=None, description="Must be omitted for this action.")
+    role: None = Field(default=None, description="Must be omitted for this action.")
+    temporary_password: str | None = Field(
+        default=None,
+        description="Optional temporary password. If omitted, server generates one.",
+    )
+    transaction_id: str = Field(..., min_length=1, max_length=255)
+
+
 class UserActionResponse(BaseModel):
     user: UserItem
     action: AdminUserAction
-    temporary_password: str | None = None
+    temporary_password: str | None = Field(
+        default=None,
+        description="Present only when `action=reset_password`; otherwise null.",
+    )
+    trace_id: str
+
+
+class SetUserStatusActionResponse(BaseModel):
+    user: UserItem
+    action: Literal["set_status"]
+    temporary_password: None = None
+    trace_id: str
+
+
+class SetUserRoleActionResponse(BaseModel):
+    user: UserItem
+    action: Literal["set_role"]
+    temporary_password: None = None
+    trace_id: str
+
+
+class ResetUserPasswordActionResponse(BaseModel):
+    user: UserItem
+    action: Literal["reset_password"]
+    temporary_password: str
     trace_id: str
 
 
@@ -184,7 +236,13 @@ class ReturnPolicySettingsResponse(BaseModel):
     allow_exchange: bool
     require_manager_for_exceptions: bool
     accepted_conditions: list[str]
-    non_reusable_label_strategy: Literal["ASSIGN_NEW_EPC", "TO_PENDING"]
+    non_reusable_label_strategy: Literal["ASSIGN_NEW_EPC", "TO_PENDING"] = Field(
+        ...,
+        description=(
+            "Strategy for non-reusable labels during returns: `ASSIGN_NEW_EPC` assigns a fresh EPC, "
+            "`TO_PENDING` moves the label to pending flow."
+        ),
+    )
     restocking_fee_pct: float
     trace_id: str
 
@@ -200,5 +258,8 @@ class ReturnPolicySettingsPatchRequest(BaseModel):
     allow_exchange: bool | None = None
     require_manager_for_exceptions: bool | None = None
     accepted_conditions: list[str] | None = None
-    non_reusable_label_strategy: Literal["ASSIGN_NEW_EPC", "TO_PENDING"] | None = None
+    non_reusable_label_strategy: Literal["ASSIGN_NEW_EPC", "TO_PENDING"] | None = Field(
+        default=None,
+        description="Optional partial update for non-reusable label handling strategy.",
+    )
     restocking_fee_pct: float | None = Field(None, ge=0)

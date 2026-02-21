@@ -248,7 +248,7 @@ class VariantFieldSettingsResponse(BaseModel):
 
 
 class VariantFieldSettingsPatchRequest(BaseModel):
-    """Partial update payload. Only provided fields are modified."""
+    """Partial update payload. Omitted fields remain unchanged."""
 
     var1_label: str | None = Field(None, max_length=255)
     var2_label: str | None = Field(None, max_length=255)
@@ -275,7 +275,7 @@ class ReturnPolicySettingsResponse(BaseModel):
 
 
 class ReturnPolicySettingsPatchRequest(BaseModel):
-    """Partial update payload. Only provided fields are modified."""
+    """Partial update payload. Omitted fields remain unchanged."""
 
     return_window_days: int | None = Field(None, ge=0)
     require_receipt: bool | None = None

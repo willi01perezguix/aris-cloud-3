@@ -14,12 +14,12 @@ TAG_METADATA = [
     {"name": "Admin Users", "description": "User administration endpoints (CRUD plus operational actions such as status/role/password updates)."},
     {
         "name": "Admin Access Control",
-        "description": "Administrative access-control management for role templates, overlays, and overrides with scope resolved from JWT/context when not explicit.",
+        "description": "Administrative access-control management (role templates, tenant/store overlays, user overrides). Scope is resolved from JWT/context when not explicit.",
     },
     {"name": "Admin Settings", "description": "Administrative runtime settings endpoints."},
     {
         "name": "Access Control Scoped",
-        "description": "Scope-aware access-control endpoints for catalog/policy retrieval and effective permission resolution.",
+        "description": "Scope-explicit access-control endpoints where tenant/store/user identifiers are provided in path parameters.",
     },
 ]
 
@@ -98,19 +98,28 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     },
     ("/aris3/admin/settings/return-policy", "get"): {
         "summary": "Get return policy settings",
-        "description": "Returns current tenant return policy settings.",
+        "description": "Returns current return-policy configuration for the resolved admin tenant scope.",
     },
     ("/aris3/admin/settings/return-policy", "patch"): {
         "summary": "Patch return policy settings",
-        "description": "Partially updates return policy settings; omitted fields remain unchanged.",
+        "description": "Partially updates return-policy configuration; omitted fields remain unchanged.",
     },
     ("/aris3/admin/settings/variant-fields", "get"): {
         "summary": "Get variant field labels",
-        "description": "Returns configured labels for variant fields in tenant scope.",
+        "description": "Returns current variant-field labels for the resolved admin tenant scope.",
     },
     ("/aris3/admin/settings/variant-fields", "patch"): {
         "summary": "Patch variant field labels",
-        "description": "Partially updates variant field labels; omitted fields remain unchanged.",
+        "description": "Partially updates variant-field labels; omitted fields remain unchanged.",
+    },
+    ("/aris3/admin/access-control/effective-permissions", "get"): {
+        "summary": "Resolve effective permissions (admin)",
+        "description": (
+            "Admin endpoint for effective permission resolution for a target user.\n\n"
+            "- Scope defaults to JWT/context when not explicitly provided.\n"
+            "- Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.\n"
+            "- Response includes canonical `subject`, resolved `permissions`, `denies_applied`, `sources_trace`, and `trace_id`."
+        ),
     },
     ("/aris3/access-control/permission-catalog", "get"): {
         "summary": "Permission catalog",
@@ -270,7 +279,7 @@ def _apply_access_control_descriptions(path: str, method: str, operation: dict) 
 
     if path.startswith("/aris3/access-control"):
         if _is_explicit_scope_path(path):
-            context = "Scoped endpoint with explicit subject/scope identifiers in the request path."
+            context = "Scoped endpoint with explicit tenant/store/user identifiers in the request path."
         else:
             if method == "get":
                 context = "Scoped endpoint resolved from authenticated context and optional query parameters."
@@ -280,7 +289,7 @@ def _apply_access_control_descriptions(path: str, method: str, operation: dict) 
 
     if path.startswith("/aris3/admin/access-control"):
         operation["description"] = (
-            "Admin endpoint: tenant/store scope is resolved from JWT/context unless explicit path/query/body parameters override it."
+            "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it."
             f"\n\n{hierarchy}"
         )
 
@@ -366,7 +375,7 @@ def _polish_admin_store_create_parameters(path: str, method: str, operation: dic
             parameter["deprecated"] = True
             parameter["description"] = (
                 "Legacy tenant selector kept for backward compatibility. "
-                "Prefer body.tenant_id as the canonical source."
+                "Prefer body.tenant_id as canonical source."
             )
             schema = parameter.setdefault("schema", {})
             schema["description"] = parameter["description"]

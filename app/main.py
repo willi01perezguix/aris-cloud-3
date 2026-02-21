@@ -6,6 +6,7 @@ from app.aris3.middleware.observability import ObservabilityMiddleware
 from app.aris3.middleware.trace import TraceIdMiddleware
 from app.aris3.middleware.tenant import TenantContextMiddleware
 from app.aris3.core.errors import setup_exception_handlers
+from app.aris3.openapi import harden_openapi_schema
 
 
 def create_app() -> FastAPI:
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
     app.add_middleware(ObservabilityMiddleware)
     setup_exception_handlers(app)
     app.include_router(api_router)
+    app.openapi = lambda: harden_openapi_schema(app)
     return app
 
 

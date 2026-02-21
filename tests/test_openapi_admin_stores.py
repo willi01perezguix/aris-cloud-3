@@ -10,7 +10,9 @@ def test_create_store_openapi_has_single_query_tenant_id_parameter():
 
     assert len(query_tenant_params) == 1
     assert query_tenant_params[0]["in"] == "query"
-    assert "Legacy tenant selector for compatibility" in (query_tenant_params[0].get("description") or "")
+    assert "Legacy tenant selector kept for backward compatibility" in (
+        query_tenant_params[0].get("description") or ""
+    )
     assert [param for param in operation.get("parameters", []) if param.get("name") == "tenant_id"] == []
     assert "Canonical source" in (operation.get("description") or "")
 

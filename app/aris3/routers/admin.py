@@ -1371,7 +1371,10 @@ def _store_create_query_tenant_id(
     query_tenant_id_param: str | None = Query(
         default=None,
         alias="query_tenant_id",
-        description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
+        description=(
+            "Legacy tenant selector kept for backward compatibility. "
+            "Prefer body.tenant_id as the canonical source."
+        ),
     ),
 ) -> str | None:
     # Keep undocumented legacy compatibility for clients still sending `tenant_id`

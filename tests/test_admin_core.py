@@ -412,7 +412,10 @@ def test_delete_user_conflict_with_critical_dependencies(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-user-conflict-1"},
     )
     assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
     assert response.json()["message"] == "Cannot delete user with critical dependencies"
+    assert response.json()["details"]["dependencies"]["transfers"] >= 1
+    assert response.json()["trace_id"]
 
 
 def test_superadmin_delete_store_success_and_not_found(client, db_session):
@@ -434,6 +437,23 @@ def test_superadmin_delete_store_success_and_not_found(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-store-2"},
     )
     assert missing.status_code == 404
+    assert missing.json()["code"] == "NOT_FOUND"
+    assert missing.json()["trace_id"]
+
+
+def test_admin_validation_error_uses_standard_envelope(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+
+    response = client.post(
+        "/aris3/admin/stores",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "admin-validation-envelope-1"},
+        json={},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert response.json()["details"]["errors"]
+    assert response.json()["trace_id"]
 
 
 def test_delete_store_conflict_with_dependencies(client, db_session):
@@ -448,7 +468,7 @@ def test_delete_store_conflict_with_dependencies(client, db_session):
     )
     assert response.status_code == 409
     assert response.json()["message"] == "Cannot delete store with active dependencies"
-    assert response.json()["dependencies"]["users"] >= 1
+    assert response.json()["details"]["dependencies"]["users"] >= 1
 
 
 def test_delete_tenant_success_conflict_and_not_found(client, db_session):
@@ -476,7 +496,7 @@ def test_delete_tenant_success_conflict_and_not_found(client, db_session):
     )
     assert conflict.status_code == 409
     assert conflict.json()["message"] == "Cannot delete tenant with active dependencies"
-    assert conflict.json()["dependencies"]["stores"] >= 1
+    assert conflict.json()["details"]["dependencies"]["stores"] >= 1
 
     missing = client.delete(
         f"/aris3/admin/tenants/{uuid.uuid4()}",

@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorResponse
+
 
 AdminRole = Literal["USER", "MANAGER", "ADMIN"]
 AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]
@@ -148,30 +150,16 @@ class AdminDeleteResponse(BaseModel):
     trace_id: str
 
 
-class AdminDeleteConflictResponse(BaseModel):
-    message: str
-    dependencies: dict[str, int]
-    trace_id: str
-
-
-class AdminErrorResponse(BaseModel):
-    code: str
-    message: str
+class AdminDeleteConflictResponse(ApiErrorResponse):
     details: dict | None = None
-    trace_id: str | None = None
 
 
-class AdminValidationErrorDetail(BaseModel):
-    loc: list[str | int]
-    msg: str
-    type: str
+class AdminErrorResponse(ApiErrorResponse):
+    pass
 
 
-class AdminValidationErrorResponse(BaseModel):
-    code: str
-    message: str
-    details: list[AdminValidationErrorDetail] | dict | None = None
-    trace_id: str | None = None
+class AdminValidationErrorResponse(ApiValidationErrorResponse):
+    pass
 
 
 class VariantFieldSettingsResponse(BaseModel):

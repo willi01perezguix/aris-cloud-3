@@ -39,8 +39,16 @@ class StoreResponse(BaseModel):
     trace_id: str
 
 
+class ListPaginationMeta(BaseModel):
+    total: int
+    count: int
+    limit: int
+    offset: int
+
+
 class StoreListResponse(BaseModel):
     stores: list[StoreItem]
+    pagination: ListPaginationMeta | None = None
     trace_id: str
 
 
@@ -71,6 +79,7 @@ class TenantResponse(BaseModel):
 
 class TenantListResponse(BaseModel):
     tenants: list[TenantItem]
+    pagination: ListPaginationMeta | None = None
     trace_id: str
 
 
@@ -114,6 +123,7 @@ class UserResponse(BaseModel):
 
 class UserListResponse(BaseModel):
     users: list[UserItem]
+    pagination: ListPaginationMeta | None = None
     trace_id: str
 
 

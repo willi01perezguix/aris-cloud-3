@@ -132,6 +132,10 @@ _ACCESS_CONTROL_SUMMARY_OVERRIDES: dict[tuple[str, str], str] = {
     ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}", "get"): "Get store role policy",
     ("/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides", "get"): "Get user permission overrides",
     ("/aris3/access-control/platform/role-policies/{role_name}", "get"): "Get platform role policy",
+    ("/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}", "put"): "Replace tenant role policy",
+    ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}", "put"): "Replace store role policy",
+    ("/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides", "put"): "Replace user permission overrides",
+    ("/aris3/access-control/platform/role-policies/{role_name}", "put"): "Replace platform role policy",
     ("/aris3/admin/access-control/role-templates/{role_name}", "put"): "Replace admin role template",
     ("/aris3/admin/access-control/user-overrides/{user_id}", "patch"): "Patch user overrides (admin)",
 }
@@ -413,11 +417,19 @@ def _polish_admin_and_access_control_descriptions(path: str, method: str, operat
         operation["description"] = description.strip()
 
     if path == "/aris3/admin/users" and method == "get":
+        cleaned_parameters: list[dict] = []
         for parameter in operation.get("parameters", []):
+            if parameter.get("name") == "--":
+                continue
             description = parameter.get("description")
             if not description:
+                cleaned_parameters.append(parameter)
                 continue
-            parameter["description"] = description.replace("--", "").strip()
+            cleaned_description = description.replace("--", "").strip()
+            if cleaned_description:
+                parameter["description"] = cleaned_description
+                cleaned_parameters.append(parameter)
+        operation["parameters"] = cleaned_parameters
 
     summary_override = _ACCESS_CONTROL_SUMMARY_OVERRIDES.get((path, method))
     if summary_override:

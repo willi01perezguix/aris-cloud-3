@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,83 @@ class UserResponse(BaseModel):
     is_active: bool | None = None
     must_change_password: bool | None = None
     trace_id: str | None = None
+
+
+class TenantStatus(str, Enum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    CANCELED = "canceled"
+
+
+class UserStatus(str, Enum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    CANCELED = "canceled"
+
+
+class UserRole(str, Enum):
+    USER = "USER"
+    MANAGER = "MANAGER"
+    ADMIN = "ADMIN"
+    SUPERADMIN = "SUPERADMIN"
+    PLATFORM_ADMIN = "PLATFORM_ADMIN"
+
+
+class SortOrder(str, Enum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class PaginationMeta(BaseModel):
+    total: int
+    count: int
+    limit: int
+    offset: int
+
+
+class TenantItem(BaseModel):
+    id: str
+    name: str
+    status: str
+    created_at: str | None = None
+
+
+class StoreItem(BaseModel):
+    id: str
+    tenant_id: str
+    name: str
+    created_at: str | None = None
+
+
+class UserItem(BaseModel):
+    id: str
+    tenant_id: str
+    store_id: str | None = None
+    username: str
+    email: str | None = None
+    role: str | None = None
+    status: str | None = None
+    is_active: bool | None = None
+    must_change_password: bool | None = None
+    created_at: str | None = None
+
+
+class TenantListResponse(BaseModel):
+    tenants: List[TenantItem] = Field(default_factory=list)
+    trace_id: str | None = None
+    pagination: PaginationMeta | None = None
+
+
+class StoreListResponse(BaseModel):
+    stores: List[StoreItem] = Field(default_factory=list)
+    trace_id: str | None = None
+    pagination: PaginationMeta | None = None
+
+
+class UserListResponse(BaseModel):
+    users: List[UserItem] = Field(default_factory=list)
+    trace_id: str | None = None
+    pagination: PaginationMeta | None = None
 
 
 class PermissionEntry(BaseModel):

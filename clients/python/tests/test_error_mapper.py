@@ -21,3 +21,13 @@ def test_error_mapper_common_failures() -> None:
     server = map_error(500, {"code": "SERVER_ERROR", "message": "oops"}, "trace-500")
     assert server.status_code == 500
     assert "trace_id=trace-500" in str(server)
+
+
+def test_error_mapper_prefers_envelope_trace_id_when_available() -> None:
+    err = map_error(
+        422,
+        {"code": "VALIDATION_ERROR", "message": "invalid", "details": {"field": "role"}, "trace_id": "trace-from-envelope"},
+        "trace-from-header",
+    )
+    assert err.trace_id == "trace-from-envelope"
+    assert err.details == {"field": "role"}

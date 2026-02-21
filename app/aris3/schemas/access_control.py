@@ -1,17 +1,34 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+AccessControlRole = Literal["USER", "MANAGER", "ADMIN"]
+PermissionSource = Literal[
+    "role_template",
+    "tenant_policy_allow",
+    "tenant_policy_deny",
+    "store_policy_allow",
+    "store_policy_deny",
+    "user_override_allow",
+    "user_override_deny",
+    "explicit_deny",
+    "default_deny",
+    "unknown_permission",
+]
 
 
 class PermissionEntry(BaseModel):
     key: str
     allowed: bool
-    source: str
+    source: PermissionSource
 
 
 class EffectivePermissionSubject(BaseModel):
     user_id: str
     tenant_id: str | None
     store_id: str | None
-    role: str | None
+    role: str | None = Field(default=None, json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
 
 
 class PermissionSourceTrace(BaseModel):
@@ -30,7 +47,7 @@ class EffectivePermissionsResponse(BaseModel):
     user_id: str
     tenant_id: str | None
     store_id: str | None
-    role: str | None
+    role: str | None = Field(default=None, json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
     permissions: list[PermissionEntry]
     subject: EffectivePermissionSubject
     denies_applied: list[str] = Field(default_factory=list)
@@ -56,7 +73,7 @@ class RolePolicyRequest(BaseModel):
 
 class RolePolicyResponse(BaseModel):
     tenant_id: str | None
-    role: str
+    role: str = Field(..., json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
     allow: list[str]
     deny: list[str]
     trace_id: str
@@ -65,7 +82,7 @@ class RolePolicyResponse(BaseModel):
 class StoreRolePolicyResponse(BaseModel):
     tenant_id: str
     store_id: str
-    role: str
+    role: str = Field(..., json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
     allow: list[str]
     deny: list[str]
     trace_id: str
@@ -97,6 +114,6 @@ class RoleTemplateRequest(BaseModel):
 
 
 class RoleTemplateResponse(BaseModel):
-    role: str
+    role: str = Field(..., json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
     permissions: list[str]
     trace_id: str

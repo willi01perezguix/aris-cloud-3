@@ -1366,23 +1366,46 @@ async def list_stores(
     )
 
 
-@router.post("/stores", response_model=StoreResponse, status_code=201)
+@router.post(
+    "/stores",
+    response_model=StoreResponse,
+    status_code=201,
+    summary="Create store",
+    description=(
+        "Creates a store in a tenant scope. `tenant_id` in the request body is the canonical tenant source. "
+        "For legacy compatibility, `query_tenant_id` query param is also accepted. "
+        "SUPERADMIN/PLATFORM_ADMIN must provide tenant explicitly (no default-tenant fallback). "
+        "If body and query tenant are both present they must match."
+    ),
+)
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
-    query_tenant_id: str | None = Query(default=None),
+    query_tenant_id: str | None = Query(
+        default=None,
+        description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
+    ),
+    legacy_tenant_id: str | None = Query(default=None, alias="tenant_id", include_in_schema=False),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
     db=Depends(get_db),
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
-    request_tenant_id = (
-        payload.tenant_id
-        or query_tenant_id
-        or request.headers.get("X-Tenant-Id")
-        or request.headers.get("X-Tenant-ID")
-    )
+    body_tenant_id = payload.tenant_id
+    query_tenant_candidate = query_tenant_id or legacy_tenant_id
+
+    if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "tenant_id mismatch between body and query_tenant_id",
+                "body_tenant_id": body_tenant_id,
+                "query_tenant_id": query_tenant_candidate,
+            },
+        )
+
+    request_tenant_id = body_tenant_id or query_tenant_candidate
     user_role = (current_user.role or "").upper()
 
     if user_role in {"SUPERADMIN", "PLATFORM_ADMIN"}:
@@ -1390,11 +1413,15 @@ async def create_store(
             raise AppError(
                 ErrorCatalog.TENANT_ID_REQUIRED_FOR_SUPERADMIN,
                 details={
-                    "message": "tenant_id is required in body, query, or X-Tenant-Id header",
+                    "message": "tenant_id is required in body or query_tenant_id",
                 },
             )
+        if TenantRepository(db).get_by_id(request_tenant_id) is None:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
         resolved_tenant_id = request_tenant_id
     else:
+        if request_tenant_id and request_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
         resolved_tenant_id = token_tenant_id
 
     logger.debug(
@@ -1540,6 +1567,19 @@ async def update_store(
     "/stores/{store_id}",
     response_model=AdminDeleteResponse,
     responses={
+        200: {
+            "description": "Store deleted",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "resource": "store",
+                        "resource_id": "5f0f8f36-b064-4b4f-bf95-df6034eb9a64",
+                        "deleted": True,
+                        "trace_id": "trace-123",
+                    }
+                }
+            },
+        },
         404: {"description": "Store not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "Store not found", "details": None, "trace_id": "trace-123"}}}},
         409: {"description": "Store has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete store with active dependencies", "dependencies": {"users": 3, "sales": 18}, "trace_id": "trace-123"}}}},
         422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "store_id"}, "trace_id": "trace-123"}}}},
@@ -1826,6 +1866,19 @@ async def update_user(
     "/users/{user_id}",
     response_model=AdminDeleteResponse,
     responses={
+        200: {
+            "description": "User deleted",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "resource": "user",
+                        "resource_id": "9490f159-4054-4f8f-bf5a-5b5cad32e5d9",
+                        "deleted": True,
+                        "trace_id": "trace-123",
+                    }
+                }
+            },
+        },
         404: {"description": "User not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "User not found", "details": None, "trace_id": "trace-123"}}}},
         409: {"description": "User has critical dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete user with critical dependencies", "dependencies": {"transfers": 2}, "trace_id": "trace-123"}}}},
         422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "user_id"}, "trace_id": "trace-123"}}}},

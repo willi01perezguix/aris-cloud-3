@@ -55,19 +55,21 @@ def test_admin_store_tenant_scope_and_idempotency(client, db_session):
     _create_user(db_session, tenant=tenant_a, store=store_a, role="ADMIN", username="admin-a", password="Pass1234!")
 
     token = _login(client, "admin-a", "Pass1234!")
-    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "store-create-1"}
-    payload = {"name": "Tenant A Store", "tenant_id": str(tenant_b.id)}
-
-    response = client.post(
-        f"/aris3/admin/stores?tenant_id={tenant_b.id}",
-        headers={**headers, "X-Tenant-Id": str(tenant_b.id)},
-        json=payload,
+    cross_tenant_response = client.post(
+        f"/aris3/admin/stores?query_tenant_id={tenant_b.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-create-cross-tenant"},
+        json={"name": "Tenant A Store", "tenant_id": str(tenant_b.id)},
     )
+    assert cross_tenant_response.status_code == 403
+    assert cross_tenant_response.json()["code"] == "CROSS_TENANT_ACCESS_DENIED"
+
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "store-create-1"}
+    response = client.post("/aris3/admin/stores", headers=headers, json={"name": "Tenant A Store"})
     assert response.status_code == 201
     body = response.json()
     assert body["store"]["tenant_id"] == str(tenant_a.id)
 
-    replay = client.post("/aris3/admin/stores", headers=headers, json=payload)
+    replay = client.post("/aris3/admin/stores", headers=headers, json={"name": "Tenant A Store"})
     assert replay.status_code == response.status_code
     assert replay.json() == body
     assert replay.headers.get("X-Idempotency-Result") == "IDEMPOTENCY_REPLAY"

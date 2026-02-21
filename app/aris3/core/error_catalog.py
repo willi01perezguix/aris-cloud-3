@@ -114,7 +114,7 @@ class ErrorCatalog:
     TENANT_ID_REQUIRED_FOR_SUPERADMIN = ErrorDefinition(
         "TENANT_ID_REQUIRED_FOR_SUPERADMIN",
         "tenant_id is required for SUPERADMIN on this endpoint",
-        status.HTTP_400_BAD_REQUEST,
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
 

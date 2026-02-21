@@ -6,7 +6,13 @@ from pydantic import BaseModel, Field
 
 class StoreCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(
+        default=None,
+        description=(
+            "Canonical tenant for store creation. Superadmin/platform admin must provide this field "
+            "(or legacy query_tenant_id); no implicit fallback to token default tenant is applied."
+        ),
+    )
 
 
 class StoreUpdateRequest(BaseModel):

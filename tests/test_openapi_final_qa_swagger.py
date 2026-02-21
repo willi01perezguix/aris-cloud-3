@@ -53,6 +53,37 @@ def test_admin_permission_catalog_has_non_empty_documented_responses_with_schema
     component = app.openapi()["components"]["schemas"]["PermissionCatalogResponse"]
     assert "permissions" in component["properties"]
     assert "trace_id" in component["properties"]
+    assert get_operation.get("deprecated") is not True
+
+
+def test_openapi_summaries_use_consistent_sentence_case_for_core_admin_crud():
+    paths = app.openapi()["paths"]
+    assert paths["/aris3/admin/tenants"]["get"]["summary"] == "List tenants"
+    assert paths["/aris3/admin/tenants"]["post"]["summary"] == "Create tenant"
+    assert paths["/aris3/admin/tenants/{tenant_id}"]["get"]["summary"] == "Get tenant"
+    assert paths["/aris3/admin/tenants/{tenant_id}"]["patch"]["summary"] == "Update tenant"
+    assert paths["/aris3/admin/tenants/{tenant_id}"]["delete"]["summary"] == "Delete tenant"
+
+    assert paths["/aris3/admin/stores"]["get"]["summary"] == "List stores"
+    assert paths["/aris3/admin/stores"]["post"]["summary"] == "Create store"
+    assert paths["/aris3/admin/stores/{store_id}"]["get"]["summary"] == "Get store"
+    assert paths["/aris3/admin/stores/{store_id}"]["patch"]["summary"] == "Update store"
+    assert paths["/aris3/admin/stores/{store_id}"]["delete"]["summary"] == "Delete store"
+
+    assert paths["/aris3/admin/users"]["get"]["summary"] == "List users"
+    assert paths["/aris3/admin/users"]["post"]["summary"] == "Create user"
+    assert paths["/aris3/admin/users/{user_id}"]["get"]["summary"] == "Get user"
+    assert paths["/aris3/admin/users/{user_id}"]["patch"]["summary"] == "Update user"
+    assert paths["/aris3/admin/users/{user_id}"]["delete"]["summary"] == "Delete user"
+
+
+def test_scoped_permission_catalog_description_is_clear_and_canonical():
+    get_operation = app.openapi()["paths"]["/aris3/access-control/permission-catalog"]["get"]
+    description = get_operation.get("description") or ""
+    assert "Scoped permission catalog" in description
+    assert "role templates" in description
+    assert "overlays" in description
+    assert "user overrides" in description
 
 
 def test_admin_access_control_endpoints_are_consistently_documented():

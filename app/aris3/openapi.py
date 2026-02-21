@@ -86,7 +86,10 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     },
     ("/aris3/access-control/permission-catalog", "get"): {
         "summary": "Get permission catalog",
-        "description": "Lists permission keys available for templates, overlays, and user overrides.",
+        "description": (
+            "Scoped endpoint resolved from authenticated context and optional query parameters. "
+            "Lists permission keys available for templates, overlays, and user overrides."
+        ),
     },
     ("/aris3/access-control/effective-permissions", "get"): {
         "summary": "Resolve effective permissions (current context)",
@@ -242,6 +245,7 @@ def _apply_access_control_descriptions(path: str, method: str, operation: dict) 
         operation.pop("deprecated", None)
         operation["summary"] = "Admin permission catalog"
         operation["description"] = (
+            "Admin endpoint: tenant/store scope is resolved from JWT/context unless explicit path/query/body parameters override it. "
             "Lists permission keys available for templates, overlays, and user overrides (admin scope)."
             f"\n\n{hierarchy}"
         )

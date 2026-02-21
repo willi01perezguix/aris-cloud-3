@@ -23,6 +23,11 @@ TAG_METADATA = [
     },
 ]
 
+_STATUS_CANONICAL_DESCRIPTION = (
+    "Canonical values are uppercase (`ACTIVE`, `SUSPENDED`, `CANCELED`). "
+    "Lowercase variants are accepted only for backward compatibility."
+)
+
 
 _ERROR_PROPS = {
     "code": {"type": "string"},
@@ -195,8 +200,13 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         "content": {"application/json": {"schema": {"$ref": VALIDATION_ERROR_REF}}},
     }
 
-    if method in {"post", "put", "patch", "delete"}:
+    should_include_404 = method in {"get", "put", "patch", "delete"} and any(
+        token in path for token in ("{tenant_id}", "{store_id}", "{user_id}")
+    )
+    if should_include_404:
         responses.setdefault("404", {"description": _not_found_description(path)})
+
+    if method in {"post", "put", "patch", "delete"}:
         responses.setdefault("409", {"description": "Resource conflict"})
 
     if "404" in responses:
@@ -248,6 +258,62 @@ def _polish_admin_store_create_parameters(path: str, method: str, operation: dic
             schema = parameter.setdefault("schema", {})
             schema["description"] = parameter["description"]
 
+    body_content = operation.get("requestBody", {}).get("content", {}).get("application/json", {})
+    if body_content:
+        body_content.setdefault(
+            "examples",
+            {
+                "canonical_body_tenant": {
+                    "summary": "Recommended (canonical)",
+                    "value": {"name": "Store Centro", "tenant_id": "4f7f2c5e-9cfd-4efa-a575-2a0ad38df4e8"},
+                },
+                "legacy_query_tenant": {
+                    "summary": "Legacy compatibility (query_tenant_id)",
+                    "description": "Prefer sending tenant_id in request body for new integrations.",
+                    "value": {"name": "Store Centro"},
+                },
+            },
+        )
+
+
+def _polish_admin_and_access_control_descriptions(path: str, method: str, operation: dict) -> None:
+    if path == "/aris3/admin/tenants/{tenant_id}/actions" and method == "post":
+        operation["summary"] = "Execute tenant admin action"
+        operation["description"] = (
+            "Executes a tenant action. Currently supported action: `set_status` (requires `status`).\n\n"
+            f"{_STATUS_CANONICAL_DESCRIPTION}"
+        )
+
+    if path == "/aris3/admin/users/{user_id}/actions" and method == "post":
+        operation["description"] = (
+            "Dispatches one admin action over a user.\n\n"
+            "- `action=set_status`: requires `status`.\n"
+            "- `action=set_role`: requires `role`.\n"
+            "- `action=reset_password`: optional `temporary_password`; if omitted, server generates one.\n"
+            "- `transaction_id` is required for idempotency/audit correlation.\n\n"
+            f"{_STATUS_CANONICAL_DESCRIPTION}"
+        )
+
+    if path in {"/aris3/admin/tenants", "/aris3/admin/stores", "/aris3/admin/users"}:
+        description = operation.get("description") or ""
+        operation["description"] = description.strip()
+
+
+def _polish_status_schema_descriptions(schema: dict) -> None:
+    components = schema.get("components", {}).get("schemas", {})
+    for schema_name in (
+        "TenantItem",
+        "UserItem",
+        "TenantActionRequest",
+        "UserActionRequest",
+        "SetUserStatusActionRequest",
+    ):
+        status_prop = components.get(schema_name, {}).get("properties", {}).get("status")
+        if status_prop is None:
+            continue
+        existing = (status_prop.get("description") or "").strip()
+        status_prop["description"] = f"{existing} {_STATUS_CANONICAL_DESCRIPTION}".strip()
+
 
 def harden_openapi_schema(app: FastAPI):
     if app.openapi_schema:
@@ -268,6 +334,9 @@ def harden_openapi_schema(app: FastAPI):
             _apply_access_control_descriptions(path, method, operation)
             _apply_error_responses(path, method, operation)
             _polish_admin_store_create_parameters(path, method, operation)
+            _polish_admin_and_access_control_descriptions(path, method, operation)
+
+    _polish_status_schema_descriptions(schema)
 
     app.openapi_schema = schema
     return app.openapi_schema

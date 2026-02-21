@@ -143,6 +143,21 @@ def test_superadmin_store_creation_requires_explicit_tenant_and_honors_precedenc
     tenant_a, _ = _create_tenant_store(db_session, name_suffix="StoreTargetA")
     tenant_b, _ = _create_tenant_store(db_session, name_suffix="StoreTargetB")
     tenant_c, _ = _create_tenant_store(db_session, name_suffix="StoreTargetC")
+    tenant_b_store = (
+        db_session.query(Store)
+        .filter(Store.tenant_id == tenant_b.id)
+        .order_by(Store.created_at.asc())
+        .first()
+    )
+    assert tenant_b_store is not None
+    _create_user(
+        db_session,
+        tenant=tenant_b,
+        store=tenant_b_store,
+        role="ADMIN",
+        username="tenant-b-admin",
+        password="Pass1234!",
+    )
 
     token = _login(client, settings.SUPERADMIN_USERNAME, settings.SUPERADMIN_PASSWORD)
 
@@ -151,17 +166,54 @@ def test_superadmin_store_creation_requires_explicit_tenant_and_honors_precedenc
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "super-store-missing-tenant"},
         json={"name": "Missing Tenant Store"},
     )
-    assert missing_response.status_code == 400
+    assert missing_response.status_code == 422
     assert missing_response.json()["code"] == "TENANT_ID_REQUIRED_FOR_SUPERADMIN"
 
     create_response = client.post(
-        f"/aris3/admin/stores?tenant_id={tenant_b.id}",
+        f"/aris3/admin/stores?query_tenant_id={tenant_b.id}",
         headers={
             "Authorization": f"Bearer {token}",
             "Idempotency-Key": "super-store-precedence",
-            "X-Tenant-Id": str(tenant_c.id),
         },
         json={"name": "Super Store", "tenant_id": str(tenant_a.id)},
     )
-    assert create_response.status_code == 201
-    assert create_response.json()["store"]["tenant_id"] == str(tenant_a.id)
+    assert create_response.status_code == 422
+    assert create_response.json()["code"] == "VALIDATION_ERROR"
+
+    create_body_response = client.post(
+        "/aris3/admin/stores",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": "super-store-body-tenant",
+        },
+        json={"name": "Super Store Body", "tenant_id": str(tenant_a.id)},
+    )
+    assert create_body_response.status_code == 201
+    assert create_body_response.json()["store"]["tenant_id"] == str(tenant_a.id)
+
+    create_query_response = client.post(
+        f"/aris3/admin/stores?query_tenant_id={tenant_b.id}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": "super-store-query-tenant",
+        },
+        json={"name": "Super Store Query"},
+    )
+    assert create_query_response.status_code == 201
+    assert create_query_response.json()["store"]["tenant_id"] == str(tenant_b.id)
+
+    tenant_b_token = _login(client, "tenant-b-admin", "Pass1234!")
+    list_tenant_b = client.get("/aris3/admin/stores", headers={"Authorization": f"Bearer {tenant_b_token}"})
+    assert list_tenant_b.status_code == 200
+    assert any(store["id"] == create_query_response.json()["store"]["id"] for store in list_tenant_b.json()["stores"])
+
+    invalid_tenant_response = client.post(
+        "/aris3/admin/stores",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": "super-store-invalid-tenant",
+        },
+        json={"name": "Invalid Tenant", "tenant_id": str(uuid.uuid4())},
+    )
+    assert invalid_tenant_response.status_code == 422
+    assert invalid_tenant_response.json()["code"] == "VALIDATION_ERROR"

@@ -377,7 +377,11 @@ def _tenant_dependency_counts(db, *, tenant_id: str) -> dict[str, int]:
     "/access-control/permission-catalog",
     response_model=PermissionCatalogResponse,
     summary="Admin permission catalog",
-    description="Lists permission keys used by role templates and policy overlays.",
+    description=(
+        "Lists permission keys available for templates, overlays, and user overrides (admin scope).\n\n"
+        "Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), "
+        "3) User overrides, 4) Effective permissions."
+    ),
     responses=ADMIN_VALIDATION_ERROR_RESPONSE,
 )
 async def admin_permission_catalog(

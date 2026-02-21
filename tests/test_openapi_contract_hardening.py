@@ -1,7 +1,7 @@
 from app.main import app
 
 
-def test_access_control_paths_are_tagged_by_scope_and_admin_alias_deprecated():
+def test_access_control_paths_are_tagged_by_scope_and_admin_alias_is_active():
     openapi = app.openapi()["paths"]
 
     scoped_op = openapi["/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}"]["get"]
@@ -10,7 +10,7 @@ def test_access_control_paths_are_tagged_by_scope_and_admin_alias_deprecated():
 
     assert scoped_op["tags"] == ["Access Control Scoped"]
     assert admin_op["tags"] == ["Admin Access Control"]
-    assert alias_op.get("deprecated") is True
+    assert alias_op.get("deprecated") is not True
 
 
 def test_admin_and_access_control_422_use_validation_envelope_component():

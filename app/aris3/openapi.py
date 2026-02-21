@@ -219,6 +219,36 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         }
 
 
+def _polish_admin_store_create_parameters(path: str, method: str, operation: dict) -> None:
+    if not (path == "/aris3/admin/stores" and method == "post"):
+        return
+
+    deduped_parameters: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for parameter in operation.get("parameters", []):
+        key = (parameter.get("in") or "", parameter.get("name") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_parameters.append(parameter)
+
+    operation["parameters"] = [
+        parameter
+        for parameter in deduped_parameters
+        if not (parameter.get("in") == "query" and parameter.get("name") == "tenant_id")
+    ]
+
+    for parameter in operation.get("parameters", []):
+        if parameter.get("in") == "query" and parameter.get("name") == "query_tenant_id":
+            parameter["deprecated"] = True
+            parameter["description"] = (
+                "Legacy tenant selector kept for backward compatibility. "
+                "Prefer body.tenant_id as the canonical source."
+            )
+            schema = parameter.setdefault("schema", {})
+            schema["description"] = parameter["description"]
+
+
 def harden_openapi_schema(app: FastAPI):
     if app.openapi_schema:
         return app.openapi_schema
@@ -237,6 +267,7 @@ def harden_openapi_schema(app: FastAPI):
             operation["operationId"] = _operation_id(method, path)
             _apply_access_control_descriptions(path, method, operation)
             _apply_error_responses(path, method, operation)
+            _polish_admin_store_create_parameters(path, method, operation)
 
     app.openapi_schema = schema
     return app.openapi_schema

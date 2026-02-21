@@ -100,7 +100,7 @@ logger = logging.getLogger(__name__)
 
 ADMIN_STANDARD_ERROR_RESPONSES = {
     404: {"description": "Resource not found", "model": AdminErrorResponse},
-    409: {"description": "Conflict due to resource dependencies or state", "model": AdminErrorResponse},
+    409: {"description": "Resource conflict", "model": AdminErrorResponse},
     422: {"description": "Validation error", "model": AdminValidationErrorResponse},
 }
 

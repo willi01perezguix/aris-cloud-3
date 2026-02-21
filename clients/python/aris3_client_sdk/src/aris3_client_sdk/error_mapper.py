@@ -19,6 +19,8 @@ def map_error(status_code: int, payload: Mapping[str, object] | None, trace_id: 
     code = str(payload.get("code") or "HTTP_ERROR")
     message = str(payload.get("message") or "Request failed")
     details = payload.get("details")
+    payload_trace_id = payload.get("trace_id")
+    resolved_trace_id = str(payload_trace_id) if payload_trace_id is not None else trace_id
     mapped: type[ApiError]
     if status_code in {401}:
         mapped = AuthError
@@ -40,7 +42,7 @@ def map_error(status_code: int, payload: Mapping[str, object] | None, trace_id: 
         code=code,
         message=message,
         details=details,
-        trace_id=trace_id,
+        trace_id=resolved_trace_id,
         status_code=status_code,
         raw_payload=dict(payload),
     )

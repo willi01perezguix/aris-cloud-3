@@ -4,6 +4,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from .base import BaseClient
+from ..models import (
+    SortOrder,
+    TenantListResponse,
+    TenantStatus,
+    UserListResponse,
+    UserRole,
+    UserStatus,
+    StoreListResponse,
+)
 
 
 @dataclass
@@ -19,12 +28,43 @@ class RetryableMutation:
 class AdminDataAccessClient(BaseClient):
     module = "admin"
 
+    @staticmethod
+    def _optional_params(**kwargs: Any) -> dict[str, Any] | None:
+        params = {key: value for key, value in kwargs.items() if value is not None}
+        return params or None
+
+    @staticmethod
+    def _enum_value(value: Any) -> Any:
+        return getattr(value, "value", value)
+
     def switch_context(self, *, tenant_id: str | None = None, role: str | None = None, session_id: str | None = None) -> int:
         context_key = f"tenant={tenant_id or '-'}|role={role or '-'}|session={session_id or '-'}"
         return self.http.switch_context(context_key)
 
-    def list_tenants(self, *, status: str | None = None):
-        params = {"status": status} if status else None
+    def list_tenants(
+        self,
+        *,
+        status: str | TenantStatus | None = None,
+        search: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        sort_by: str | None = None,
+        sort_order: str | SortOrder | None = None,
+    ):
+        """List tenants with optional admin filters and pagination.
+
+        Examples:
+            client.list_tenants(status="active", limit=25, offset=0)
+            client.list_tenants(search="north", sort_by="created_at", sort_order="desc")
+        """
+        params = self._optional_params(
+            status=self._enum_value(status),
+            search=search,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=self._enum_value(sort_order),
+        )
         return self._request(
             "GET",
             "/aris3/admin/tenants",
@@ -32,6 +72,9 @@ class AdminDataAccessClient(BaseClient):
             module=self.module,
             operation="tenants.list",
         )
+
+    def list_tenants_typed(self, **kwargs: Any) -> TenantListResponse:
+        return TenantListResponse.model_validate(self.list_tenants(**kwargs))
 
     def get_tenant(self, tenant_id: str):
         return self._request(
@@ -63,9 +106,37 @@ class AdminDataAccessClient(BaseClient):
             invalidate_paths=["/aris3/admin/tenants"],
         )
 
-    def list_stores(self, *, tenant_id: str | None = None):
-        params = {"tenant_id": tenant_id} if tenant_id else None
+    def list_stores(
+        self,
+        *,
+        tenant_id: str | None = None,
+        search: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        sort_by: str | None = None,
+        sort_order: str | SortOrder | None = None,
+    ):
+        """List stores with optional tenant/search/pagination filters.
+
+        Example:
+            client.list_stores(tenant_id="tenant-1", limit=50, offset=0)
+        """
+        params = self._optional_params(
+            tenant_id=tenant_id,
+            search=search,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=self._enum_value(sort_order),
+        )
         return self._request("GET", "/aris3/admin/stores", params=params, module=self.module, operation="stores.list")
+
+    def list_stores_typed(self, **kwargs: Any) -> StoreListResponse:
+        return StoreListResponse.model_validate(self.list_stores(**kwargs))
+
+    def list_stores_by_tenant(self, tenant_id: str, **kwargs: Any):
+        """Convenience wrapper for ARIS_CONTROL tenant → stores flow."""
+        return self.list_stores(tenant_id=tenant_id, **kwargs)
 
     def get_store(self, store_id: str):
         return self._request("GET", f"/aris3/admin/stores/{store_id}", module=self.module, operation="stores.get")
@@ -92,10 +163,50 @@ class AdminDataAccessClient(BaseClient):
             invalidate_paths=["/aris3/admin/stores", "/aris3/admin/users"],
         )
 
-    def list_users(self, *, tenant_id: str | None = None, store_id: str | None = None):
-        params = {"tenant_id": tenant_id, "store_id": store_id}
-        params = {k: v for k, v in params.items() if v is not None}
+    def list_users(
+        self,
+        *,
+        tenant_id: str | None = None,
+        store_id: str | None = None,
+        role: str | UserRole | None = None,
+        status: str | UserStatus | None = None,
+        search: str | None = None,
+        is_active: bool | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        sort_by: str | None = None,
+        sort_order: str | SortOrder | None = None,
+    ):
+        """List users with optional tenant/store/role/status/search filters.
+
+        Examples:
+            client.list_users(store_id="store-1", limit=20, offset=0)
+            client.list_users(role="MANAGER", status="active", search="ana")
+        """
+        params = self._optional_params(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            role=self._enum_value(role),
+            status=self._enum_value(status),
+            search=search,
+            is_active=is_active,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=self._enum_value(sort_order),
+        )
         return self._request("GET", "/aris3/admin/users", params=params or None, module=self.module, operation="users.list")
+
+    def list_users_typed(self, **kwargs: Any) -> UserListResponse:
+        return UserListResponse.model_validate(self.list_users(**kwargs))
+
+    def list_users_by_store(self, store_id: str, **kwargs: Any):
+        """Convenience wrapper for ARIS_CONTROL store → users flow."""
+        return self.list_users(store_id=store_id, **kwargs)
+
+    def list_users_filtered(self, **kwargs: Any):
+        """Alias wrapper for readability in control-center filtering screens."""
+        return self.list_users(**kwargs)
 
     def get_user(self, user_id: str):
         return self._request("GET", f"/aris3/admin/users/{user_id}", module=self.module, operation="users.get")

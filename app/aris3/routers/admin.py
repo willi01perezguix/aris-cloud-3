@@ -1368,14 +1368,15 @@ async def list_stores(
 
 def _store_create_query_tenant_id(
     request: Request,
-    query_tenant_id: str | None = Query(
+    query_tenant_id_param: str | None = Query(
         default=None,
+        alias="query_tenant_id",
         description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
     ),
 ) -> str | None:
     # Keep undocumented legacy compatibility for clients still sending `tenant_id`
     # while exposing only `query_tenant_id` in the OpenAPI schema.
-    return query_tenant_id or request.query_params.get("tenant_id")
+    return query_tenant_id_param or request.query_params.get("tenant_id")
 
 
 @router.post(
@@ -1394,7 +1395,7 @@ def _store_create_query_tenant_id(
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
-    query_tenant_id: str | None = Depends(_store_create_query_tenant_id),
+    legacy_query_tenant_id: str | None = Depends(_store_create_query_tenant_id),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
@@ -1402,7 +1403,7 @@ async def create_store(
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
-    query_tenant_candidate = query_tenant_id
+    query_tenant_candidate = legacy_query_tenant_id
 
     if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:
         raise AppError(

@@ -1366,25 +1366,37 @@ async def list_stores(
     )
 
 
+def _store_create_query_tenant_id(
+    query_tenant_id: str | None = Query(
+        default=None,
+        description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
+    ),
+    legacy_tenant_id: str | None = Query(
+        default=None,
+        alias="tenant_id",
+        include_in_schema=False,
+    ),
+) -> str | None:
+    return query_tenant_id or legacy_tenant_id
+
+
 @router.post(
     "/stores",
     response_model=StoreResponse,
     status_code=201,
-    summary="Create store",
+    summary="Create store (canonical body tenant + legacy query compatibility)",
     description=(
-        "Creates a store in a tenant scope. `tenant_id` in the request body is the canonical tenant source. "
-        "For legacy compatibility, `query_tenant_id` query param is also accepted. "
-        "SUPERADMIN/PLATFORM_ADMIN must provide tenant explicitly (no default-tenant fallback). "
-        "If body and query tenant are both present they must match."
+        "Creates a store under a tenant scope.\n\n"
+        "- **Canonical source**: `tenant_id` in request body (recommended).\n"
+        "- **Legacy compatibility**: `query_tenant_id` in query string is still accepted.\n"
+        "- **Consistency rule**: if body `tenant_id` and `query_tenant_id` are both provided, they must match.\n"
+        "- **Admin role rule**: `SUPERADMIN` / `PLATFORM_ADMIN` must send an explicit tenant (no default fallback)."
     ),
 )
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
-    query_tenant_id: str | None = Query(
-        default=None,
-        description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
-    ),
+    query_tenant_id: str | None = Depends(_store_create_query_tenant_id),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
@@ -1392,8 +1404,7 @@ async def create_store(
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
-    legacy_tenant_id = request.query_params.get("tenant_id")
-    query_tenant_candidate = query_tenant_id or legacy_tenant_id
+    query_tenant_candidate = query_tenant_id
 
     if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:
         raise AppError(

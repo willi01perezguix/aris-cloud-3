@@ -1367,17 +1367,15 @@ async def list_stores(
 
 
 def _store_create_query_tenant_id(
+    request: Request,
     query_tenant_id: str | None = Query(
         default=None,
         description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
     ),
-    legacy_tenant_id: str | None = Query(
-        default=None,
-        alias="tenant_id",
-        include_in_schema=False,
-    ),
 ) -> str | None:
-    return query_tenant_id or legacy_tenant_id
+    # Keep undocumented legacy compatibility for clients still sending `tenant_id`
+    # while exposing only `query_tenant_id` in the OpenAPI schema.
+    return query_tenant_id or request.query_params.get("tenant_id")
 
 
 @router.post(

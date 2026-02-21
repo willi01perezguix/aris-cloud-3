@@ -1494,6 +1494,7 @@ def _store_create_query_tenant_id(
     query_tenant_id_param: str | None = Query(
         default=None,
         alias="query_tenant_id",
+        deprecated=True,
         description=(
             "Legacy tenant selector kept for backward compatibility. "
             "Prefer body.tenant_id as the canonical source."

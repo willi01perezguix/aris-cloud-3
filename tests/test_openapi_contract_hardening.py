@@ -8,7 +8,7 @@ def test_access_control_paths_are_tagged_by_scope_and_admin_alias_deprecated():
     admin_op = openapi["/aris3/admin/access-control/tenant-role-policies/{role_name}"]["get"]
     alias_op = openapi["/aris3/admin/access-control/permission-catalog"]["get"]
 
-    assert scoped_op["tags"] == ["Access Control (Scoped)"]
+    assert scoped_op["tags"] == ["Access Control Scoped"]
     assert admin_op["tags"] == ["Admin Access Control"]
     assert alias_op.get("deprecated") is True
 

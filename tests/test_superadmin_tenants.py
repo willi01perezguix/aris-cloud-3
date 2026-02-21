@@ -202,6 +202,17 @@ def test_superadmin_store_creation_requires_explicit_tenant_and_honors_precedenc
     assert create_query_response.status_code == 201
     assert create_query_response.json()["store"]["tenant_id"] == str(tenant_b.id)
 
+    create_matching_response = client.post(
+        f"/aris3/admin/stores?query_tenant_id={tenant_c.id}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": "super-store-matching-tenants",
+        },
+        json={"name": "Super Store Matching", "tenant_id": str(tenant_c.id)},
+    )
+    assert create_matching_response.status_code == 201
+    assert create_matching_response.json()["store"]["tenant_id"] == str(tenant_c.id)
+
     tenant_b_token = _login(client, "tenant-b-admin", "Pass1234!")
     list_tenant_b = client.get("/aris3/admin/stores", headers={"Authorization": f"Bearer {tenant_b_token}"})
     assert list_tenant_b.status_code == 200

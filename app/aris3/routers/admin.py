@@ -1385,7 +1385,6 @@ async def create_store(
         default=None,
         description="Legacy tenant selector for compatibility. Prefer body.tenant_id.",
     ),
-    legacy_tenant_id: str | None = Query(default=None, alias="tenant_id", include_in_schema=False),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
@@ -1393,6 +1392,7 @@ async def create_store(
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
+    legacy_tenant_id = request.query_params.get("tenant_id")
     query_tenant_candidate = query_tenant_id or legacy_tenant_id
 
     if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:

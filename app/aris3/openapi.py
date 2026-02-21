@@ -29,6 +29,72 @@ _STATUS_CANONICAL_DESCRIPTION = (
 )
 
 
+_ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
+    ("/aris3/admin/tenants", "get"): {
+        "summary": "List tenants",
+        "description": "Lists tenants with optional filters and pagination for platform administration.",
+    },
+    ("/aris3/admin/tenants", "post"): {
+        "summary": "Create tenant",
+        "description": "Creates a tenant record. Requires idempotency key and superadmin scope.",
+    },
+    ("/aris3/admin/tenants/{tenant_id}", "get"): {
+        "summary": "Get tenant",
+        "description": "Retrieves one tenant by identifier.",
+    },
+    ("/aris3/admin/tenants/{tenant_id}", "patch"): {
+        "summary": "Update tenant",
+        "description": "Partially updates tenant fields.",
+    },
+    ("/aris3/admin/stores", "get"): {
+        "summary": "List stores",
+        "description": "Lists stores with tenant-aware filters, pagination, and sorting.",
+    },
+    ("/aris3/admin/stores", "post"): {
+        "summary": "Create store",
+        "description": (
+            "Creates a store under an explicit tenant scope.\n\n"
+            "- **Canonical input**: send `tenant_id` in the JSON body.\n"
+            "- **Legacy compatibility**: optional `query_tenant_id` is supported only for backward compatibility.\n"
+            "- **Consistency rule**: when both values are sent, `tenant_id` and `query_tenant_id` must match.\n"
+            "- **Admin rule**: `SUPERADMIN` and `PLATFORM_ADMIN` must provide an explicit tenant (no implicit fallback)."
+        ),
+    },
+    ("/aris3/admin/users", "get"): {
+        "summary": "List users",
+        "description": "Lists users for the current tenant scope with optional filters and pagination.",
+    },
+    ("/aris3/admin/users", "post"): {
+        "summary": "Create user",
+        "description": "Creates a user in tenant scope with role/store validations.",
+    },
+    ("/aris3/admin/settings/return-policy", "get"): {
+        "summary": "Get return policy settings",
+        "description": "Returns current tenant return policy settings.",
+    },
+    ("/aris3/admin/settings/return-policy", "patch"): {
+        "summary": "Patch return policy settings",
+        "description": "Partially updates return policy settings; omitted fields remain unchanged.",
+    },
+    ("/aris3/admin/settings/variant-fields", "get"): {
+        "summary": "Get variant field labels",
+        "description": "Returns configured labels for variant fields in tenant scope.",
+    },
+    ("/aris3/admin/settings/variant-fields", "patch"): {
+        "summary": "Patch variant field labels",
+        "description": "Partially updates variant field labels; omitted fields remain unchanged.",
+    },
+    ("/aris3/access-control/permission-catalog", "get"): {
+        "summary": "Get permission catalog",
+        "description": "Lists permission keys available for templates, overlays, and user overrides.",
+    },
+    ("/aris3/access-control/effective-permissions", "get"): {
+        "summary": "Resolve effective permissions (current context)",
+        "description": "Computes effective permissions for the authenticated request context.",
+    },
+}
+
+
 _ERROR_PROPS = {
     "code": {"type": "string"},
     "message": {"type": "string"},
@@ -200,8 +266,9 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         "content": {"application/json": {"schema": {"$ref": VALIDATION_ERROR_REF}}},
     }
 
-    should_include_404 = method in {"get", "put", "patch", "delete"} and any(
-        token in path for token in ("{tenant_id}", "{store_id}", "{user_id}")
+    explicit_identifier_path = any(token in path for token in ("{tenant_id}", "{store_id}", "{user_id}"))
+    should_include_404 = (method in {"get", "put", "patch", "delete"} and explicit_identifier_path) or (
+        path in {"/aris3/admin/users", "/aris3/admin/stores"} and method == "post"
     )
     if should_include_404:
         responses.setdefault("404", {"description": _not_found_description(path)})
@@ -277,6 +344,10 @@ def _polish_admin_store_create_parameters(path: str, method: str, operation: dic
 
 
 def _polish_admin_and_access_control_descriptions(path: str, method: str, operation: dict) -> None:
+    override = _ADMIN_DOC_OVERRIDES.get((path, method))
+    if override:
+        operation.update(override)
+
     if path == "/aris3/admin/tenants/{tenant_id}/actions" and method == "post":
         operation["summary"] = "Execute tenant admin action"
         operation["description"] = (
@@ -285,6 +356,7 @@ def _polish_admin_and_access_control_descriptions(path: str, method: str, operat
         )
 
     if path == "/aris3/admin/users/{user_id}/actions" and method == "post":
+        operation["summary"] = "Execute user admin action"
         operation["description"] = (
             "Dispatches one admin action over a user.\n\n"
             "- `action=set_status`: requires `status`.\n"

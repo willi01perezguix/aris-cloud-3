@@ -4,6 +4,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+AdminRole = Literal["USER", "MANAGER", "ADMIN"]
+AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]
+AdminUserAction = Literal["set_status", "set_role", "reset_password"]
+
+
 class StoreCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     tenant_id: str | None = Field(
@@ -46,13 +51,13 @@ class TenantUpdateRequest(BaseModel):
 
 class TenantActionRequest(BaseModel):
     action: Literal["set_status"]
-    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] | None = None
+    status: AdminUserStatus | None = None
 
 
 class TenantItem(BaseModel):
     id: str
     name: str
-    status: str
+    status: str = Field(..., json_schema_extra={"enum": ["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]})
     created_at: datetime
 
 
@@ -76,7 +81,7 @@ class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=150)
     email: str = Field(..., min_length=3, max_length=255)
     password: str = Field(..., min_length=8, max_length=255)
-    role: Literal["USER", "MANAGER", "ADMIN"] = "USER"
+    role: AdminRole = "USER"
     store_id: str | None = None
 
 
@@ -92,8 +97,8 @@ class UserItem(BaseModel):
     store_id: str | None
     username: str
     email: str
-    role: str
-    status: str
+    role: str = Field(..., json_schema_extra={"enum": ["USER", "MANAGER", "ADMIN"]})
+    status: str = Field(..., json_schema_extra={"enum": ["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]})
     is_active: bool
     must_change_password: bool
     created_at: datetime
@@ -110,16 +115,28 @@ class UserListResponse(BaseModel):
 
 
 class UserActionRequest(BaseModel):
-    action: Literal["set_status", "set_role", "reset_password"]
-    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] | None = None
-    role: Literal["USER", "MANAGER", "ADMIN"] | None = None
-    temporary_password: str | None = None
+    action: AdminUserAction = Field(
+        ...,
+        description="Action to execute. `set_status` uses `status`, `set_role` uses `role`, and `reset_password` optionally uses `temporary_password`.",
+    )
+    status: AdminUserStatus | None = Field(
+        default=None,
+        description="Required only when `action=set_status`.",
+    )
+    role: AdminRole | None = Field(
+        default=None,
+        description="Required only when `action=set_role`.",
+    )
+    temporary_password: str | None = Field(
+        default=None,
+        description="Optional only when `action=reset_password`. If omitted, server generates a temporary password.",
+    )
     transaction_id: str | None = Field(None, min_length=1, max_length=255)
 
 
 class UserActionResponse(BaseModel):
     user: UserItem
-    action: str
+    action: AdminUserAction
     temporary_password: str | None = None
     trace_id: str
 
@@ -137,6 +154,26 @@ class AdminDeleteConflictResponse(BaseModel):
     trace_id: str
 
 
+class AdminErrorResponse(BaseModel):
+    code: str
+    message: str
+    details: dict | None = None
+    trace_id: str | None = None
+
+
+class AdminValidationErrorDetail(BaseModel):
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class AdminValidationErrorResponse(BaseModel):
+    code: str
+    message: str
+    details: list[AdminValidationErrorDetail] | dict | None = None
+    trace_id: str | None = None
+
+
 class VariantFieldSettingsResponse(BaseModel):
     var1_label: str | None
     var2_label: str | None
@@ -144,6 +181,8 @@ class VariantFieldSettingsResponse(BaseModel):
 
 
 class VariantFieldSettingsPatchRequest(BaseModel):
+    """Partial update payload. Only provided fields are modified."""
+
     var1_label: str | None = Field(None, max_length=255)
     var2_label: str | None = Field(None, max_length=255)
 
@@ -163,6 +202,8 @@ class ReturnPolicySettingsResponse(BaseModel):
 
 
 class ReturnPolicySettingsPatchRequest(BaseModel):
+    """Partial update payload. Only provided fields are modified."""
+
     return_window_days: int | None = Field(None, ge=0)
     require_receipt: bool | None = None
     allow_refund_cash: bool | None = None

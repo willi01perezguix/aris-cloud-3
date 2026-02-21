@@ -66,6 +66,8 @@ from app.aris3.schemas.admin import (
     ReturnPolicySettingsResponse,
     AdminDeleteConflictResponse,
     AdminDeleteResponse,
+    AdminErrorResponse,
+    AdminValidationErrorResponse,
     VariantFieldSettingsPatchRequest,
     VariantFieldSettingsResponse,
 )
@@ -93,6 +95,13 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+ADMIN_STANDARD_ERROR_RESPONSES = {
+    404: {"description": "Resource not found", "model": AdminErrorResponse},
+    409: {"description": "Conflict due to resource dependencies or state", "model": AdminErrorResponse},
+    422: {"description": "Validation error", "model": AdminValidationErrorResponse},
+}
 
 
 def _tenant_id_or_error(token_data) -> str:
@@ -335,7 +344,11 @@ def _tenant_dependency_counts(db, *, tenant_id: str) -> dict[str, int]:
     }
 
 
-@router.get("/access-control/permission-catalog", response_model=PermissionCatalogResponse)
+@router.get(
+    "/access-control/permission-catalog",
+    response_model=PermissionCatalogResponse,
+    description="Lists permission keys used by role templates and policy overlays.",
+)
 async def admin_permission_catalog(
     request: Request,
     token_data=Depends(get_current_token_data),
@@ -353,7 +366,11 @@ async def admin_permission_catalog(
     )
 
 
-@router.get("/access-control/role-templates/{role_name}", response_model=RoleTemplateResponse)
+@router.get(
+    "/access-control/role-templates/{role_name}",
+    response_model=RoleTemplateResponse,
+    description="Returns base role template permissions (hierarchy layer 1: base template).",
+)
 async def admin_get_role_template(
     request: Request,
     role_name: str,
@@ -371,7 +388,12 @@ async def admin_get_role_template(
     )
 
 
-@router.put("/access-control/role-templates/{role_name}", response_model=RoleTemplateResponse)
+@router.put(
+    "/access-control/role-templates/{role_name}",
+    response_model=RoleTemplateResponse,
+    description="Replaces base role template permissions (hierarchy layer 1: base template).",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def admin_replace_role_template(
     request: Request,
     role_name: str,
@@ -479,7 +501,13 @@ async def get_return_policy(
     return _return_policy_response(settings, getattr(request.state, "trace_id", ""))
 
 
-@router.patch("/settings/return-policy", response_model=ReturnPolicySettingsResponse)
+@router.patch(
+    "/settings/return-policy",
+    response_model=ReturnPolicySettingsResponse,
+    summary="Partially update return policy settings",
+    description="Partial update (PATCH): only provided fields are modified; omitted fields are preserved.",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def patch_return_policy(
     request: Request,
     payload: ReturnPolicySettingsPatchRequest,
@@ -634,7 +662,17 @@ async def patch_return_policy(
     return response
 
 
-@router.get("/access-control/tenant-role-policies/{role_name}", response_model=RolePolicyResponse)
+@router.get(
+    "/access-control/tenant-role-policies/{role_name}",
+    response_model=RolePolicyResponse,
+    summary="Get tenant role policy overlay",
+    description=(
+        "Returns the tenant-level allow/deny overlay for a role.\n\n"
+        "Tenant scope is resolved from the authenticated JWT/context (no explicit tenant_id query parameter in this endpoint).\n"
+        "Hierarchy reference: role template (base) → tenant/store overlays (allow/deny) → user overrides (final override) → effective permissions (resolved result)."
+    ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def admin_get_tenant_role_policy(
     request: Request,
     role_name: str,
@@ -655,7 +693,17 @@ async def admin_get_tenant_role_policy(
     )
 
 
-@router.put("/access-control/tenant-role-policies/{role_name}", response_model=RolePolicyResponse)
+@router.put(
+    "/access-control/tenant-role-policies/{role_name}",
+    response_model=RolePolicyResponse,
+    summary="Replace tenant role policy overlay",
+    description=(
+        "Replaces the tenant-level allow/deny overlay for a role.\n\n"
+        "Tenant scope is resolved from the authenticated JWT/context (no explicit tenant_id query parameter in this endpoint).\n"
+        "Hierarchy reference: role template (base) → tenant/store overlays (allow/deny) → user overrides (final override) → effective permissions (resolved result)."
+    ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def admin_replace_tenant_role_policy(
     request: Request,
     role_name: str,
@@ -870,7 +918,12 @@ async def admin_get_user_overrides(
     )
 
 
-@router.patch("/access-control/user-overrides/{user_id}", response_model=UserPermissionOverrideResponse)
+@router.patch(
+    "/access-control/user-overrides/{user_id}",
+    response_model=UserPermissionOverrideResponse,
+    description="Updates user-specific permission overrides (hierarchy final override before effective resolution).",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def admin_patch_user_overrides(
     request: Request,
     user_id: str,
@@ -944,7 +997,12 @@ async def admin_patch_user_overrides(
     return response
 
 
-@router.get("/access-control/effective-permissions", response_model=EffectivePermissionsResponse)
+@router.get(
+    "/access-control/effective-permissions",
+    response_model=EffectivePermissionsResponse,
+    description="Resolves effective permissions after applying template + tenant/store overlays + user overrides.",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def admin_effective_permissions(
     request: Request,
     user_id: str,
@@ -1394,6 +1452,7 @@ def _store_create_query_tenant_id(
         "- **Consistency rule**: when both values are sent, `tenant_id` and `query_tenant_id` must match.\n"
         "- **Admin role rule**: `SUPERADMIN` / `PLATFORM_ADMIN` must provide an explicit tenant; no implicit fallback is used."
     ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
 async def create_store(
     request: Request,
@@ -1981,7 +2040,19 @@ async def delete_user(
     return response
 
 
-@router.post("/users/{user_id}/actions", response_model=UserActionResponse)
+@router.post(
+    "/users/{user_id}/actions",
+    response_model=UserActionResponse,
+    summary="Execute a user admin action",
+    description=(
+        "Dispatches one admin action over a user.\n\n"
+        "- `action=set_status`: requires `status`.\n"
+        "- `action=set_role`: requires `role`.\n"
+        "- `action=reset_password`: optional `temporary_password`; if omitted, server generates one.\n"
+        "- `transaction_id` is required for idempotency/audit correlation."
+    ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def user_actions(
     request: Request,
     user_id: str,
@@ -2135,7 +2206,13 @@ async def get_variant_fields(
     )
 
 
-@router.patch("/settings/variant-fields", response_model=VariantFieldSettingsResponse)
+@router.patch(
+    "/settings/variant-fields",
+    response_model=VariantFieldSettingsResponse,
+    summary="Partially update variant field labels",
+    description="Partial update (PATCH): only provided fields are modified; omitted fields are preserved.",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def patch_variant_fields(
     request: Request,
     payload: VariantFieldSettingsPatchRequest,

@@ -29,7 +29,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 router = APIRouter()
 
 
-@router.get("/effective-permissions", response_model=EffectivePermissionsResponse)
+@router.get("/effective-permissions", response_model=EffectivePermissionsResponse, description="Effective Permissions = resultado final tras Role Template + Tenant/Store policies + User Overrides.")
 async def effective_permissions(
     request: Request,
     token_data=Depends(get_current_token_data),
@@ -78,7 +78,7 @@ async def effective_permissions(
     )
 
 
-@router.get("/effective-permissions/users/{user_id}", response_model=EffectivePermissionsResponse)
+@router.get("/effective-permissions/users/{user_id}", response_model=EffectivePermissionsResponse, description="Computes effective permissions for a target user using full policy layering.")
 async def effective_permissions_for_user(
     request: Request,
     user_id: str,
@@ -227,7 +227,7 @@ async def effective_permissions_for_store_user(
     )
 
 
-@router.get("/permission-catalog", response_model=PermissionCatalogResponse)
+@router.get("/permission-catalog", response_model=PermissionCatalogResponse, description="Permission catalog available for role templates, policies, and overrides.")
 async def permission_catalog(
     request: Request,
     token_data=Depends(get_current_token_data),

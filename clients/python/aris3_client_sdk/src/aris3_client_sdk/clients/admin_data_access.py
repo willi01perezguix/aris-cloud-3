@@ -122,6 +122,130 @@ class AdminDataAccessClient(BaseClient):
             invalidate_paths=["/aris3/admin/users"],
         )
 
+    def delete_tenant(self, tenant_id: str):
+        return self._request("DELETE", f"/aris3/admin/tenants/{tenant_id}", module=self.module, operation="tenants.delete")
+
+    def tenant_action(self, tenant_id: str, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "POST",
+            f"/aris3/admin/tenants/{tenant_id}/actions",
+            payload,
+            operation="tenants.actions",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=["/aris3/admin/tenants"],
+        )
+
+    def delete_store(self, store_id: str):
+        return self._request("DELETE", f"/aris3/admin/stores/{store_id}", module=self.module, operation="stores.delete")
+
+    def delete_user(self, user_id: str):
+        return self._request("DELETE", f"/aris3/admin/users/{user_id}", module=self.module, operation="users.delete")
+
+    def user_action(self, user_id: str, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "POST",
+            f"/aris3/admin/users/{user_id}/actions",
+            payload,
+            operation="users.actions",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=["/aris3/admin/users"],
+        )
+
+    def get_permission_catalog(self):
+        return self._request("GET", "/aris3/admin/access-control/permission-catalog", module=self.module, operation="access_control.permissions.catalog")
+
+    def get_role_template(self, role_name: str):
+        return self._request("GET", f"/aris3/admin/access-control/role-templates/{role_name}", module=self.module, operation="access_control.role_templates.get")
+
+    def replace_role_template(self, role_name: str, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "PUT",
+            f"/aris3/admin/access-control/role-templates/{role_name}",
+            payload,
+            operation="access_control.role_templates.replace",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=[],
+        )
+
+    def get_tenant_role_policy(self, role_name: str):
+        return self._request("GET", f"/aris3/admin/access-control/tenant-role-policies/{role_name}", module=self.module, operation="access_control.tenant_role_policies.get")
+
+    def replace_tenant_role_policy(self, role_name: str, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "PUT",
+            f"/aris3/admin/access-control/tenant-role-policies/{role_name}",
+            payload,
+            operation="access_control.tenant_role_policies.replace",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=[],
+        )
+
+    def get_store_role_policy(self, store_id: str, role_name: str):
+        return self._request("GET", f"/aris3/admin/access-control/store-role-policies/{store_id}/{role_name}", module=self.module, operation="access_control.store_role_policies.get")
+
+    def replace_store_role_policy(self, store_id: str, role_name: str, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "PUT",
+            f"/aris3/admin/access-control/store-role-policies/{store_id}/{role_name}",
+            payload,
+            operation="access_control.store_role_policies.replace",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=[],
+        )
+
+    def get_user_overrides(self, user_id: str):
+        return self._request("GET", f"/aris3/admin/access-control/user-overrides/{user_id}", module=self.module, operation="access_control.user_overrides.get")
+
+    def patch_user_overrides(self, user_id: str, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "PATCH",
+            f"/aris3/admin/access-control/user-overrides/{user_id}",
+            payload,
+            operation="access_control.user_overrides.patch",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=[],
+        )
+
+    def get_effective_permissions(self, user_id: str, *, store_id: str | None = None):
+        params = {"user_id": user_id}
+        if store_id is not None:
+            params["store_id"] = store_id
+        return self._request("GET", "/aris3/admin/access-control/effective-permissions", params=params, module=self.module, operation="access_control.effective_permissions.get")
+
+    def get_return_policy(self):
+        return self._request("GET", "/aris3/admin/settings/return-policy", module=self.module, operation="settings.return_policy.get")
+
+    def patch_return_policy(self, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "PATCH",
+            "/aris3/admin/settings/return-policy",
+            payload,
+            operation="settings.return_policy.patch",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=[],
+        )
+
+    def get_variant_fields(self):
+        return self._request("GET", "/aris3/admin/settings/variant-fields", module=self.module, operation="settings.variant_fields.get")
+
+    def patch_variant_fields(self, payload: dict[str, Any], *, idempotency_key: str, transaction_id: str) -> RetryableMutation:
+        return self._mutation_handle(
+            "PATCH",
+            "/aris3/admin/settings/variant-fields",
+            payload,
+            operation="settings.variant_fields.patch",
+            idempotency_key=idempotency_key,
+            transaction_id=transaction_id,
+            invalidate_paths=[],
+        )
+
     def _mutation_handle(
         self,
         method: str,

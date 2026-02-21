@@ -56,6 +56,7 @@ from app.aris3.schemas.admin import (
     TenantListResponse,
     TenantResponse,
     TenantUpdateRequest,
+    ListPaginationMeta,
     UserActionRequest,
     UserActionResponse,
     UserCreateRequest,
@@ -142,6 +143,30 @@ def _user_item(user: User) -> dict:
         "created_at": user.created_at,
     }
 
+
+
+
+def _normalize_optional_str(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _validate_sort(sort_by: str | None, *, allowed: set[str], field_name: str = "sort_by") -> str | None:
+    normalized = _normalize_optional_str(sort_by)
+    if normalized is None:
+        return None
+    if normalized not in allowed:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": f"{field_name} is not allowed", field_name: normalized, "allowed": sorted(allowed)},
+        )
+    return normalized
+
+
+def _pagination_meta(*, total: int, count: int, limit: int, offset: int) -> ListPaginationMeta:
+    return ListPaginationMeta(total=total, count=count, limit=limit, offset=offset)
 
 def _validate_password(password: str) -> None:
     if len(password) < 8:
@@ -1083,14 +1108,36 @@ async def admin_effective_permissions(
 @router.get("/tenants", response_model=TenantListResponse)
 async def list_tenants(
     request: Request,
+    status: str | None = Query(default=None, description="Optional tenant status filter (active/suspended/canceled)."),
+    search: str | None = Query(default=None, description="Case-insensitive search by tenant name."),
+    limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
+    offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
+    sort_by: str = Query(default="name", description="Sort field: name or created_at."),
+    sort_order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order: asc or desc."),
     token_data=Depends(get_current_token_data),
     _current_user=Depends(require_active_user),
     db=Depends(get_db),
 ):
     _require_superadmin(token_data)
-    tenants = TenantRepository(db).list_all()
+    normalized_status = _normalize_optional_str(status)
+    if normalized_status and normalized_status.lower() not in {"active", "suspended", "canceled"}:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "status is not allowed", "status": normalized_status, "allowed": ["active", "suspended", "canceled"]},
+        )
+    resolved_sort_by = _validate_sort(sort_by, allowed={"created_at", "name"}) or "name"
+
+    tenants, total = TenantRepository(db).list_all(
+        status=normalized_status,
+        search=_normalize_optional_str(search),
+        limit=limit,
+        offset=offset,
+        sort_by=resolved_sort_by,
+        sort_order=sort_order,
+    )
     return TenantListResponse(
         tenants=[_tenant_item(tenant) for tenant in tenants],
+        pagination=_pagination_meta(total=total, count=len(tenants), limit=limit, offset=offset),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 
@@ -1409,15 +1456,35 @@ async def tenant_actions(
 @router.get("/stores", response_model=StoreListResponse)
 async def list_stores(
     request: Request,
+    tenant_id: str | None = Query(default=None, description="Optional tenant filter (superadmin only)."),
+    search: str | None = Query(default=None, description="Case-insensitive search by store name."),
+    limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
+    offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
+    sort_by: str = Query(default="name", description="Sort field: name or created_at."),
+    sort_order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order: asc or desc."),
     token_data=Depends(get_current_token_data),
     _current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_VIEW")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
-    stores = StoreRepository(db).list_by_tenant(tenant_id)
+    token_tenant_id = _tenant_id_or_error(token_data)
+    requested_tenant_id = _normalize_optional_str(tenant_id) or _normalize_optional_str(request.query_params.get("query_tenant_id"))
+    if requested_tenant_id and requested_tenant_id != token_tenant_id and not is_superadmin(token_data.role):
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    resolved_sort_by = _validate_sort(sort_by, allowed={"created_at", "name"}) or "name"
+
+    stores, total = StoreRepository(db).list_by_tenant(
+        token_tenant_id,
+        tenant_filter_id=requested_tenant_id,
+        search=_normalize_optional_str(search),
+        limit=limit,
+        offset=offset,
+        sort_by=resolved_sort_by,
+        sort_order=sort_order,
+    )
     return StoreListResponse(
         stores=[_store_item(store) for store in stores],
+        pagination=_pagination_meta(total=total, count=len(stores), limit=limit, offset=offset),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 
@@ -1729,16 +1796,64 @@ async def delete_store(
 @router.get("/users", response_model=UserListResponse)
 async def list_users(
     request: Request,
+    tenant_id: str | None = Query(default=None, description="Optional tenant filter (superadmin only)."),
+    store_id: str | None = Query(default=None, description="Optional store filter."),
+    role: str | None = Query(default=None, description="Optional role filter."),
+    status: str | None = Query(default=None, description="Optional user status filter (active/suspended/canceled)."),
+    is_active: bool | None = Query(default=None, description="Optional active flag filter."),
+    search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
+    limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
+    offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
+    sort_by: str = Query(default="username", description="Sort field: username, email, or created_at."),
+    sort_order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order: asc or desc."),
     token_data=Depends(get_current_token_data),
     _current_user=Depends(require_active_user),
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
-    store_id = token_data.store_id if _is_store_bound_actor(token_data) else None
-    users = UserRepository(db).list_by_tenant(tenant_id, store_id=store_id)
+    token_tenant_id = _tenant_id_or_error(token_data)
+    requested_tenant_id = _normalize_optional_str(tenant_id)
+    if requested_tenant_id and requested_tenant_id != token_tenant_id and not is_superadmin(token_data.role):
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+
+    store_scope_id = token_data.store_id if _is_store_bound_actor(token_data) else None
+    requested_store_id = _normalize_optional_str(store_id)
+    if store_scope_id and requested_store_id and requested_store_id != store_scope_id:
+        raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+
+    normalized_role = _normalize_optional_str(role)
+    if normalized_role and normalized_role.upper() not in {"USER", "MANAGER", "ADMIN", "SUPERADMIN", "PLATFORM_ADMIN"}:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "role is not allowed", "role": normalized_role},
+        )
+
+    normalized_status = _normalize_optional_str(status)
+    if normalized_status and normalized_status.lower() not in {"active", "suspended", "canceled"}:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "status is not allowed", "status": normalized_status, "allowed": ["active", "suspended", "canceled"]},
+        )
+
+    resolved_sort_by = _validate_sort(sort_by, allowed={"created_at", "username", "email"}) or "username"
+
+    users, total = UserRepository(db).list_by_tenant(
+        token_tenant_id,
+        store_scope_id=store_scope_id,
+        tenant_filter_id=requested_tenant_id,
+        store_id=requested_store_id,
+        role=normalized_role,
+        status=normalized_status,
+        is_active=is_active,
+        search=_normalize_optional_str(search),
+        limit=limit,
+        offset=offset,
+        sort_by=resolved_sort_by,
+        sort_order=sort_order,
+    )
     return UserListResponse(
         users=[_user_item(user) for user in users],
+        pagination=_pagination_meta(total=total, count=len(users), limit=limit, offset=offset),
         trace_id=getattr(request.state, "trace_id", ""),
     )
 

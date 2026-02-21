@@ -29,7 +29,12 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 router = APIRouter()
 
 
-@router.get("/effective-permissions", response_model=EffectivePermissionsResponse, description="Effective Permissions = resultado final tras Role Template + Tenant/Store policies + User Overrides.")
+@router.get(
+    "/effective-permissions",
+    response_model=EffectivePermissionsResponse,
+    summary="Resolve effective permissions",
+    description="Computes final effective permissions after role template, tenant/store overlays, and user overrides.",
+)
 async def effective_permissions(
     request: Request,
     token_data=Depends(get_current_token_data),
@@ -78,7 +83,12 @@ async def effective_permissions(
     )
 
 
-@router.get("/effective-permissions/users/{user_id}", response_model=EffectivePermissionsResponse, description="Computes effective permissions for a target user using full policy layering.")
+@router.get(
+    "/effective-permissions/users/{user_id}",
+    response_model=EffectivePermissionsResponse,
+    summary="Resolve effective permissions for user",
+    description="Computes effective permissions for a target user using full policy layering.",
+)
 async def effective_permissions_for_user(
     request: Request,
     user_id: str,
@@ -227,7 +237,12 @@ async def effective_permissions_for_store_user(
     )
 
 
-@router.get("/permission-catalog", response_model=PermissionCatalogResponse, description="Permission catalog available for role templates, policies, and overrides.")
+@router.get(
+    "/permission-catalog",
+    response_model=PermissionCatalogResponse,
+    summary="Permission catalog",
+    description="Lists permission keys available for role templates, policies, and user overrides.",
+)
 async def permission_catalog(
     request: Request,
     token_data=Depends(get_current_token_data),

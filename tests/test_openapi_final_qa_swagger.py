@@ -101,6 +101,39 @@ def test_admin_access_control_endpoints_are_consistently_documented():
             assert "422" in responses, f"{method.upper()} {path} is missing 422 response"
 
 
+def test_access_control_summaries_are_normalized_to_sentence_case():
+    paths = app.openapi()["paths"]
+
+    assert (
+        paths["/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions"]["get"]["summary"]
+        == "Effective permissions for store user"
+    )
+    assert (
+        paths["/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}"]["get"]["summary"]
+        == "Get tenant role policy"
+    )
+    assert (
+        paths["/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}"]["get"]["summary"]
+        == "Get store role policy"
+    )
+    assert (
+        paths["/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides"]["get"]["summary"]
+        == "Get user permission overrides"
+    )
+    assert (
+        paths["/aris3/access-control/platform/role-policies/{role_name}"]["get"]["summary"]
+        == "Get platform role policy"
+    )
+    assert (
+        paths["/aris3/admin/access-control/role-templates/{role_name}"]["put"]["summary"]
+        == "Replace admin role template"
+    )
+    assert (
+        paths["/aris3/admin/access-control/user-overrides/{user_id}"]["patch"]["summary"]
+        == "Patch user overrides (admin)"
+    )
+
+
 def test_admin_error_response_shapes_expose_uniform_envelope_for_404_409_422():
     openapi = app.openapi()
     paths = openapi["paths"]

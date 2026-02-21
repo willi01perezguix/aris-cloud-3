@@ -7,6 +7,15 @@ from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.metrics import metrics
 
 
+_HTTP_STATUS_CODES = {
+    400: "BAD_REQUEST",
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    409: "CONFLICT",
+}
+
+
 def _set_error_context(request: Request, code: str, exc: Exception | None = None) -> None:
     request.state.error_code = code
     if exc is not None:
@@ -39,6 +48,57 @@ def _record_idempotency_failure(request: Request, status_code: int, response_bod
     context.record_failure(status_code=status_code, response_body=response_body)
 
 
+def _http_error_code(status_code: int) -> str:
+    return _HTTP_STATUS_CODES.get(status_code, "HTTP_ERROR")
+
+
+def _validation_error_details(exc: RequestValidationError) -> dict:
+    errors = []
+    for error in exc.errors():
+        loc = list(error.get("loc", []))
+        field = ".".join(str(item) for item in loc if item not in {"body", "query", "path", "header"}) or None
+        errors.append(
+            {
+                "field": field,
+                "message": error.get("msg", "Invalid value"),
+                "type": error.get("type", "validation_error"),
+                "loc": loc,
+                "input": error.get("input"),
+                "ctx": error.get("ctx"),
+            }
+        )
+    return {"errors": errors}
+
+
+def _http_error_payload(request: Request, exc: HTTPException) -> dict:
+    code = _http_error_code(exc.status_code)
+    detail = exc.detail
+    message = str(detail) if detail is not None else "HTTP error"
+    details = None
+
+    if isinstance(detail, dict):
+        if {"code", "message"}.issubset(detail.keys()):
+            payload = dict(detail)
+            payload.setdefault("trace_id", _trace_id(request))
+            payload.setdefault("details", None)
+            return payload
+
+        message = str(detail.get("message", message))
+        if "details" in detail:
+            details = detail.get("details")
+        else:
+            details = {key: value for key, value in detail.items() if key != "message"} or None
+    elif isinstance(detail, list):
+        details = {"errors": detail}
+
+    return {
+        "code": code,
+        "message": message,
+        "details": details,
+        "trace_id": _trace_id(request),
+    }
+
+
 def error_response(code: str, message: str, details: object, trace_id: str, status_code: int) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -66,23 +126,8 @@ def setup_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
-        if exc.status_code == ErrorCatalog.INVALID_TOKEN.status_code:
-            _set_error_context(request, ErrorCatalog.INVALID_TOKEN.code, exc)
-            payload = {
-                "code": ErrorCatalog.INVALID_TOKEN.code,
-                "message": ErrorCatalog.INVALID_TOKEN.message,
-                "details": exc.detail,
-                "trace_id": _trace_id(request),
-            }
-            _record_idempotency_failure(request, exc.status_code, payload)
-            return JSONResponse(status_code=exc.status_code, content=payload)
-        _set_error_context(request, "HTTP_ERROR", exc)
-        payload = {
-            "code": "HTTP_ERROR",
-            "message": str(exc.detail),
-            "details": None,
-            "trace_id": _trace_id(request),
-        }
+        payload = _http_error_payload(request, exc)
+        _set_error_context(request, payload["code"], exc)
         _record_idempotency_failure(request, exc.status_code, payload)
         return JSONResponse(status_code=exc.status_code, content=payload)
 
@@ -92,7 +137,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
         payload = {
             "code": ErrorCatalog.VALIDATION_ERROR.code,
             "message": ErrorCatalog.VALIDATION_ERROR.message,
-            "details": exc.errors(),
+            "details": _validation_error_details(exc),
             "trace_id": _trace_id(request),
         }
         _record_idempotency_failure(request, ErrorCatalog.VALIDATION_ERROR.status_code, payload)

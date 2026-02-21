@@ -3,7 +3,7 @@ import secrets
 import string
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 
@@ -1249,9 +1249,9 @@ async def update_tenant(
     "/tenants/{tenant_id}",
     response_model=AdminDeleteResponse,
     responses={
-        404: {"description": "Tenant not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "Tenant not found", "details": None, "trace_id": "trace-123"}}}},
-        409: {"description": "Tenant has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete tenant with active dependencies", "dependencies": {"stores": 2, "users": 7}, "trace_id": "trace-123"}}}},
-        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "tenant_id"}, "trace_id": "trace-123"}}}},
+        404: {"description": "Tenant not found", "content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "Tenant not found", "details": None, "trace_id": "trace-123"}}}},
+        409: {"description": "Tenant has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"code": "CONFLICT", "message": "Cannot delete tenant with active dependencies", "details": {"dependencies": {"stores": 2, "users": 7}}, "trace_id": "trace-123"}}}},
+        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "tenant_id", "message": "Field required", "type": "missing"}]}, "trace_id": "trace-123"}}}},
     },
 )
 async def delete_tenant(
@@ -1282,19 +1282,17 @@ async def delete_tenant(
 
     tenant = TenantRepository(db).get_by_id(tenant_id)
     if tenant is None:
-        payload = {"message": "Tenant not found", "trace_id": getattr(request.state, "trace_id", "")}
-        context.record_failure(status_code=404, response_body=payload)
-        return JSONResponse(status_code=404, content=payload)
+        raise HTTPException(status_code=404, detail="Tenant not found")
 
     dependencies = {name: count for name, count in _tenant_dependency_counts(db, tenant_id=tenant_id).items() if count > 0}
     if dependencies:
-        payload = {
-            "message": "Cannot delete tenant with active dependencies",
-            "dependencies": dependencies,
-            "trace_id": getattr(request.state, "trace_id", ""),
-        }
-        context.record_failure(status_code=409, response_body=payload)
-        return JSONResponse(status_code=409, content=payload)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Cannot delete tenant with active dependencies",
+                "details": {"dependencies": dependencies},
+            },
+        )
 
     db.delete(tenant)
     db.commit()
@@ -1652,9 +1650,9 @@ async def update_store(
                 }
             },
         },
-        404: {"description": "Store not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "Store not found", "details": None, "trace_id": "trace-123"}}}},
-        409: {"description": "Store has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete store with active dependencies", "dependencies": {"users": 3, "sales": 18}, "trace_id": "trace-123"}}}},
-        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "store_id"}, "trace_id": "trace-123"}}}},
+        404: {"description": "Store not found", "content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "Store not found", "details": None, "trace_id": "trace-123"}}}},
+        409: {"description": "Store has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"code": "CONFLICT", "message": "Cannot delete store with active dependencies", "details": {"dependencies": {"users": 3, "sales": 18}}, "trace_id": "trace-123"}}}},
+        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "store_id", "message": "Field required", "type": "missing"}]}, "trace_id": "trace-123"}}}},
     },
 )
 async def delete_store(
@@ -1685,19 +1683,17 @@ async def delete_store(
 
     store = StoreRepository(db).get_by_id(store_id)
     if store is None:
-        payload = {"message": "Store not found", "trace_id": getattr(request.state, "trace_id", "")}
-        context.record_failure(status_code=404, response_body=payload)
-        return JSONResponse(status_code=404, content=payload)
+        raise HTTPException(status_code=404, detail="Store not found")
 
     dependencies = {name: count for name, count in _store_dependency_counts(db, store_id=store_id).items() if count > 0}
     if dependencies:
-        payload = {
-            "message": "Cannot delete store with active dependencies",
-            "dependencies": dependencies,
-            "trace_id": getattr(request.state, "trace_id", ""),
-        }
-        context.record_failure(status_code=409, response_body=payload)
-        return JSONResponse(status_code=409, content=payload)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Cannot delete store with active dependencies",
+                "details": {"dependencies": dependencies},
+            },
+        )
 
     db.delete(store)
     db.commit()
@@ -1951,9 +1947,9 @@ async def update_user(
                 }
             },
         },
-        404: {"description": "User not found", "content": {"application/json": {"example": {"code": "HTTP_ERROR", "message": "User not found", "details": None, "trace_id": "trace-123"}}}},
-        409: {"description": "User has critical dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"message": "Cannot delete user with critical dependencies", "dependencies": {"transfers": 2}, "trace_id": "trace-123"}}}},
-        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"field": "user_id"}, "trace_id": "trace-123"}}}},
+        404: {"description": "User not found", "content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "User not found", "details": None, "trace_id": "trace-123"}}}},
+        409: {"description": "User has critical dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"code": "CONFLICT", "message": "Cannot delete user with critical dependencies", "details": {"dependencies": {"transfers": 2}}, "trace_id": "trace-123"}}}},
+        422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "user_id", "message": "Field required", "type": "missing"}]}, "trace_id": "trace-123"}}}},
     },
 )
 async def delete_user(
@@ -1984,9 +1980,7 @@ async def delete_user(
 
     user = UserRepository(db).get_by_id(user_id)
     if user is None:
-        payload = {"message": "User not found", "trace_id": getattr(request.state, "trace_id", "")}
-        context.record_failure(status_code=404, response_body=payload)
-        return JSONResponse(status_code=404, content=payload)
+        raise HTTPException(status_code=404, detail="User not found")
 
     transfer_dependencies = _count_query(
         db,
@@ -2000,13 +1994,13 @@ async def delete_user(
         ),
     )
     if transfer_dependencies > 0:
-        payload = {
-            "message": "Cannot delete user with critical dependencies",
-            "dependencies": {"transfers": transfer_dependencies},
-            "trace_id": getattr(request.state, "trace_id", ""),
-        }
-        context.record_failure(status_code=409, response_body=payload)
-        return JSONResponse(status_code=409, content=payload)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Cannot delete user with critical dependencies",
+                "details": {"dependencies": {"transfers": transfer_dependencies}},
+            },
+        )
 
     db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == user_id).delete(synchronize_session=False)
     db.delete(user)

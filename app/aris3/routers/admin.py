@@ -104,6 +104,10 @@ ADMIN_STANDARD_ERROR_RESPONSES = {
     422: {"description": "Validation error", "model": AdminValidationErrorResponse},
 }
 
+ADMIN_VALIDATION_ERROR_RESPONSE = {
+    422: {"description": "Validation error", "model": AdminValidationErrorResponse},
+}
+
 
 def _tenant_id_or_error(token_data) -> str:
     if not token_data.tenant_id:
@@ -372,7 +376,9 @@ def _tenant_dependency_counts(db, *, tenant_id: str) -> dict[str, int]:
 @router.get(
     "/access-control/permission-catalog",
     response_model=PermissionCatalogResponse,
+    summary="Admin permission catalog",
     description="Lists permission keys used by role templates and policy overlays.",
+    responses=ADMIN_VALIDATION_ERROR_RESPONSE,
 )
 async def admin_permission_catalog(
     request: Request,
@@ -394,7 +400,9 @@ async def admin_permission_catalog(
 @router.get(
     "/access-control/role-templates/{role_name}",
     response_model=RoleTemplateResponse,
+    summary="Get admin role template",
     description="Returns base role template permissions (hierarchy layer 1: base template).",
+    responses=ADMIN_VALIDATION_ERROR_RESPONSE,
 )
 async def admin_get_role_template(
     request: Request,
@@ -797,6 +805,9 @@ async def admin_replace_tenant_role_policy(
 @router.get(
     "/access-control/store-role-policies/{store_id}/{role_name}",
     response_model=StoreRolePolicyResponse,
+    summary="Get store role policy overlay",
+    description="Returns the store-level allow/deny overlay for a role.",
+    responses=ADMIN_VALIDATION_ERROR_RESPONSE,
 )
 async def admin_get_store_role_policy(
     request: Request,
@@ -836,6 +847,9 @@ async def admin_get_store_role_policy(
 @router.put(
     "/access-control/store-role-policies/{store_id}/{role_name}",
     response_model=StoreRolePolicyResponse,
+    summary="Replace store role policy overlay",
+    description="Replaces the store-level allow/deny overlay for a role.",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
 async def admin_replace_store_role_policy(
     request: Request,
@@ -918,7 +932,13 @@ async def admin_replace_store_role_policy(
     return response
 
 
-@router.get("/access-control/user-overrides/{user_id}", response_model=UserPermissionOverrideResponse)
+@router.get(
+    "/access-control/user-overrides/{user_id}",
+    response_model=UserPermissionOverrideResponse,
+    summary="Get user permission overrides (admin)",
+    description="Returns user-level explicit allow/deny overrides (hierarchy layer 3: user override).",
+    responses=ADMIN_VALIDATION_ERROR_RESPONSE,
+)
 async def admin_get_user_overrides(
     request: Request,
     user_id: str,
@@ -1025,6 +1045,7 @@ async def admin_patch_user_overrides(
 @router.get(
     "/access-control/effective-permissions",
     response_model=EffectivePermissionsResponse,
+    summary="Resolve effective permissions (admin)",
     description="Resolves effective permissions after applying template + tenant/store overlays + user overrides.",
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
@@ -1494,7 +1515,7 @@ def _store_create_query_tenant_id(
     query_tenant_id_param: str | None = Query(
         default=None,
         alias="query_tenant_id",
-        deprecated=True,
+        include_in_schema=False,
         description=(
             "Legacy tenant selector kept for backward compatibility. "
             "Prefer body.tenant_id as the canonical source."
@@ -1523,6 +1544,14 @@ def _store_create_query_tenant_id(
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
+    query_tenant_id: str | None = Query(
+        default=None,
+        deprecated=True,
+        description=(
+            "Legacy tenant selector kept for backward compatibility. "
+            "Prefer body.tenant_id as the canonical source."
+        ),
+    ),
     legacy_query_tenant_id: str | None = Depends(_store_create_query_tenant_id),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
@@ -1531,7 +1560,7 @@ async def create_store(
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
-    query_tenant_candidate = legacy_query_tenant_id
+    query_tenant_candidate = query_tenant_id or legacy_query_tenant_id
 
     if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:
         raise AppError(
@@ -1801,7 +1830,7 @@ async def list_users(
     store_id: str | None = Query(default=None, description="Optional store filter."),
     role: str | None = Query(default=None, description="Optional role filter."),
     status: str | None = Query(default=None, description="Optional user status filter (active/suspended/canceled)."),
-    is_active: bool | None = Query(default=None, description="Optional active flag filter."),
+    is_active: bool | None = Query(default=None, description="Filter by active status (`true` or `false`)."),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
     limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),

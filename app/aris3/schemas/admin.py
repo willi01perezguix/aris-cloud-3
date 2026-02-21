@@ -22,6 +22,15 @@ class StoreCreateRequest(BaseModel):
         ),
     )
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"name": "Store Centro", "tenant_id": "4f7f2c5e-9cfd-4efa-a575-2a0ad38df4e8"},
+                {"name": "Store Centro"},
+            ]
+        }
+    }
+
 
 class StoreUpdateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -62,7 +71,10 @@ class TenantUpdateRequest(BaseModel):
 
 class TenantActionRequest(BaseModel):
     action: Literal["set_status"]
-    status: AdminUserStatus | None = None
+    status: AdminUserStatus | None = Field(
+        default=None,
+        description="Required when `action=set_status`.",
+    )
 
 
 class TenantItem(BaseModel):
@@ -144,7 +156,12 @@ class UserActionRequest(BaseModel):
         default=None,
         description="Optional only when `action=reset_password`. If omitted, server generates a temporary password.",
     )
-    transaction_id: str | None = Field(None, min_length=1, max_length=255)
+    transaction_id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=255,
+        description="Required for all actions to correlate idempotency and audit events.",
+    )
 
 
 class SetUserStatusActionRequest(BaseModel):

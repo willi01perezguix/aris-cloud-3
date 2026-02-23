@@ -1902,12 +1902,35 @@ async def create_user(
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
+    store = StoreRepository(db).get_by_id(payload.store_id)
+    if store is None:
+        raise AppError(ErrorCatalog.STORE_NOT_FOUND)
+
+    derived_tenant_id = str(store.tenant_id)
+    payload_tenant_id = _normalize_optional_str(payload.tenant_id)
+    if payload_tenant_id and payload_tenant_id != derived_tenant_id:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "tenant_id does not match store tenant",
+                "tenant_id": payload_tenant_id,
+                "store_id": payload.store_id,
+                "store_tenant_id": derived_tenant_id,
+            },
+        )
+
+    token_tenant_id = _normalize_optional_str(token_data.tenant_id)
+    if not is_superadmin(token_data.role):
+        if not token_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED)
+        if token_tenant_id != derived_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_STORE_MISMATCH)
+
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
     context_idempotency, replay = idempotency_service.start(
-        tenant_id=tenant_id,
+        tenant_id=token_tenant_id or "platform",
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,
@@ -1930,15 +1953,9 @@ async def create_user(
         db=db,
     )
 
-    store_id = payload.store_id
-    if store_id:
-        store = StoreRepository(db).get_by_id(store_id)
-        if store is None or str(store.tenant_id) != tenant_id:
-            raise AppError(ErrorCatalog.TENANT_STORE_MISMATCH)
-
     user = User(
-        tenant_id=tenant_id,
-        store_id=store_id,
+        tenant_id=derived_tenant_id,
+        store_id=payload.store_id,
         username=payload.username,
         email=payload.email,
         hashed_password=get_password_hash(payload.password),
@@ -1960,7 +1977,7 @@ async def create_user(
 
     AuditService(db).record_event(
         AuditEventPayload(
-            tenant_id=tenant_id,
+            tenant_id=derived_tenant_id,
             user_id=str(current_user.id),
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,

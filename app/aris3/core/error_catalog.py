@@ -71,6 +71,11 @@ class ErrorCatalog:
         "Store does not belong to tenant",
         status.HTTP_403_FORBIDDEN,
     )
+    STORE_NOT_FOUND = ErrorDefinition(
+        "STORE_NOT_FOUND",
+        "Store not found",
+        status.HTTP_404_NOT_FOUND,
+    )
     DB_UNAVAILABLE = ErrorDefinition(
         "DB_UNAVAILABLE",
         "Database unavailable",

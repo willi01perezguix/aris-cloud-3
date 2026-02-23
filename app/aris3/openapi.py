@@ -78,7 +78,12 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     },
     ("/aris3/admin/users", "post"): {
         "summary": "Create user",
-        "description": "Creates a user in tenant scope with role/store validations.",
+        "description": (
+            "Creates a user in tenant scope with role/store validations.\n\n"
+            "- **Canonical input**: send `store_id` in the JSON body.\n"
+            "- **Tenant resolution**: backend derives `tenant_id` from `store.tenant_id`.\n"
+            "- **Deprecated field**: body `tenant_id` is optional and validated only for payload consistency."
+        ),
     },
     ("/aris3/admin/users/{user_id}", "get"): {
         "summary": "Get user",

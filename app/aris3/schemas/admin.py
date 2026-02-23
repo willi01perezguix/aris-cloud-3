@@ -106,7 +106,11 @@ class UserCreateRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
     password: str = Field(..., min_length=8, max_length=255)
     role: AdminRole = "USER"
-    store_id: str | None = None
+    store_id: str = Field(..., min_length=1)
+    tenant_id: str | None = Field(
+        default=None,
+        description="Deprecated: tenant scope is derived from store_id on the backend.",
+    )
 
 
 class UserUpdateRequest(BaseModel):

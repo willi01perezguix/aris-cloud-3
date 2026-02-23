@@ -92,6 +92,139 @@ def test_admin_store_tenant_scope_and_idempotency(client, db_session):
     assert event.result == "success"
 
 
+
+
+def test_create_user_superadmin_derives_tenant_from_store(client, db_session):
+    run_seed(db_session)
+    tenant_target, store_target = _create_tenant_store(db_session, name_suffix="SA-Create")
+
+    token = _login(client, "superadmin", "change-me")
+    response = client.post(
+        "/aris3/admin/users",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "user-create-superadmin-1"},
+        json={
+            "username": "sa-created-user",
+            "email": "sa-created-user@example.com",
+            "password": "Pass1234!",
+            "role": "USER",
+            "store_id": str(store_target.id),
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()["user"]
+    assert payload["store_id"] == str(store_target.id)
+    assert payload["tenant_id"] == str(tenant_target.id)
+
+
+def test_create_user_tenant_admin_same_tenant_store(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="Tenant-Scoped")
+    _create_user(db_session, tenant=tenant, store=store, role="ADMIN", username="tenant-admin", password="Pass1234!")
+
+    token = _login(client, "tenant-admin", "Pass1234!")
+    response = client.post(
+        "/aris3/admin/users",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "user-create-admin-1"},
+        json={
+            "username": "tenant-scoped-user",
+            "email": "tenant-scoped-user@example.com",
+            "password": "Pass1234!",
+            "role": "USER",
+            "store_id": str(store.id),
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["user"]["tenant_id"] == str(tenant.id)
+
+
+def test_create_user_tenant_admin_cross_tenant_store_denied(client, db_session):
+    run_seed(db_session)
+    tenant_a, store_a = _create_tenant_store(db_session, name_suffix="Tenant-A")
+    tenant_b, store_b = _create_tenant_store(db_session, name_suffix="Tenant-B")
+    _create_user(db_session, tenant=tenant_a, store=store_a, role="ADMIN", username="tenant-admin-cross", password="Pass1234!")
+
+    token = _login(client, "tenant-admin-cross", "Pass1234!")
+    response = client.post(
+        "/aris3/admin/users",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "user-create-cross-tenant-1"},
+        json={
+            "username": "cross-tenant-user",
+            "email": "cross-tenant-user@example.com",
+            "password": "Pass1234!",
+            "role": "USER",
+            "store_id": str(store_b.id),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "TENANT_STORE_MISMATCH"
+
+
+def test_create_user_store_not_found_returns_404(client, db_session):
+    run_seed(db_session)
+
+    token = _login(client, "superadmin", "change-me")
+    response = client.post(
+        "/aris3/admin/users",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "user-create-missing-store-1"},
+        json={
+            "username": "missing-store-user",
+            "email": "missing-store-user@example.com",
+            "password": "Pass1234!",
+            "role": "USER",
+            "store_id": str(uuid.uuid4()),
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "STORE_NOT_FOUND"
+
+
+def test_create_user_store_id_required_returns_422(client, db_session):
+    run_seed(db_session)
+
+    token = _login(client, "superadmin", "change-me")
+    response = client.post(
+        "/aris3/admin/users",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "user-create-missing-store-id-1"},
+        json={
+            "username": "missing-store-id-user",
+            "email": "missing-store-id-user@example.com",
+            "password": "Pass1234!",
+            "role": "USER",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_create_user_payload_tenant_id_mismatch_returns_422(client, db_session):
+    run_seed(db_session)
+    tenant_a, store_a = _create_tenant_store(db_session, name_suffix="Payload-Mismatch-A")
+    tenant_b, _store_b = _create_tenant_store(db_session, name_suffix="Payload-Mismatch-B")
+
+    token = _login(client, "superadmin", "change-me")
+    response = client.post(
+        "/aris3/admin/users",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "user-create-tenant-mismatch-1"},
+        json={
+            "username": "payload-tenant-mismatch-user",
+            "email": "payload-tenant-mismatch-user@example.com",
+            "password": "Pass1234!",
+            "role": "USER",
+            "store_id": str(store_a.id),
+            "tenant_id": str(tenant_b.id),
+        },
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert body["details"]["store_tenant_id"] == str(tenant_a.id)
+
 def test_admin_user_actions_and_role_ceiling(client, db_session):
     run_seed(db_session)
     tenant, store = _create_tenant_store(db_session, name_suffix="Actions")

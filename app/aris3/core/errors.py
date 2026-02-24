@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -52,6 +54,19 @@ def _http_error_code(status_code: int) -> str:
     return _HTTP_STATUS_CODES.get(status_code, "HTTP_ERROR")
 
 
+
+def _json_safe(value):
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_json_safe(item) for item in value)
+    return value
+
+
 def _validation_error_details(exc: RequestValidationError) -> dict:
     errors = []
     for error in exc.errors():
@@ -63,8 +78,8 @@ def _validation_error_details(exc: RequestValidationError) -> dict:
                 "message": error.get("msg", "Invalid value"),
                 "type": error.get("type", "validation_error"),
                 "loc": loc,
-                "input": error.get("input"),
-                "ctx": error.get("ctx"),
+                "input": _json_safe(error.get("input")),
+                "ctx": _json_safe(error.get("ctx")),
             }
         )
     return {"errors": errors}

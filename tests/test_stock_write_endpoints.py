@@ -593,3 +593,20 @@ def test_negative_price_validation(client, db_session):
         },
     )
     assert response.status_code == 422
+
+
+def test_price_validation_rejects_more_than_two_decimals(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="price-scale")
+    token = _login(client, user.username, "Pass1234!")
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "price-scale-1"},
+        json={
+            "transaction_id": "txn-price-scale-1",
+            "lines": [_stock_line(None, status="PENDING", qty=1, cost_price="12.345")],
+        },
+    )
+
+    assert response.status_code == 422

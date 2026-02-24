@@ -610,3 +610,82 @@ def test_price_validation_rejects_more_than_two_decimals(client, db_session):
     )
 
     assert response.status_code == 422
+
+
+
+def test_import_sku_with_numeric_prices_is_accepted(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="sku-numeric-prices")
+    token = _login(client, user.username, "Pass1234!")
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-numeric-prices-1"},
+        json={
+            "transaction_id": "txn-sku-numeric-prices-1",
+            "lines": [_stock_line(None, status="PENDING", qty=1, cost_price=25, suggested_price=35.0, sale_price=32.5)],
+        },
+    )
+    assert response.status_code == 201
+
+    row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert row.cost_price == Decimal("25.00")
+    assert row.suggested_price == Decimal("35.00")
+    assert row.sale_price == Decimal("32.50")
+
+
+def test_stock_openapi_money_schema_and_canonical_order(client):
+    openapi = client.app.openapi()
+    stock_row_props = openapi["components"]["schemas"]["StockRow"]["properties"]
+    assert list(stock_row_props.keys()) == [
+        "sku",
+        "description",
+        "var1_value",
+        "var2_value",
+        "cost_price",
+        "suggested_price",
+        "sale_price",
+        "epc",
+        "location_code",
+        "pool",
+        "status",
+        "location_is_vendible",
+        "image_asset_id",
+        "image_url",
+        "image_thumb_url",
+        "image_source",
+        "image_updated_at",
+        "id",
+        "tenant_id",
+        "created_at",
+        "updated_at",
+    ]
+
+    stock_data_props = openapi["components"]["schemas"]["StockDataBlock"]["properties"]
+    assert list(stock_data_props.keys()) == [
+        "sku",
+        "description",
+        "var1_value",
+        "var2_value",
+        "cost_price",
+        "suggested_price",
+        "sale_price",
+        "epc",
+        "location_code",
+        "pool",
+        "status",
+        "location_is_vendible",
+        "image_asset_id",
+        "image_url",
+        "image_thumb_url",
+        "image_source",
+        "image_updated_at",
+    ]
+
+    request_money_schema = stock_data_props["cost_price"]
+    assert "anyOf" in request_money_schema
+    assert any(option.get("type") == "number" for option in request_money_schema["anyOf"])
+    assert any(option.get("type") == "string" for option in request_money_schema["anyOf"])
+
+    row_money_schema = stock_row_props["cost_price"]
+    assert row_money_schema["anyOf"][0]["type"] == "string"

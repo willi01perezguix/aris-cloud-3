@@ -686,6 +686,7 @@ def test_stock_openapi_money_schema_and_canonical_order(client):
         "epc",
         "location_code",
         "pool",
+        "store_id",
         "status",
         "location_is_vendible",
         "image_asset_id",
@@ -711,6 +712,7 @@ def test_stock_openapi_money_schema_and_canonical_order(client):
         "epc",
         "location_code",
         "pool",
+        "store_id",
         "status",
         "location_is_vendible",
         "image_asset_id",
@@ -727,3 +729,6 @@ def test_stock_openapi_money_schema_and_canonical_order(client):
 
     row_money_schema = stock_row_props["cost_price"]
     assert row_money_schema["anyOf"][0]["type"] == "string"
+
+    stock_get_parameters = openapi["paths"]["/aris3/stock"]["get"]["parameters"]
+    assert any(param["name"] == "store_id" for param in stock_get_parameters)

@@ -37,6 +37,7 @@ _STOCK_CANONICAL_EXAMPLE = {
     "epc": "ABCDEFABCDEFABCDEFABCDEF",
     "location_code": "LOC-1",
     "pool": "SALE",
+    "store_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
     "status": "RFID",
     "location_is_vendible": True,
     "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
@@ -65,6 +66,7 @@ _STOCK_PENDING_CANONICAL_EXAMPLE = {
     "epc": None,
     "location_code": "LOC-1",
     "pool": "SALE",
+    "store_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
     "status": "PENDING",
     "location_is_vendible": True,
     "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
@@ -86,6 +88,7 @@ class StockRow(BaseModel):
     epc: str | None
     location_code: str | None
     pool: str | None
+    store_id: str | None
     status: str | None
     location_is_vendible: bool
     image_asset_id: str | None
@@ -137,6 +140,7 @@ class StockDataBlock(BaseModel):
     epc: str | None
     location_code: str | None = None
     pool: str | None = None
+    store_id: str | None = None
     status: str | None
     location_is_vendible: bool | None = None
     image_asset_id: UUID | None

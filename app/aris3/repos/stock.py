@@ -19,6 +19,7 @@ class StockQueryFilters:
     epc: str | None = None
     location_code: str | None = None
     pool: str | None = None
+    store_id: str | None = None
     from_date: datetime | None = None
     to_date: datetime | None = None
 
@@ -89,6 +90,8 @@ class StockRepository:
             query = query.where(StockItem.location_code == filters.location_code)
         if filters.pool:
             query = query.where(StockItem.pool == filters.pool)
+        if filters.store_id:
+            query = query.where(StockItem.store_id == filters.store_id)
         if filters.from_date:
             query = query.where(StockItem.created_at >= filters.from_date)
         if filters.to_date:
@@ -130,6 +133,7 @@ class StockRepository:
             "epc": StockItem.epc,
             "location_code": StockItem.location_code,
             "pool": StockItem.pool,
+            "store_id": StockItem.store_id,
             "status": StockItem.status,
             "cost_price": StockItem.cost_price,
             "suggested_price": StockItem.suggested_price,

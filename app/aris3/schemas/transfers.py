@@ -7,11 +7,35 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+_TRANSFER_LINE_SNAPSHOT_EXAMPLE = {
+    "sku": "SKU-1",
+    "description": "Blue Jacket",
+    "var1_value": "Blue",
+    "var2_value": "L",
+    "cost_price": 25.0,
+    "suggested_price": 35.0,
+    "sale_price": 32.5,
+    "epc": "ABCDEFABCDEFABCDEFABCDEF",
+    "location_code": "WH-MAIN",
+    "pool": "BODEGA",
+    "status": "RFID",
+    "location_is_vendible": False,
+    "image_asset_id": None,
+    "image_url": None,
+    "image_thumb_url": None,
+    "image_source": None,
+    "image_updated_at": None,
+}
+
+
 class TransferLineSnapshot(BaseModel):
     sku: str | None
     description: str | None
     var1_value: str | None
     var2_value: str | None
+    cost_price: float | None = None
+    suggested_price: float | None = None
+    sale_price: float | None = None
     epc: str | None
     location_code: str | None
     pool: str | None
@@ -22,6 +46,8 @@ class TransferLineSnapshot(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
+
+    model_config = {"json_schema_extra": {"example": _TRANSFER_LINE_SNAPSHOT_EXAMPLE}}
 
 
 class TransferLineCreate(BaseModel):
@@ -61,9 +87,9 @@ class TransferUpdateRequest(BaseModel):
 class TransferReceiveLine(BaseModel):
     line_id: str
     qty: int = 1
-    location_code: str
-    pool: str
-    location_is_vendible: bool = True
+    location_code: str | None = None
+    pool: str | None = None
+    location_is_vendible: bool | None = None
 
 
 class TransferShortageLine(BaseModel):

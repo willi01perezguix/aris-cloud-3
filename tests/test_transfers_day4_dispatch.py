@@ -160,7 +160,12 @@ def test_transfer_dispatch_success(client, db_session):
 
     in_transit = (
         db_session.query(StockItem)
-        .filter(StockItem.tenant_id == tenant.id, StockItem.pool == "IN_TRANSIT")
+        .filter(
+            StockItem.tenant_id == tenant.id,
+            StockItem.pool == "IN_TRANSIT",
+            StockItem.location_code == "IN_TRANSIT",
+            StockItem.location_is_vendible.is_(False),
+        )
         .count()
     )
     assert in_transit == 3

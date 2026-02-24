@@ -26,6 +26,55 @@ MoneyValue = Annotated[
 _MONEY_FIELD_DESCRIPTION = "Acepta number o string decimal en request; se serializa como string decimal en responses"
 
 
+_STOCK_CANONICAL_EXAMPLE = {
+    "sku": "SKU-1",
+    "description": "Blue Jacket",
+    "var1_value": "Blue",
+    "var2_value": "L",
+    "cost_price": "25.00",
+    "suggested_price": "35.00",
+    "sale_price": "32.50",
+    "epc": "ABCDEFABCDEFABCDEFABCDEF",
+    "location_code": "LOC-1",
+    "pool": "SALE",
+    "status": "RFID",
+    "location_is_vendible": True,
+    "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
+    "image_url": "https://example.com/image.png",
+    "image_thumb_url": "https://example.com/thumb.png",
+    "image_source": "catalog",
+    "image_updated_at": "2025-01-01T00:00:00Z",
+}
+
+_STOCK_ROW_CANONICAL_EXAMPLE = {
+    **_STOCK_CANONICAL_EXAMPLE,
+    "id": "fef5d8de-0f6f-4a64-b6ce-8fcdb4128ffb",
+    "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:05:00Z",
+}
+
+_STOCK_PENDING_CANONICAL_EXAMPLE = {
+    "sku": "SKU-1",
+    "description": "Blue Jacket",
+    "var1_value": "Blue",
+    "var2_value": "L",
+    "cost_price": "25.00",
+    "suggested_price": "35.00",
+    "sale_price": "32.50",
+    "epc": None,
+    "location_code": "LOC-1",
+    "pool": "SALE",
+    "status": "PENDING",
+    "location_is_vendible": True,
+    "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
+    "image_url": "https://example.com/image.png",
+    "image_thumb_url": "https://example.com/thumb.png",
+    "image_source": "catalog",
+    "image_updated_at": "2025-01-01T00:00:00Z",
+}
+
+
 class StockRow(BaseModel):
     sku: str | None
     description: str | None
@@ -51,29 +100,8 @@ class StockRow(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "sku": "SKU-1",
-                "description": "Blue Jacket",
-                "var1_value": "Blue",
-                "var2_value": "L",
-                "cost_price": "25.00",
-                "suggested_price": "35.00",
-                "sale_price": "32.50",
-                "epc": "ABCDEFABCDEFABCDEFABCDEF",
-                "location_code": "LOC-1",
-                "pool": "SALE",
-                "status": "RFID",
-                "location_is_vendible": True,
-                "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
-                "image_url": "https://example.com/image.png",
-                "image_thumb_url": "https://example.com/thumb.png",
-                "image_source": "catalog",
-                "image_updated_at": "2025-01-01T00:00:00Z",
-                "id": "fef5d8de-0f6f-4a64-b6ce-8fcdb4128ffb",
-                "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
-                "created_at": "2025-01-01T00:00:00Z",
-                "updated_at": "2025-01-01T00:05:00Z",
-            }
+            "example": _STOCK_ROW_CANONICAL_EXAMPLE,
+            "examples": [_STOCK_ROW_CANONICAL_EXAMPLE],
         }
     }
 
@@ -119,25 +147,8 @@ class StockDataBlock(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "sku": "SKU-1",
-                "description": "Blue Jacket",
-                "var1_value": "Blue",
-                "var2_value": "L",
-                "cost_price": "25.00",
-                "suggested_price": "35.00",
-                "sale_price": "32.50",
-                "epc": "ABCDEFABCDEFABCDEFABCDEF",
-                "location_code": "LOC-1",
-                "pool": "SALE",
-                "status": "RFID",
-                "location_is_vendible": True,
-                "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
-                "image_url": "https://example.com/image.png",
-                "image_thumb_url": "https://example.com/thumb.png",
-                "image_source": "catalog",
-                "image_updated_at": "2025-01-01T00:00:00Z",
-            }
+            "example": _STOCK_CANONICAL_EXAMPLE,
+            "examples": [_STOCK_CANONICAL_EXAMPLE],
         }
     }
 
@@ -162,27 +173,18 @@ class StockImportEpcRequest(BaseModel):
                 "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
                 "lines": [
                     {
-                        "sku": "SKU-1",
-                        "description": "Blue Jacket",
-                        "var1_value": "Blue",
-                        "var2_value": "L",
-                        "cost_price": "25.00",
-                        "suggested_price": "35.00",
-                        "sale_price": "32.50",
-                        "epc": "ABCDEFABCDEFABCDEFABCDEF",
-                        "location_code": "LOC-1",
-                        "pool": "SALE",
-                        "status": "RFID",
-                        "location_is_vendible": True,
-                        "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
-                        "image_url": "https://example.com/image.png",
-                        "image_thumb_url": "https://example.com/thumb.png",
-                        "image_source": "catalog",
-                        "image_updated_at": "2025-01-01T00:00:00Z",
+                        **_STOCK_CANONICAL_EXAMPLE,
                         "qty": 1,
                     }
                 ],
-            }
+            },
+            "examples": [
+                {
+                    "transaction_id": "tx-import-epc-001",
+                    "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+                    "lines": [{**_STOCK_CANONICAL_EXAMPLE, "qty": 1}],
+                }
+            ],
         }
     }
 
@@ -199,27 +201,18 @@ class StockImportSkuRequest(BaseModel):
                 "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
                 "lines": [
                     {
-                        "sku": "SKU-1",
-                        "description": "Blue Jacket",
-                        "var1_value": "Blue",
-                        "var2_value": "L",
-                        "cost_price": "25.00",
-                        "suggested_price": "35.00",
-                        "sale_price": "32.50",
-                        "epc": None,
-                        "location_code": "LOC-1",
-                        "pool": "SALE",
-                        "status": "PENDING",
-                        "location_is_vendible": True,
-                        "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
-                        "image_url": "https://example.com/image.png",
-                        "image_thumb_url": "https://example.com/thumb.png",
-                        "image_source": "catalog",
-                        "image_updated_at": "2025-01-01T00:00:00Z",
+                        **_STOCK_PENDING_CANONICAL_EXAMPLE,
                         "qty": 2,
                     }
                 ],
-            }
+            },
+            "examples": [
+                {
+                    "transaction_id": "tx-import-sku-001",
+                    "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+                    "lines": [{**_STOCK_PENDING_CANONICAL_EXAMPLE, "qty": 2}],
+                }
+            ],
         }
     }
 
@@ -242,26 +235,16 @@ class StockMigrateRequest(BaseModel):
                 "transaction_id": "tx-migrate-001",
                 "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
                 "epc": "ABCDEFABCDEFABCDEFABCDEF",
-                "data": {
-                    "sku": "SKU-1",
-                    "description": "Blue Jacket",
-                    "var1_value": "Blue",
-                    "var2_value": "L",
-                    "cost_price": "25.00",
-                    "suggested_price": "35.00",
-                    "sale_price": "32.50",
-                    "epc": None,
-                    "location_code": "LOC-1",
-                    "pool": "SALE",
-                    "status": "PENDING",
-                    "location_is_vendible": True,
-                    "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
-                    "image_url": "https://example.com/image.png",
-                    "image_thumb_url": "https://example.com/thumb.png",
-                    "image_source": "catalog",
-                    "image_updated_at": "2025-01-01T00:00:00Z",
-                },
-            }
+                "data": _STOCK_PENDING_CANONICAL_EXAMPLE,
+            },
+            "examples": [
+                {
+                    "transaction_id": "tx-migrate-001",
+                    "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+                    "epc": "ABCDEFABCDEFABCDEFABCDEF",
+                    "data": _STOCK_PENDING_CANONICAL_EXAMPLE,
+                }
+            ],
         }
     }
 

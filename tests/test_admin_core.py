@@ -412,6 +412,94 @@ def test_variant_fields_settings_patch_and_audit(client, db_session):
     assert event.result == "success"
 
 
+def test_variant_fields_tenant_scope_rules_for_tenant_admin_and_superadmin(client, db_session):
+    run_seed(db_session)
+    tenant_a, store_a = _create_tenant_store(db_session, name_suffix="Variant-A")
+    tenant_b, store_b = _create_tenant_store(db_session, name_suffix="Variant-B")
+    _create_user(db_session, tenant=tenant_a, store=store_a, role="ADMIN", username="admin-variant-a", password="Pass1234!")
+
+    tenant_admin_token = _login(client, "admin-variant-a", "Pass1234!")
+
+    tenant_get = client.get(
+        "/aris3/admin/settings/variant-fields",
+        headers={"Authorization": f"Bearer {tenant_admin_token}"},
+    )
+    assert tenant_get.status_code == 200
+
+    tenant_patch = client.patch(
+        "/aris3/admin/settings/variant-fields",
+        headers={"Authorization": f"Bearer {tenant_admin_token}", "Idempotency-Key": "variant-tenant-admin-1"},
+        json={"var1_label": "Talla"},
+    )
+    assert tenant_patch.status_code == 200
+    assert tenant_patch.json()["var1_label"] == "Talla"
+
+    tenant_scope_mismatch = client.patch(
+        f"/aris3/admin/settings/variant-fields?tenant_id={tenant_b.id}",
+        headers={"Authorization": f"Bearer {tenant_admin_token}", "Idempotency-Key": "variant-tenant-admin-2"},
+        json={"var2_label": "Color"},
+    )
+    assert tenant_scope_mismatch.status_code == 403
+    assert tenant_scope_mismatch.json()["code"] == "TENANT_SCOPE_MISMATCH"
+
+    superadmin_token = _login(client, "superadmin", "change-me")
+
+    superadmin_get_missing_tenant = client.get(
+        "/aris3/admin/settings/variant-fields",
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert superadmin_get_missing_tenant.status_code == 400
+    assert superadmin_get_missing_tenant.json()["code"] == "SUPERADMIN_REQUIRES_TENANT_ID_FOR_VARIANT_FIELDS"
+
+    superadmin_patch_missing_tenant = client.patch(
+        "/aris3/admin/settings/variant-fields",
+        headers={"Authorization": f"Bearer {superadmin_token}", "Idempotency-Key": "variant-superadmin-1"},
+        json={"var1_label": "Material"},
+    )
+    assert superadmin_patch_missing_tenant.status_code == 400
+    assert superadmin_patch_missing_tenant.json()["code"] == "SUPERADMIN_REQUIRES_TENANT_ID_FOR_VARIANT_FIELDS"
+
+    superadmin_get = client.get(
+        f"/aris3/admin/settings/variant-fields?tenant_id={tenant_a.id}",
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert superadmin_get.status_code == 200
+    assert superadmin_get.json()["var1_label"] == "Talla"
+
+    superadmin_patch = client.patch(
+        f"/aris3/admin/settings/variant-fields?tenant_id={tenant_a.id}",
+        headers={"Authorization": f"Bearer {superadmin_token}", "Idempotency-Key": "variant-superadmin-2"},
+        json={"var2_label": "Acabado"},
+    )
+    assert superadmin_patch.status_code == 200
+    assert superadmin_patch.json()["var2_label"] == "Acabado"
+
+    persisted = client.get(
+        f"/aris3/admin/settings/variant-fields?tenant_id={tenant_a.id}",
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert persisted.status_code == 200
+    assert persisted.json()["var1_label"] == "Talla"
+    assert persisted.json()["var2_label"] == "Acabado"
+
+    superadmin_not_found = client.get(
+        f"/aris3/admin/settings/variant-fields?tenant_id={uuid.uuid4()}",
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert superadmin_not_found.status_code == 404
+    assert superadmin_not_found.json()["code"] == "TENANT_NOT_FOUND"
+
+
+def test_variant_fields_change_does_not_modify_stock_contract_var_fields():
+    from app.main import app
+
+    stock_row = app.openapi()["components"]["schemas"]["StockRow"]["properties"]
+    assert "var1_value" in stock_row
+    assert "var2_value" in stock_row
+    assert "var1_label" not in stock_row
+    assert "var2_label" not in stock_row
+
+
 def test_admin_mutations_require_idempotency_key(client, db_session):
     run_seed(db_session)
     tenant, store = _create_tenant_store(db_session, name_suffix="Idem")

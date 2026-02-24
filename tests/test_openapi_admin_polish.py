@@ -34,6 +34,20 @@ def test_admin_error_responses_are_documented_with_trace_id_schema():
     assert "trace_id" in error_schema["properties"]
 
 
+def test_variant_fields_docs_include_tenant_id_query_param():
+    openapi = app.openapi()
+    get_op = openapi["paths"]["/aris3/admin/settings/variant-fields"]["get"]
+    patch_op = openapi["paths"]["/aris3/admin/settings/variant-fields"]["patch"]
+
+    get_tenant_param = next(p for p in get_op["parameters"] if p["name"] == "tenant_id")
+    patch_tenant_param = next(p for p in patch_op["parameters"] if p["name"] == "tenant_id")
+
+    assert get_tenant_param["in"] == "query"
+    assert patch_tenant_param["in"] == "query"
+    assert "required for superadmin" in get_tenant_param["description"].lower()
+    assert "required for superadmin" in patch_tenant_param["description"].lower()
+
+
 def test_effective_permissions_has_reusable_typed_enums():
     openapi = app.openapi()
     schema = openapi["components"]["schemas"]["EffectivePermissionsResponse"]

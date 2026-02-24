@@ -121,6 +121,21 @@ class ErrorCatalog:
         "tenant_id is required for SUPERADMIN on this endpoint",
         status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
+    SUPERADMIN_REQUIRES_TENANT_ID_FOR_VARIANT_FIELDS = ErrorDefinition(
+        "SUPERADMIN_REQUIRES_TENANT_ID_FOR_VARIANT_FIELDS",
+        "tenant_id query param is required for SUPERADMIN on variant fields endpoint",
+        status.HTTP_400_BAD_REQUEST,
+    )
+    TENANT_SCOPE_MISMATCH = ErrorDefinition(
+        "TENANT_SCOPE_MISMATCH",
+        "tenant_id does not match authenticated tenant scope",
+        status.HTTP_403_FORBIDDEN,
+    )
+    TENANT_NOT_FOUND = ErrorDefinition(
+        "TENANT_NOT_FOUND",
+        "Tenant not found",
+        status.HTTP_404_NOT_FOUND,
+    )
 
 
 class AppError(Exception):

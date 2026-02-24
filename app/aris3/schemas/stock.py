@@ -1,12 +1,17 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema
 
 
-MoneyValue = Decimal
+MoneyValue = Annotated[
+    Decimal,
+    Field(ge=0, max_digits=12, decimal_places=2),
+    PlainSerializer(lambda value: format(value.quantize(Decimal("0.01")), "f"), return_type=str, when_used="json"),
+    WithJsonSchema({"type": "string", "pattern": r"^\d{1,10}(?:\.\d{2})?$"}, mode="serialization"),
+]
 
 
 class StockRow(BaseModel):
@@ -26,9 +31,9 @@ class StockRow(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
-    cost_price: MoneyValue | None = None
-    suggested_price: MoneyValue | None = None
-    sale_price: MoneyValue | None = None
+    cost_price: MoneyValue | None = Field(default=None, examples=["25.00"])
+    suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"])
+    sale_price: MoneyValue | None = Field(default=None, examples=["32.50"])
     created_at: datetime
     updated_at: datetime | None
 
@@ -68,9 +73,9 @@ class StockDataBlock(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
-    cost_price: MoneyValue | None = None
-    suggested_price: MoneyValue | None = None
-    sale_price: MoneyValue | None = None
+    cost_price: MoneyValue | None = Field(default=None, examples=["25.00"])
+    suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"])
+    sale_price: MoneyValue | None = Field(default=None, examples=["32.50"])
 
 
 class StockImportEpcLine(StockDataBlock):

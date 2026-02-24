@@ -1,8 +1,12 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
+
+
+MoneyValue = Decimal
 
 
 class StockRow(BaseModel):
@@ -22,6 +26,9 @@ class StockRow(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
+    cost_price: MoneyValue | None = None
+    suggested_price: MoneyValue | None = None
+    sale_price: MoneyValue | None = None
     created_at: datetime
     updated_at: datetime | None
 
@@ -61,6 +68,9 @@ class StockDataBlock(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
+    cost_price: MoneyValue | None = None
+    suggested_price: MoneyValue | None = None
+    sale_price: MoneyValue | None = None
 
 
 class StockImportEpcLine(StockDataBlock):

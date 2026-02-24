@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from app.aris3.core.error_catalog import ErrorCatalog
 from app.aris3.core.security import get_password_hash
@@ -36,8 +37,8 @@ def _create_tenant_user(db_session, *, suffix: str, role: str = "ADMIN"):
     return tenant, user
 
 
-def _stock_line(epc: str | None, status: str, qty: int = 1):
-    return {
+def _stock_line(epc: str | None, status: str, qty: int = 1, **prices):
+    line = {
         "sku": "SKU-1",
         "description": "Blue Jacket",
         "var1_value": "Blue",
@@ -54,6 +55,8 @@ def _stock_line(epc: str | None, status: str, qty: int = 1):
         "image_updated_at": datetime.utcnow().isoformat(),
         "qty": qty,
     }
+    line.update(prices)
+    return line
 
 
 def test_import_epc_success(client, db_session):
@@ -413,3 +416,180 @@ def test_idempotency_replay_and_conflict_migrate(client, db_session):
     conflict = client.post("/aris3/stock/migrate-sku-to-epc", headers=headers, json=conflict_payload)
     assert conflict.status_code == 409
     assert conflict.json()["code"] == ErrorCatalog.IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD.code
+
+
+def test_import_sku_with_prices_persists_and_lists(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="sku-prices")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-sku-prices-1",
+        "lines": [
+            _stock_line(
+                None,
+                status="PENDING",
+                qty=1,
+                cost_price="12.30",
+                suggested_price="19.99",
+                sale_price="17.50",
+            )
+        ],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-prices-1"},
+        json=payload,
+    )
+    assert response.status_code == 201
+
+    row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert row.cost_price == Decimal("12.30")
+    assert row.suggested_price == Decimal("19.99")
+    assert row.sale_price == Decimal("17.50")
+
+    stock_response = client.get("/aris3/stock", headers={"Authorization": f"Bearer {token}"})
+    assert stock_response.status_code == 200
+    stock_row = stock_response.json()["rows"][0]
+    assert stock_row["cost_price"] == "12.30"
+    assert stock_row["suggested_price"] == "19.99"
+    assert stock_row["sale_price"] == "17.50"
+
+
+def test_import_sku_without_prices_keeps_null_prices(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="sku-no-prices")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {"transaction_id": "txn-sku-no-prices-1", "lines": [_stock_line(None, status="PENDING", qty=1)]}
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-no-prices-1"},
+        json=payload,
+    )
+    assert response.status_code == 201
+
+    stock_response = client.get("/aris3/stock", headers={"Authorization": f"Bearer {token}"})
+    row = stock_response.json()["rows"][0]
+    assert row["cost_price"] is None
+    assert row["suggested_price"] is None
+    assert row["sale_price"] is None
+
+
+def test_import_epc_with_prices_persists_and_lists(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="epc-prices")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-epc-prices-1",
+        "lines": [
+            _stock_line(
+                "ABCDEFABCDEFABCDEFABCDEF",
+                status="RFID",
+                qty=1,
+                cost_price="20.00",
+                suggested_price="30.00",
+                sale_price="27.00",
+            )
+        ],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-epc",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "epc-prices-1"},
+        json=payload,
+    )
+    assert response.status_code == 201
+
+    row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert row.cost_price == Decimal("20.00")
+    assert row.suggested_price == Decimal("30.00")
+    assert row.sale_price == Decimal("27.00")
+
+    stock_response = client.get("/aris3/stock", headers={"Authorization": f"Bearer {token}"})
+    stock_row = stock_response.json()["rows"][0]
+    assert stock_row["cost_price"] == "20.00"
+
+
+def test_migrate_sku_to_epc_prices_override_or_inherit(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="migrate-prices")
+    token = _login(client, user.username, "Pass1234!")
+
+    db_session.add(
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            sku="SKU-1",
+            description="Blue Jacket",
+            var1_value="Blue",
+            var2_value="L",
+            epc=None,
+            location_code="LOC-1",
+            pool="P1",
+            status="PENDING",
+            location_is_vendible=True,
+            cost_price=Decimal("10.00"),
+            suggested_price=Decimal("15.00"),
+            sale_price=Decimal("13.00"),
+        )
+    )
+    db_session.commit()
+
+    base_data = {
+        "sku": "SKU-1",
+        "description": "Blue Jacket",
+        "var1_value": "Blue",
+        "var2_value": "L",
+        "epc": None,
+        "location_code": "LOC-1",
+        "pool": "P1",
+        "status": "PENDING",
+        "location_is_vendible": True,
+        "image_asset_id": None,
+        "image_url": None,
+        "image_thumb_url": None,
+        "image_source": None,
+        "image_updated_at": None,
+    }
+
+    inherit = client.post(
+        "/aris3/stock/migrate-sku-to-epc",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "migrate-prices-1"},
+        json={"transaction_id": "txn-migrate-prices-1", "epc": "1" * 24, "data": base_data},
+    )
+    assert inherit.status_code == 200
+    inherited_row = db_session.query(StockItem).filter(StockItem.epc == "1" * 24).one()
+    assert inherited_row.cost_price == Decimal("10.00")
+
+    inherited_row.epc = None
+    inherited_row.status = "PENDING"
+    db_session.commit()
+
+    explicit_data = {**base_data, "cost_price": "11.00", "suggested_price": "16.00", "sale_price": "14.00"}
+    explicit = client.post(
+        "/aris3/stock/migrate-sku-to-epc",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "migrate-prices-2"},
+        json={"transaction_id": "txn-migrate-prices-2", "epc": "2" * 24, "data": explicit_data},
+    )
+    assert explicit.status_code == 200
+    explicit_row = db_session.query(StockItem).filter(StockItem.epc == "2" * 24).one()
+    assert explicit_row.cost_price == Decimal("11.00")
+    assert explicit_row.suggested_price == Decimal("16.00")
+    assert explicit_row.sale_price == Decimal("14.00")
+
+
+def test_negative_price_validation(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="negative-prices")
+    token = _login(client, user.username, "Pass1234!")
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "negative-prices-1"},
+        json={
+            "transaction_id": "txn-negative-prices-1",
+            "lines": [_stock_line(None, status="PENDING", qty=1, cost_price="-1.00")],
+        },
+    )
+    assert response.status_code == 422

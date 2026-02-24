@@ -98,6 +98,16 @@ def _require_location_pool(line) -> None:
         )
 
 
+def _validate_non_negative_prices(line) -> None:
+    for field in ("cost_price", "suggested_price", "sale_price"):
+        value = getattr(line, field, None)
+        if value is not None and value < 0:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": f"{field} must be greater than or equal to 0", field: str(value)},
+            )
+
+
 def _validate_expected_status(status: str | None, expected: str) -> None:
     if status != expected:
         raise AppError(
@@ -132,6 +142,9 @@ def _stock_snapshot(row: StockItem) -> dict:
         "image_thumb_url": row.image_thumb_url,
         "image_source": row.image_source,
         "image_updated_at": row.image_updated_at,
+        "cost_price": row.cost_price,
+        "suggested_price": row.suggested_price,
+        "sale_price": row.sale_price,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -219,6 +232,9 @@ def list_stock(
             image_thumb_url=row.image_thumb_url,
             image_source=row.image_source,
             image_updated_at=row.image_updated_at,
+            cost_price=row.cost_price,
+            suggested_price=row.suggested_price,
+            sale_price=row.sale_price,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -276,6 +292,7 @@ def import_stock_epc(
     seen_epcs: set[str] = set()
     for line in payload.lines:
         _validate_location_pool(line)
+        _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "RFID")
         if line.qty != 1:
             raise AppError(
@@ -329,6 +346,9 @@ def import_stock_epc(
             image_thumb_url=line.image_thumb_url,
             image_source=line.image_source,
             image_updated_at=line.image_updated_at,
+            cost_price=line.cost_price,
+            suggested_price=line.suggested_price,
+            sale_price=line.sale_price,
         )
         for line in payload.lines
     ]
@@ -405,6 +425,7 @@ def import_stock_sku(
     items: list[StockItem] = []
     for line in payload.lines:
         _validate_location_pool(line)
+        _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "PENDING")
         if line.qty < 1:
             raise AppError(
@@ -435,6 +456,9 @@ def import_stock_sku(
                     image_thumb_url=line.image_thumb_url,
                     image_source=line.image_source,
                     image_updated_at=line.image_updated_at,
+                    cost_price=line.cost_price,
+                    suggested_price=line.suggested_price,
+                    sale_price=line.sale_price,
                 )
             )
 
@@ -496,6 +520,7 @@ def migrate_stock_sku_to_epc(
     request.state.idempotency = context
 
     _validate_location_pool(payload.data)
+    _validate_non_negative_prices(payload.data)
     _validate_expected_status(payload.data.status, "PENDING")
     _validate_epc(payload.epc)
     existing_epc = db.execute(
@@ -544,6 +569,11 @@ def migrate_stock_sku_to_epc(
         )
     pending_row.epc = payload.epc
     pending_row.status = "RFID"
+    pending_row.cost_price = payload.data.cost_price if payload.data.cost_price is not None else pending_row.cost_price
+    pending_row.suggested_price = (
+        payload.data.suggested_price if payload.data.suggested_price is not None else pending_row.suggested_price
+    )
+    pending_row.sale_price = payload.data.sale_price if payload.data.sale_price is not None else pending_row.sale_price
     pending_row.updated_at = datetime.utcnow()
     db.commit()
 

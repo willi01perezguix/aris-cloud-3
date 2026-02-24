@@ -1,8 +1,9 @@
 from datetime import date, datetime
+from decimal import Decimal
 
 import uuid
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.aris3.db.base import Base, GUID
@@ -116,6 +117,9 @@ class StockItem(Base):
     image_thumb_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     image_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     image_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cost_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    suggested_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    sale_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

@@ -131,6 +131,9 @@ class StockRepository:
             "location_code": StockItem.location_code,
             "pool": StockItem.pool,
             "status": StockItem.status,
+            "cost_price": StockItem.cost_price,
+            "suggested_price": StockItem.suggested_price,
+            "sale_price": StockItem.sale_price,
             "created_at": StockItem.created_at,
             "updated_at": StockItem.updated_at,
         }

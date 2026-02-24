@@ -90,6 +90,9 @@ def test_stock_query_contract(client, db_session):
         "image_thumb_url",
         "image_source",
         "image_updated_at",
+        "cost_price",
+        "suggested_price",
+        "sale_price",
         "created_at",
         "updated_at",
     }

@@ -41,6 +41,25 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 router = APIRouter()
 _EPC_PATTERN = re.compile(r"^[0-9A-F]{24}$")
 _IN_TRANSIT_CODE = "IN_TRANSIT"
+_DEFAULT_IMPORT_POOL = "BODEGA"
+_DEFAULT_IMPORT_LOCATION = "WH-MAIN"
+
+
+def _apply_import_defaults(line) -> None:
+    if not line.pool:
+        line.pool = _DEFAULT_IMPORT_POOL
+    if not line.location_code:
+        line.location_code = _DEFAULT_IMPORT_LOCATION
+    if line.location_is_vendible is None:
+        line.location_is_vendible = False
+
+
+def _validate_location_pool_for_import(line) -> None:
+    if not line.location_code or not line.pool:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "location_code and pool are required"},
+        )
 
 
 def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
@@ -82,11 +101,6 @@ def _validate_location_pool(line) -> None:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "location_code and pool are required"},
-        )
-    if line.location_is_vendible is False:
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "location_is_vendible must be true for stock writes"},
         )
 
 
@@ -291,7 +305,8 @@ def import_stock_epc(
     epcs = []
     seen_epcs: set[str] = set()
     for line in payload.lines:
-        _validate_location_pool(line)
+        _apply_import_defaults(line)
+        _validate_location_pool_for_import(line)
         _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "RFID")
         if line.qty != 1:
@@ -424,7 +439,8 @@ def import_stock_sku(
 
     items: list[StockItem] = []
     for line in payload.lines:
-        _validate_location_pool(line)
+        _apply_import_defaults(line)
+        _validate_location_pool_for_import(line)
         _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "PENDING")
         if line.qty < 1:

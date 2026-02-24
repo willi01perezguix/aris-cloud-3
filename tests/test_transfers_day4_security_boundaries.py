@@ -79,8 +79,8 @@ def test_transfer_cross_tenant_denied(client, db_session):
         headers={"Authorization": f"Bearer {token_a}", "Idempotency-Key": "transfer-sec-1"},
         json=payload,
     )
-    assert response.status_code == 403
-    assert response.json()["code"] == ErrorCatalog.CROSS_TENANT_ACCESS_DENIED.code
+    assert response.status_code == 422
+    assert response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
 
 
 def test_transfer_origin_destination_same_denied(client, db_session):
@@ -111,3 +111,20 @@ def test_transfer_rbac_denied(client, db_session):
     )
     assert response.status_code == 403
     assert response.json()["code"] == ErrorCatalog.PERMISSION_DENIED.code
+
+
+def test_transfer_rejects_mixed_tenant_origin_destination(client, db_session):
+    run_seed(db_session)
+    tenant_a, store_a, _other_store_a, user_a = _create_tenant_user(db_session, suffix="sec-mix-a")
+    _tenant_b, store_b, _other_store_b, _user_b = _create_tenant_user(db_session, suffix="sec-mix-b")
+
+    token_a = _login(client, user_a.username, "Pass1234!")
+    payload = _transfer_payload(str(store_a.id), str(store_b.id))
+    response = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token_a}", "Idempotency-Key": "transfer-sec-4"},
+        json=payload,
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+

@@ -363,3 +363,52 @@ def test_transfer_receive_destination_only_enforced(client, db_session):
     )
     assert receive_response.status_code == 422
     assert receive_response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+
+
+def test_transfer_receive_defaults_to_sale_pool(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, origin_user, destination_user = _create_tenant_users(
+        db_session, suffix="receive-defaults"
+    )
+    origin_token = _login(client, origin_user.username, "Pass1234!")
+    dest_token = _login(client, destination_user.username, "Pass1234!")
+
+    epc = "T" * 24
+    _seed_stock(db_session, tenant.id, epc=epc, qty=1)
+
+    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc, qty=1)
+    create_response = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "transfer-receive-def-1"},
+        json=payload,
+    )
+    assert create_response.status_code == 201
+    transfer_id = create_response.json()["header"]["id"]
+    lines = create_response.json()["lines"]
+
+    _dispatch_transfer(client, origin_token, transfer_id)
+
+    receive_response = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-receive-def-2"},
+        json={
+            "transaction_id": "txn-receive-def-2",
+            "action": "receive",
+            "receive_lines": [{"line_id": line["id"], "qty": line["qty"]} for line in lines],
+        },
+    )
+    assert receive_response.status_code == 200
+
+    expected_location = f"STORE-{destination_store.id}"
+    count = (
+        db_session.query(StockItem)
+        .filter(
+            StockItem.tenant_id == tenant.id,
+            StockItem.pool == "SALE",
+            StockItem.location_code == expected_location,
+            StockItem.location_is_vendible.is_(True),
+        )
+        .count()
+    )
+    assert count == 2
+

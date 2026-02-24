@@ -126,6 +126,44 @@ def test_import_sku_success(client, db_session):
     assert total_rfid + total_pending == len(rows)
 
 
+
+
+def test_import_sku_applies_logistics_defaults(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="import-sku-defaults")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-sku-default-1",
+        "lines": [
+            {
+                "sku": "SKU-1",
+                "description": "Blue Jacket",
+                "var1_value": "Blue",
+                "var2_value": "L",
+                "epc": None,
+                "status": "PENDING",
+                "image_asset_id": None,
+                "image_url": None,
+                "image_thumb_url": None,
+                "image_source": None,
+                "image_updated_at": None,
+                "qty": 1,
+            }
+        ],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-defaults-1"},
+        json=payload,
+    )
+    assert response.status_code == 201
+
+    row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert row.pool == "BODEGA"
+    assert row.location_code == "WH-MAIN"
+    assert row.location_is_vendible is False
+
 def test_invalid_epc_format(client, db_session):
     run_seed(db_session)
     _tenant, user = _create_tenant_user(db_session, suffix="invalid-epc")

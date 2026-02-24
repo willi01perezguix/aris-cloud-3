@@ -30,6 +30,8 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 router = APIRouter()
 _IN_TRANSIT_CODE = "IN_TRANSIT"
+_DEFAULT_RECEIVE_POOL = "SALE"
+
 
 
 def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
@@ -90,14 +92,17 @@ def _validate_transfer_snapshot(line: TransferLineCreate) -> None:
         )
 
 
-def _ensure_store_tenant(db, tenant_id: str, store_id: str) -> None:
+def _ensure_store_tenant(db, tenant_id: str, store_id: str, *, field_name: str) -> None:
     exists = (
         db.execute(select(Store.id).where(Store.id == store_id, Store.tenant_id == tenant_id))
         .scalars()
         .first()
     )
     if not exists:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": f"{field_name} must belong to tenant_id", field_name: store_id},
+        )
 
 
 def _require_destination_user(current_user, transfer: Transfer) -> None:
@@ -106,6 +111,13 @@ def _require_destination_user(current_user, transfer: Transfer) -> None:
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "only destination store users can perform this action"},
         )
+
+
+def _resolve_receive_destination(receive_line, transfer: Transfer) -> tuple[str, str, bool]:
+    location_code = receive_line.location_code or f"STORE-{transfer.destination_store_id}"
+    pool = receive_line.pool or _DEFAULT_RECEIVE_POOL
+    location_is_vendible = True if receive_line.location_is_vendible is None else receive_line.location_is_vendible
+    return location_code, pool, location_is_vendible
 
 
 def _stock_snapshot_from_line(line: TransferLine) -> dict:
@@ -117,6 +129,9 @@ def _stock_snapshot_from_line(line: TransferLine) -> dict:
         "description": line.description,
         "var1_value": line.var1_value,
         "var2_value": line.var2_value,
+        "cost_price": line.cost_price,
+        "suggested_price": line.suggested_price,
+        "sale_price": line.sale_price,
         "epc": line.epc,
         "location_code": line.location_code,
         "pool": line.pool,
@@ -177,6 +192,9 @@ def _transfer_line_response(line: TransferLine, movement_totals: dict[str, dict[
         description=line.description,
         var1_value=line.var1_value,
         var2_value=line.var2_value,
+        cost_price=line.cost_price,
+        suggested_price=line.suggested_price,
+        sale_price=line.sale_price,
         epc=line.epc,
         location_code=line.location_code,
         pool=line.pool,
@@ -282,8 +300,8 @@ def create_transfer(
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "origin_store_id and destination_store_id must differ"},
         )
-    _ensure_store_tenant(db, scoped_tenant_id, payload.origin_store_id)
-    _ensure_store_tenant(db, scoped_tenant_id, payload.destination_store_id)
+    _ensure_store_tenant(db, scoped_tenant_id, payload.origin_store_id, field_name="origin_store_id")
+    _ensure_store_tenant(db, scoped_tenant_id, payload.destination_store_id, field_name="destination_store_id")
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -335,6 +353,9 @@ def create_transfer(
                 description=snapshot.description,
                 var1_value=snapshot.var1_value,
                 var2_value=snapshot.var2_value,
+                cost_price=snapshot.cost_price,
+                suggested_price=snapshot.suggested_price,
+                sale_price=snapshot.sale_price,
                 epc=snapshot.epc,
                 location_code=snapshot.location_code,
                 pool=snapshot.pool,
@@ -419,10 +440,10 @@ def update_transfer(
                 details={"message": "origin_store_id and destination_store_id must differ"},
             )
     if payload.origin_store_id:
-        _ensure_store_tenant(db, scoped_tenant_id, payload.origin_store_id)
+        _ensure_store_tenant(db, scoped_tenant_id, payload.origin_store_id, field_name="origin_store_id")
         transfer.origin_store_id = payload.origin_store_id
     if payload.destination_store_id:
-        _ensure_store_tenant(db, scoped_tenant_id, payload.destination_store_id)
+        _ensure_store_tenant(db, scoped_tenant_id, payload.destination_store_id, field_name="destination_store_id")
         transfer.destination_store_id = payload.destination_store_id
 
     if payload.lines is not None:
@@ -447,6 +468,9 @@ def update_transfer(
                     description=snapshot.description,
                     var1_value=snapshot.var1_value,
                     var2_value=snapshot.var2_value,
+                    cost_price=snapshot.cost_price,
+                    suggested_price=snapshot.suggested_price,
+                    sale_price=snapshot.sale_price,
                     epc=snapshot.epc,
                     location_code=snapshot.location_code,
                     pool=snapshot.pool,
@@ -619,7 +643,6 @@ def transfer_actions(
                             StockItem.location_code == line.location_code,
                             StockItem.pool == line.pool,
                             StockItem.status == line.status,
-                            StockItem.location_is_vendible.is_(True),
                         )
                         .with_for_update()
                         .order_by(StockItem.created_at.asc())
@@ -720,6 +743,7 @@ def transfer_actions(
                     ErrorCatalog.VALIDATION_ERROR,
                     details={"message": "receive qty exceeds outstanding", "line_id": receive_line.line_id},
                 )
+            target_location_code, target_pool, target_is_vendible = _resolve_receive_destination(receive_line, transfer)
             if line.line_type == "EPC" and receive_line.qty != 1:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
@@ -750,9 +774,9 @@ def transfer_actions(
                         ErrorCatalog.VALIDATION_ERROR,
                         details={"message": "epc item not in transit", "epc": line.epc},
                     )
-                row.location_code = receive_line.location_code
-                row.pool = receive_line.pool
-                row.location_is_vendible = True
+                row.location_code = target_location_code
+                row.pool = target_pool
+                row.location_is_vendible = target_is_vendible
                 row.updated_at = datetime.utcnow()
             else:
                 pending_rows = (
@@ -785,9 +809,9 @@ def transfer_actions(
                         },
                     )
                 for row in pending_rows:
-                    row.location_code = receive_line.location_code
-                    row.pool = receive_line.pool
-                    row.location_is_vendible = True
+                    row.location_code = target_location_code
+                    row.pool = target_pool
+                    row.location_is_vendible = target_is_vendible
                     row.updated_at = datetime.utcnow()
 
             movements.append(
@@ -798,15 +822,15 @@ def transfer_actions(
                     action="RECEIVE",
                     from_location_code=_IN_TRANSIT_CODE,
                     from_pool=_IN_TRANSIT_CODE,
-                    to_location_code=receive_line.location_code,
-                    to_pool=receive_line.pool,
+                    to_location_code=target_location_code,
+                    to_pool=target_pool,
                     status=line.status,
                     qty=receive_line.qty,
                     snapshot={
                         "line_snapshot": _stock_snapshot_from_line(line),
-                        "received_location_code": receive_line.location_code,
-                        "received_pool": receive_line.pool,
-                        "received_location_is_vendible": True,
+                        "received_location_code": target_location_code,
+                        "received_pool": target_pool,
+                        "received_location_is_vendible": target_is_vendible,
                     },
                 )
             )

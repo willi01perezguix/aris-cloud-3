@@ -135,10 +135,10 @@ class StockDataBlock(BaseModel):
     suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"], description=_MONEY_FIELD_DESCRIPTION)
     sale_price: MoneyValue | None = Field(default=None, examples=["32.50"], description=_MONEY_FIELD_DESCRIPTION)
     epc: str | None
-    location_code: str | None
-    pool: str | None
+    location_code: str | None = None
+    pool: str | None = None
     status: str | None
-    location_is_vendible: bool
+    location_is_vendible: bool | None = None
     image_asset_id: UUID | None
     image_url: str | None
     image_thumb_url: str | None
@@ -183,7 +183,22 @@ class StockImportEpcRequest(BaseModel):
                     "transaction_id": "tx-import-epc-001",
                     "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
                     "lines": [{**_STOCK_CANONICAL_EXAMPLE, "qty": 1}],
-                }
+                },
+                {
+                    "transaction_id": "tx-import-epc-defaults-001",
+                    "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+                    "lines": [
+                        {
+                            "sku": "SKU-1",
+                            "description": "Blue Jacket",
+                            "var1_value": "Blue",
+                            "var2_value": "L",
+                            "epc": "ABCDEFABCDEFABCDEFABCDEF",
+                            "status": "RFID",
+                            "qty": 1
+                        }
+                    ],
+                },
             ],
         }
     }
@@ -211,7 +226,21 @@ class StockImportSkuRequest(BaseModel):
                     "transaction_id": "tx-import-sku-001",
                     "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
                     "lines": [{**_STOCK_PENDING_CANONICAL_EXAMPLE, "qty": 2}],
-                }
+                },
+                {
+                    "transaction_id": "tx-import-sku-defaults-001",
+                    "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+                    "lines": [
+                        {
+                            "sku": "SKU-1",
+                            "description": "Blue Jacket",
+                            "var1_value": "Blue",
+                            "var2_value": "L",
+                            "status": "PENDING",
+                            "qty": 2
+                        }
+                    ],
+                },
             ],
         }
     }

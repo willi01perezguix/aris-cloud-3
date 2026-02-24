@@ -10,17 +10,30 @@ MoneyValue = Annotated[
     Decimal,
     Field(ge=0, max_digits=12, decimal_places=2),
     PlainSerializer(lambda value: format(value.quantize(Decimal("0.01")), "f"), return_type=str, when_used="json"),
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "number", "minimum": 0},
+                {"type": "string", "pattern": r"^\d{1,10}(?:\.\d{1,2})?$"},
+            ]
+        },
+        mode="validation",
+    ),
     WithJsonSchema({"type": "string", "pattern": r"^\d{1,10}(?:\.\d{2})?$"}, mode="serialization"),
 ]
 
 
+_MONEY_FIELD_DESCRIPTION = "Acepta number o string decimal en request; se serializa como string decimal en responses"
+
+
 class StockRow(BaseModel):
-    id: str
-    tenant_id: str
     sku: str | None
     description: str | None
     var1_value: str | None
     var2_value: str | None
+    cost_price: MoneyValue | None = Field(default=None, examples=["25.00"], description=_MONEY_FIELD_DESCRIPTION)
+    suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"], description=_MONEY_FIELD_DESCRIPTION)
+    sale_price: MoneyValue | None = Field(default=None, examples=["32.50"], description=_MONEY_FIELD_DESCRIPTION)
     epc: str | None
     location_code: str | None
     pool: str | None
@@ -31,11 +44,38 @@ class StockRow(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
-    cost_price: MoneyValue | None = Field(default=None, examples=["25.00"])
-    suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"])
-    sale_price: MoneyValue | None = Field(default=None, examples=["32.50"])
+    id: str
+    tenant_id: str
     created_at: datetime
     updated_at: datetime | None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "sku": "SKU-1",
+                "description": "Blue Jacket",
+                "var1_value": "Blue",
+                "var2_value": "L",
+                "cost_price": "25.00",
+                "suggested_price": "35.00",
+                "sale_price": "32.50",
+                "epc": "ABCDEFABCDEFABCDEFABCDEF",
+                "location_code": "LOC-1",
+                "pool": "P1",
+                "status": "RFID",
+                "location_is_vendible": True,
+                "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
+                "image_url": "https://example.com/image.png",
+                "image_thumb_url": "https://example.com/thumb.png",
+                "image_source": "catalog",
+                "image_updated_at": "2025-01-01T00:00:00Z",
+                "id": "fef5d8de-0f6f-4a64-b6ce-8fcdb4128ffb",
+                "tenant_id": "eec4e17f-d5f0-489f-a1c1-7f6ad5039f22",
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:05:00Z",
+            }
+        }
+    }
 
 
 class StockQueryMeta(BaseModel):
@@ -63,6 +103,9 @@ class StockDataBlock(BaseModel):
     description: str | None
     var1_value: str | None
     var2_value: str | None
+    cost_price: MoneyValue | None = Field(default=None, examples=["25.00"], description=_MONEY_FIELD_DESCRIPTION)
+    suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"], description=_MONEY_FIELD_DESCRIPTION)
+    sale_price: MoneyValue | None = Field(default=None, examples=["32.50"], description=_MONEY_FIELD_DESCRIPTION)
     epc: str | None
     location_code: str | None
     pool: str | None
@@ -73,9 +116,30 @@ class StockDataBlock(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
-    cost_price: MoneyValue | None = Field(default=None, examples=["25.00"])
-    suggested_price: MoneyValue | None = Field(default=None, examples=["35.00"])
-    sale_price: MoneyValue | None = Field(default=None, examples=["32.50"])
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "sku": "SKU-1",
+                "description": "Blue Jacket",
+                "var1_value": "Blue",
+                "var2_value": "L",
+                "cost_price": "25.00",
+                "suggested_price": "35.00",
+                "sale_price": "32.50",
+                "epc": "ABCDEFABCDEFABCDEFABCDEF",
+                "location_code": "LOC-1",
+                "pool": "P1",
+                "status": "RFID",
+                "location_is_vendible": True,
+                "image_asset_id": "7fa2f29e-3ffd-4e52-a0a5-8f53d0ae1a61",
+                "image_url": "https://example.com/image.png",
+                "image_thumb_url": "https://example.com/thumb.png",
+                "image_source": "catalog",
+                "image_updated_at": "2025-01-01T00:00:00Z",
+            }
+        }
+    }
 
 
 class StockImportEpcLine(StockDataBlock):

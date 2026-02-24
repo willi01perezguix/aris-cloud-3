@@ -126,12 +126,13 @@ def _is_in_transit(location_code: str | None, pool: str | None) -> bool:
 
 def _stock_snapshot(row: StockItem) -> dict:
     return {
-        "id": str(row.id),
-        "tenant_id": str(row.tenant_id),
         "sku": row.sku,
         "description": row.description,
         "var1_value": row.var1_value,
         "var2_value": row.var2_value,
+        "cost_price": row.cost_price,
+        "suggested_price": row.suggested_price,
+        "sale_price": row.sale_price,
         "epc": row.epc,
         "location_code": row.location_code,
         "pool": row.pool,
@@ -142,9 +143,8 @@ def _stock_snapshot(row: StockItem) -> dict:
         "image_thumb_url": row.image_thumb_url,
         "image_source": row.image_source,
         "image_updated_at": row.image_updated_at,
-        "cost_price": row.cost_price,
-        "suggested_price": row.suggested_price,
-        "sale_price": row.sale_price,
+        "id": str(row.id),
+        "tenant_id": str(row.tenant_id),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -216,12 +216,13 @@ def list_stock(
     )
     response_rows = [
         StockRow(
-            id=str(row.id),
-            tenant_id=str(row.tenant_id),
             sku=row.sku,
             description=row.description,
             var1_value=row.var1_value,
             var2_value=row.var2_value,
+            cost_price=row.cost_price,
+            suggested_price=row.suggested_price,
+            sale_price=row.sale_price,
             epc=row.epc,
             location_code=row.location_code,
             pool=row.pool,
@@ -232,9 +233,8 @@ def list_stock(
             image_thumb_url=row.image_thumb_url,
             image_source=row.image_source,
             image_updated_at=row.image_updated_at,
-            cost_price=row.cost_price,
-            suggested_price=row.suggested_price,
-            sale_price=row.sale_price,
+            id=str(row.id),
+            tenant_id=str(row.tenant_id),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

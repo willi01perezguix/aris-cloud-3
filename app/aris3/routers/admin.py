@@ -115,6 +115,24 @@ def _tenant_id_or_error(token_data) -> str:
     return token_data.tenant_id
 
 
+def _resolve_variant_fields_tenant_id(*, token_data, current_user: User, requested_tenant_id: str | None, db) -> str:
+    user_role = (current_user.role or "").upper()
+    token_tenant_id = token_data.tenant_id
+
+    if user_role in {"SUPERADMIN", "PLATFORM_ADMIN"}:
+        if not requested_tenant_id:
+            raise AppError(ErrorCatalog.SUPERADMIN_REQUIRES_TENANT_ID_FOR_VARIANT_FIELDS)
+        if TenantRepository(db).get_by_id(requested_tenant_id) is None:
+            raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
+        return requested_tenant_id
+
+    if not token_tenant_id:
+        raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED)
+    if requested_tenant_id and requested_tenant_id != token_tenant_id:
+        raise AppError(ErrorCatalog.TENANT_SCOPE_MISMATCH)
+    return token_tenant_id
+
+
 def _store_item(store: Store) -> dict:
     return {
         "id": str(store.id),
@@ -2442,13 +2460,22 @@ async def user_actions(
 @router.get("/settings/variant-fields", response_model=VariantFieldSettingsResponse)
 async def get_variant_fields(
     request: Request,
+    tenant_id: str | None = Query(
+        default=None,
+        description="Optional tenant scope for superadmin; required for superadmin.",
+    ),
     token_data=Depends(get_current_token_data),
-    _current_user=Depends(require_active_user),
+    current_user=Depends(require_active_user),
     _permission=Depends(require_permission("TENANT_VIEW")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
-    settings = VariantFieldSettingsRepository(db).get_by_tenant_id(tenant_id)
+    resolved_tenant_id = _resolve_variant_fields_tenant_id(
+        token_data=token_data,
+        current_user=current_user,
+        requested_tenant_id=tenant_id,
+        db=db,
+    )
+    settings = VariantFieldSettingsRepository(db).get_by_tenant_id(resolved_tenant_id)
     return VariantFieldSettingsResponse(
         var1_label=settings.var1_label if settings else None,
         var2_label=settings.var2_label if settings else None,
@@ -2466,12 +2493,21 @@ async def get_variant_fields(
 async def patch_variant_fields(
     request: Request,
     payload: VariantFieldSettingsPatchRequest,
+    tenant_id: str | None = Query(
+        default=None,
+        description="Optional tenant scope for superadmin; required for superadmin.",
+    ),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("SETTINGS_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
+    resolved_tenant_id = _resolve_variant_fields_tenant_id(
+        token_data=token_data,
+        current_user=current_user,
+        requested_tenant_id=tenant_id,
+        db=db,
+    )
     if payload.var1_label is None and payload.var2_label is None:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
@@ -2482,7 +2518,7 @@ async def patch_variant_fields(
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
     context_idempotency, replay = idempotency_service.start(
-        tenant_id=tenant_id,
+        tenant_id=resolved_tenant_id,
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,
@@ -2497,11 +2533,11 @@ async def patch_variant_fields(
     request.state.idempotency = context_idempotency
 
     repo = VariantFieldSettingsRepository(db)
-    settings = repo.get_by_tenant_id(tenant_id)
+    settings = repo.get_by_tenant_id(resolved_tenant_id)
     before = None
     if settings is None:
         settings = VariantFieldSettings(
-            tenant_id=tenant_id,
+            tenant_id=resolved_tenant_id,
             var1_label=payload.var1_label,
             var2_label=payload.var2_label,
             created_at=datetime.utcnow(),
@@ -2526,7 +2562,7 @@ async def patch_variant_fields(
 
     AuditService(db).record_event(
         AuditEventPayload(
-            tenant_id=tenant_id,
+            tenant_id=resolved_tenant_id,
             user_id=str(current_user.id),
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,

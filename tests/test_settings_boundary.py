@@ -87,4 +87,12 @@ def test_settings_tenant_boundaries_and_roles(client, db_session):
         "/aris3/admin/settings/variant-fields",
         headers={"Authorization": f"Bearer {super_token}"},
     )
-    assert super_get.status_code == 200
+    assert super_get.status_code == 400
+    assert super_get.json()["code"] == "SUPERADMIN_REQUIRES_TENANT_ID_FOR_VARIANT_FIELDS"
+
+    super_get_scoped = client.get(
+        f"/aris3/admin/settings/variant-fields?tenant_id={tenant_a.id}",
+        headers={"Authorization": f"Bearer {super_token}"},
+    )
+    assert super_get_scoped.status_code == 200
+    assert super_get_scoped.json()["var1_label"] == "Color"

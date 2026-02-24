@@ -111,11 +111,17 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     },
     ("/aris3/admin/settings/variant-fields", "get"): {
         "summary": "Get variant field labels",
-        "description": "Returns current variant-field labels for the resolved admin tenant scope.",
+        "description": (
+            "Returns current variant-field labels. Tenant admins use JWT/context scope; "
+            "superadmin must pass `tenant_id` query param."
+        ),
     },
     ("/aris3/admin/settings/variant-fields", "patch"): {
         "summary": "Patch variant field labels",
-        "description": "Partially updates variant-field labels; omitted fields remain unchanged.",
+        "description": (
+            "Partially updates variant-field labels; omitted fields remain unchanged. "
+            "Tenant admins use JWT/context scope; superadmin must pass `tenant_id` query param."
+        ),
     },
     ("/aris3/admin/access-control/effective-permissions", "get"): {
         "summary": "Resolve effective permissions (admin)",

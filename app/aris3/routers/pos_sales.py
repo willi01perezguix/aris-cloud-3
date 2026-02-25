@@ -979,6 +979,7 @@ def sale_action(
                         db.add(
                             StockItem(
                                 tenant_id=sale.tenant_id,
+                                store_id=sale.store_id,
                                 sku=line.sku,
                                 description=line.description,
                                 var1_value=line.var1_value,
@@ -1388,6 +1389,7 @@ def sale_action(
                         db.add(
                             StockItem(
                                 tenant_id=sale.tenant_id,
+                                store_id=sale.store_id,
                                 sku=line.sku,
                                 description=line.description,
                                 var1_value=line.var1_value,

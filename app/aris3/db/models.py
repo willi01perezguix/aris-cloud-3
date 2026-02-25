@@ -103,6 +103,7 @@ class StockItem(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), index=True, nullable=True)
     sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)

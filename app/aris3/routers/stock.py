@@ -13,7 +13,7 @@ from app.aris3.core.deps import get_current_token_data, require_active_user, req
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import is_superadmin
 from app.aris3.db.session import get_db
-from app.aris3.db.models import StockItem
+from app.aris3.db.models import StockItem, Store
 from app.aris3.repos.stock import StockQueryFilters, StockRepository
 from app.aris3.schemas.stock import (
     StockImportEpcRequest,
@@ -73,6 +73,18 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     return token_data.tenant_id
 
+
+
+
+def _validate_scoped_store(db, *, tenant_id: str, store_id: str) -> None:
+    store_exists = db.execute(
+        select(Store.id).where(Store.id == store_id, Store.tenant_id == tenant_id)
+    ).scalar_one_or_none()
+    if not store_exists:
+        raise AppError(
+            ErrorCatalog.CROSS_TENANT_ACCESS_DENIED,
+            details={"message": "store_id is outside tenant scope", "store_id": store_id},
+        )
 
 def _require_transaction_id(transaction_id: str | None) -> None:
     if not transaction_id:
@@ -150,6 +162,7 @@ def _stock_snapshot(row: StockItem) -> dict:
         "epc": row.epc,
         "location_code": row.location_code,
         "pool": row.pool,
+        "store_id": str(row.store_id) if row.store_id else None,
         "status": row.status,
         "location_is_vendible": row.location_is_vendible,
         "image_asset_id": str(row.image_asset_id) if row.image_asset_id else None,
@@ -174,6 +187,7 @@ def _build_stock_match_filter(scoped_tenant_id: str, data):
         (StockItem.epc.is_(None) if data.epc is None else StockItem.epc == data.epc),
         StockItem.location_code == data.location_code,
         StockItem.pool == data.pool,
+        (StockItem.store_id.is_(None) if data.store_id is None else StockItem.store_id == data.store_id),
         StockItem.status == data.status,
         StockItem.location_is_vendible == data.location_is_vendible,
         StockItem.image_asset_id == _image_asset_uuid(data.image_asset_id),
@@ -198,6 +212,7 @@ def list_stock(
     epc: str | None = None,
     location_code: str | None = None,
     pool: str | None = None,
+    store_id: str | None = None,
     tenant_id: str | None = None,
     from_date: datetime | None = Query(None, alias="from"),
     to_date: datetime | None = Query(None, alias="to"),
@@ -207,6 +222,8 @@ def list_stock(
     sort_dir: Literal["asc", "desc"] = "desc",
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    if store_id:
+        _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
     repo = StockRepository(db)
     filters = StockQueryFilters(
         tenant_id=scoped_tenant_id,
@@ -218,6 +235,7 @@ def list_stock(
         epc=epc,
         location_code=location_code,
         pool=pool,
+        store_id=store_id,
         from_date=from_date,
         to_date=to_date,
     )
@@ -240,6 +258,7 @@ def list_stock(
             epc=row.epc,
             location_code=row.location_code,
             pool=row.pool,
+            store_id=str(row.store_id) if row.store_id else None,
             status=row.status,
             location_is_vendible=row.location_is_vendible,
             image_asset_id=str(row.image_asset_id) if row.image_asset_id else None,
@@ -307,6 +326,8 @@ def import_stock_epc(
     for line in payload.lines:
         _apply_import_defaults(line)
         _validate_location_pool_for_import(line)
+        if line.store_id:
+            _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=line.store_id)
         _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "RFID")
         if line.qty != 1:
@@ -354,6 +375,7 @@ def import_stock_epc(
             epc=line.epc,
             location_code=line.location_code,
             pool=line.pool,
+            store_id=line.store_id,
             status="RFID",
             location_is_vendible=line.location_is_vendible,
             image_asset_id=_image_asset_uuid(line.image_asset_id),
@@ -441,6 +463,8 @@ def import_stock_sku(
     for line in payload.lines:
         _apply_import_defaults(line)
         _validate_location_pool_for_import(line)
+        if line.store_id:
+            _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=line.store_id)
         _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "PENDING")
         if line.qty < 1:
@@ -465,6 +489,7 @@ def import_stock_sku(
                     epc=None,
                     location_code=line.location_code,
                     pool=line.pool,
+                    store_id=line.store_id,
                     status="PENDING",
                     location_is_vendible=line.location_is_vendible,
                     image_asset_id=_image_asset_uuid(line.image_asset_id),
@@ -536,6 +561,8 @@ def migrate_stock_sku_to_epc(
     request.state.idempotency = context
 
     _validate_location_pool(payload.data)
+    if payload.data.store_id:
+        _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=payload.data.store_id)
     _validate_non_negative_prices(payload.data)
     _validate_expected_status(payload.data.status, "PENDING")
     _validate_epc(payload.epc)
@@ -564,6 +591,11 @@ def migrate_stock_sku_to_epc(
                 (StockItem.epc.is_(None) if payload.data.epc is None else StockItem.epc == payload.data.epc),
                 StockItem.location_code == payload.data.location_code,
                 StockItem.pool == payload.data.pool,
+                (
+                    StockItem.store_id.is_(None)
+                    if payload.data.store_id is None
+                    else StockItem.store_id == payload.data.store_id
+                ),
                 StockItem.location_is_vendible == payload.data.location_is_vendible,
                 StockItem.image_asset_id == _image_asset_uuid(payload.data.image_asset_id),
                 StockItem.image_url == payload.data.image_url,
@@ -590,6 +622,7 @@ def migrate_stock_sku_to_epc(
         payload.data.suggested_price if payload.data.suggested_price is not None else pending_row.suggested_price
     )
     pending_row.sale_price = payload.data.sale_price if payload.data.sale_price is not None else pending_row.sale_price
+    pending_row.store_id = payload.data.store_id
     pending_row.updated_at = datetime.utcnow()
     db.commit()
 

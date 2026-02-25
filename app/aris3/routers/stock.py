@@ -2,6 +2,7 @@ from datetime import datetime
 import re
 from typing import Literal
 from uuid import UUID
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -441,7 +442,7 @@ def import_stock_sku(
     _require_tenant_admin(token_data)
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
-    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    idempotency_key = extract_idempotency_key(request.headers, required=False) or str(uuid4())
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
     context, replay = idempotency_service.start(

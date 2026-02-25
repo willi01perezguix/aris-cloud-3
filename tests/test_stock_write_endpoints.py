@@ -151,6 +151,28 @@ def test_import_sku_accepts_lines_without_epc_field(client, db_session):
     assert rows[0].status == "PENDING"
 
 
+def test_import_sku_generates_idempotency_key_when_missing(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="import-sku-idem-default")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-sku-idem-default-1",
+        "lines": [_stock_line(None, status="PENDING", qty=1)],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}"},
+        json=payload,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["processed"] == 1
+    rows = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).all()
+    assert len(rows) == 1
+    assert rows[0].status == "PENDING"
+
+
 def test_import_sku_forbidden_for_non_admin_role(client, db_session):
     run_seed(db_session)
     _tenant, user = _create_tenant_user(db_session, suffix="import-sku-operator", role="USER")

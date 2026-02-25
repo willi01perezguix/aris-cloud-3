@@ -126,6 +126,31 @@ def test_import_sku_success(client, db_session):
     assert total_rfid + total_pending == len(rows)
 
 
+def test_import_sku_accepts_lines_without_epc_field(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="import-sku-no-epc")
+    token = _login(client, user.username, "Pass1234!")
+    line = _stock_line(None, status="PENDING", qty=1)
+    line.pop("epc")
+    payload = {
+        "transaction_id": "txn-sku-no-epc-1",
+        "lines": [line],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-no-epc-1"},
+        json=payload,
+    )
+    assert response.status_code == 201
+    assert response.json()["processed"] == 1
+
+    rows = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).all()
+    assert len(rows) == 1
+    assert rows[0].epc is None
+    assert rows[0].status == "PENDING"
+
+
 def test_import_sku_forbidden_for_non_admin_role(client, db_session):
     run_seed(db_session)
     _tenant, user = _create_tenant_user(db_session, suffix="import-sku-operator", role="USER")
@@ -359,6 +384,24 @@ def test_migrate_sku_to_epc_forbidden_for_non_admin_role(client, db_session):
     )
     assert response.status_code == 403
     assert response.json()["code"] == ErrorCatalog.PERMISSION_DENIED.code
+
+
+def test_migrate_sku_to_epc_requires_top_level_epc(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="migrate-missing-epc")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-migrate-missing-epc-1",
+        "data": _stock_line(None, status="PENDING", qty=1),
+    }
+
+    response = client.post(
+        "/aris3/stock/migrate-sku-to-epc",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "migrate-missing-epc-1"},
+        json=payload,
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
 
 
 def test_import_sku_tenant_admin_cannot_cross_tenant_scope(client, db_session):

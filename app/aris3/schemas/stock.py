@@ -162,6 +162,7 @@ class StockImportEpcLine(StockDataBlock):
 
 
 class StockImportSkuLine(StockDataBlock):
+    epc: str | None = None
     qty: int
 
 

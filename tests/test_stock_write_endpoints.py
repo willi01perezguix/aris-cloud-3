@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.aris3.core.error_catalog import ErrorCatalog
@@ -149,6 +149,29 @@ def test_import_sku_accepts_lines_without_epc_field(client, db_session):
     assert len(rows) == 1
     assert rows[0].epc is None
     assert rows[0].status == "PENDING"
+
+
+def test_import_sku_accepts_utc_z_image_updated_at(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="import-sku-z-datetime")
+    token = _login(client, user.username, "Pass1234!")
+    line = _stock_line(None, status="PENDING", qty=1)
+    line["image_updated_at"] = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    payload = {
+        "transaction_id": "txn-sku-z-datetime-1",
+        "lines": [line],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-z-datetime-1"},
+        json=payload,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["processed"] == 1
+    row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert row.image_updated_at is not None
 
 
 def test_import_sku_generates_idempotency_key_when_missing(client, db_session):

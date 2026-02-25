@@ -2,9 +2,13 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from app.aris3.core.error_catalog import ErrorCatalog
+import pytest
+from sqlalchemy.exc import ProgrammingError
+
+from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import StockItem, Store, Tenant, User
+from app.aris3.routers import stock as stock_router
 from app.aris3.db.seed import run_seed
 
 
@@ -236,6 +240,28 @@ def test_import_sku_accepts_utc_z_image_updated_at(client, db_session):
     assert response.json()["processed"] == 1
     row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
     assert row.image_updated_at is not None
+
+
+def test_commit_stock_items_schema_mismatch_logs_and_raises_with_trace_id():
+    class _BrokenDb:
+        def commit(self):
+            raise ProgrammingError(
+                'INSERT INTO stock_items (..., store_id, ...)',
+                {},
+                Exception('column "store_id" of relation "stock_items" does not exist'),
+            )
+
+        def rollback(self):
+            return None
+
+    with pytest.raises(AppError) as exc_info:
+        stock_router._commit_stock_items(_BrokenDb(), operation="import-sku", trace_id="trace-schema-mismatch")
+
+    assert exc_info.value.error.code == ErrorCatalog.DB_UNAVAILABLE.code
+    assert exc_info.value.details == {
+        "message": "database schema is not aligned with stock import contract",
+        "type": "SCHEMA_MISMATCH",
+    }
 
 
 def test_import_sku_generates_idempotency_key_when_missing(client, db_session):

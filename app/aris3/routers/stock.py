@@ -74,6 +74,11 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
     return token_data.tenant_id
 
 
+def _require_tenant_admin(token_data) -> None:
+    role = (token_data.role or "").upper()
+    if role == "ADMIN" or is_superadmin(role):
+        return
+    raise AppError(ErrorCatalog.PERMISSION_DENIED)
 
 
 def _validate_scoped_store(db, *, tenant_id: str, store_id: str) -> None:
@@ -295,6 +300,7 @@ def import_stock_epc(
     _permission=Depends(require_permission("STORE_MANAGE")),
     db=Depends(get_db),
 ):
+    _require_tenant_admin(token_data)
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -433,6 +439,7 @@ def import_stock_sku(
     _permission=Depends(require_permission("STORE_MANAGE")),
     db=Depends(get_db),
 ):
+    _require_tenant_admin(token_data)
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -540,6 +547,7 @@ def migrate_stock_sku_to_epc(
     _permission=Depends(require_permission("STORE_MANAGE")),
     db=Depends(get_db),
 ):
+    _require_tenant_admin(token_data)
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)

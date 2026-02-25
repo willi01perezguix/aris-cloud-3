@@ -13,6 +13,7 @@ from app.aris3.routers.pos_cash import router as pos_cash_router
 from app.aris3.routers.reports import router as reports_router
 from app.aris3.routers.exports import router as exports_router
 from app.aris3.routers.metrics import router as metrics_router
+from app.aris3.routers.assets_images import router as assets_images_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
@@ -26,5 +27,6 @@ api_router.include_router(pos_sales_router, tags=["pos-sales"])
 api_router.include_router(pos_cash_router, tags=["pos-cash"])
 api_router.include_router(reports_router, tags=["reports"])
 api_router.include_router(exports_router, tags=["exports"])
+api_router.include_router(assets_images_router, tags=["assets"])
 if settings.METRICS_ENABLED:
     api_router.include_router(metrics_router, tags=["ops"])

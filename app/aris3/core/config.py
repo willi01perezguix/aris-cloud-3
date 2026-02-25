@@ -23,5 +23,13 @@ class Settings(BaseSettings):
     OPS_DRILL_TIMEOUT_SEC: int = 120
     OPS_ARTIFACTS_DIR: str = "./artifacts"
     METRICS_ENABLED: bool = True
+    ARIS3_SPACES_ACCESS_KEY: str = ""
+    ARIS3_SPACES_SECRET_KEY: str = ""
+    ARIS3_SPACES_BUCKET: str = ""
+    ARIS3_SPACES_REGION: str = ""
+    ARIS3_SPACES_ENDPOINT: str = ""
+    ARIS3_SPACES_ORIGIN_BASE_URL: str = ""
+    ARIS3_SPACES_CDN_BASE_URL: str = ""
+    ARIS3_IMAGE_SOURCE: str = "digitalocean_spaces"
 
 settings = Settings()

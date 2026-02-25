@@ -182,7 +182,38 @@ def _commit_stock_items(db, *, operation: str) -> None:
                     "type": "SCHEMA_MISMATCH",
                 },
             )
-        raise
+        raise AppError(
+            ErrorCatalog.DB_UNAVAILABLE,
+            details={
+                "message": "database programming error while processing stock operation",
+                "type": "PROGRAMMING_ERROR",
+            },
+        )
+
+
+def _import_sku_payload_summary(payload: StockImportSkuRequest) -> dict:
+    line_summaries = []
+    for line in payload.lines:
+        line_summaries.append(
+            {
+                "store_id": line.store_id,
+                "sku": line.sku,
+                "qty": line.qty,
+                "status": line.status,
+                "has_epc": bool(_normalize_epc_optional(line.epc)),
+                "has_image_asset_id": bool(line.image_asset_id),
+                "has_image_url": bool(line.image_url),
+                "has_image_thumb_url": bool(line.image_thumb_url),
+                "has_image_source": bool(line.image_source),
+                "has_image_updated_at": bool(line.image_updated_at),
+            }
+        )
+    return {
+        "transaction_id": payload.transaction_id,
+        "tenant_id": payload.tenant_id,
+        "lines_count": len(payload.lines),
+        "lines": line_summaries,
+    }
 
 
 def _is_in_transit(location_code: str | None, pool: str | None) -> bool:
@@ -486,6 +517,14 @@ def import_stock_sku(
             headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
         )
     request.state.idempotency = context
+    logger.info(
+        "Processing stock import-sku request",
+        extra={
+            "trace_id": getattr(request.state, "trace_id", ""),
+            "tenant_id": scoped_tenant_id,
+            "payload": _import_sku_payload_summary(payload),
+        },
+    )
 
     if not payload.lines:
         raise AppError(
@@ -497,8 +536,17 @@ def import_stock_sku(
     for line in payload.lines:
         _apply_import_defaults(line)
         _validate_location_pool_for_import(line)
-        if line.store_id:
-            _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=line.store_id)
+        if not line.store_id:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "store_id is required", "field": "lines[].store_id"},
+            )
+        if not line.sku:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "sku is required", "field": "lines[].sku"},
+            )
+        _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=line.store_id)
         _validate_non_negative_prices(line)
         _validate_expected_status(line.status, "PENDING")
         if line.qty < 1:

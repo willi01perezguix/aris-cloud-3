@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Request
@@ -7,6 +8,9 @@ from sqlalchemy.exc import OperationalError
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.metrics import metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 _HTTP_STATUS_CODES = {
@@ -172,6 +176,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
             _record_idempotency_failure(request, ErrorCatalog.LOCK_TIMEOUT.status_code, payload)
             return JSONResponse(status_code=ErrorCatalog.LOCK_TIMEOUT.status_code, content=payload)
         _set_error_context(request, ErrorCatalog.INTERNAL_ERROR.code, exc)
+        logger.exception("Unhandled exception trace_id=%s", _trace_id(request), exc_info=exc)
         payload = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,

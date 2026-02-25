@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+import logging
 import re
 from typing import Literal
 from uuid import UUID
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
@@ -40,6 +41,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 _EPC_PATTERN = re.compile(r"^[0-9A-F]{24}$")
 _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_IMPORT_POOL = "BODEGA"
@@ -151,6 +153,38 @@ def _image_asset_uuid(asset_id: UUID | None) -> UUID | None:
     return asset_id if asset_id else None
 
 
+def _normalize_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _commit_stock_items(db, *, operation: str) -> None:
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "epc already exists"},
+        )
+    except ProgrammingError as exc:
+        db.rollback()
+        logger.exception("Stock %s failed due to DB programming error", operation)
+        message = str(getattr(exc, "orig", exc)).lower()
+        if "column" in message and ("does not exist" in message or "undefined" in message):
+            raise AppError(
+                ErrorCatalog.DB_UNAVAILABLE,
+                details={
+                    "message": "database schema is not aligned with stock import contract",
+                    "type": "SCHEMA_MISMATCH",
+                },
+            )
+        raise
+
+
 def _is_in_transit(location_code: str | None, pool: str | None) -> bool:
     return location_code == _IN_TRANSIT_CODE or pool == _IN_TRANSIT_CODE
 
@@ -199,7 +233,7 @@ def _build_stock_match_filter(scoped_tenant_id: str, data):
         StockItem.image_url == data.image_url,
         StockItem.image_thumb_url == data.image_thumb_url,
         StockItem.image_source == data.image_source,
-        StockItem.image_updated_at == data.image_updated_at,
+        StockItem.image_updated_at == _normalize_utc_datetime(data.image_updated_at),
     )
 
 
@@ -388,22 +422,15 @@ def import_stock_epc(
             image_url=line.image_url,
             image_thumb_url=line.image_thumb_url,
             image_source=line.image_source,
-            image_updated_at=line.image_updated_at,
+            image_updated_at=_normalize_utc_datetime(line.image_updated_at),
             cost_price=line.cost_price,
             suggested_price=line.suggested_price,
             sale_price=line.sale_price,
         )
         for line in payload.lines
     ]
-    try:
-        db.add_all(items)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "epc already exists"},
-        )
+    db.add_all(items)
+    _commit_stock_items(db, operation="import-epc")
 
     response = StockImportResponse(
         tenant_id=scoped_tenant_id,
@@ -503,7 +530,7 @@ def import_stock_sku(
                     image_url=line.image_url,
                     image_thumb_url=line.image_thumb_url,
                     image_source=line.image_source,
-                    image_updated_at=line.image_updated_at,
+                    image_updated_at=_normalize_utc_datetime(line.image_updated_at),
                     cost_price=line.cost_price,
                     suggested_price=line.suggested_price,
                     sale_price=line.sale_price,
@@ -511,7 +538,7 @@ def import_stock_sku(
             )
 
     db.add_all(items)
-    db.commit()
+    _commit_stock_items(db, operation="import-sku")
 
     response = StockImportResponse(
         tenant_id=scoped_tenant_id,
@@ -609,7 +636,7 @@ def migrate_stock_sku_to_epc(
                 StockItem.image_url == payload.data.image_url,
                 StockItem.image_thumb_url == payload.data.image_thumb_url,
                 StockItem.image_source == payload.data.image_source,
-                StockItem.image_updated_at == payload.data.image_updated_at,
+                StockItem.image_updated_at == _normalize_utc_datetime(payload.data.image_updated_at),
             )
             .with_for_update()
             .order_by(StockItem.created_at.asc())

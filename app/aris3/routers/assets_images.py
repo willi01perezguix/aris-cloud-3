@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import logging
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 
 from app.aris3.core.deps import get_current_token_data, require_active_user
@@ -7,6 +9,8 @@ from app.aris3.db.models import Store
 from app.aris3.db.session import get_db
 from app.aris3.schemas.assets_images import ImageUploadResponse
 from app.aris3.services.spaces_images import SpacesImageService, SpacesImageUploadError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 _ALLOWED_ROLES = {"SUPERADMIN", "ADMIN"}
@@ -66,6 +70,7 @@ def _validate_store_scope(db, *, tenant_id: str, store_id: str) -> None:
 
 @router.post("/aris3/assets/upload-image", response_model=ImageUploadResponse)
 async def upload_image(
+    request: Request,
     file: UploadFile = File(...),
     tenant_id: str | None = Form(default=None),
     store_id: str | None = Form(default=None),
@@ -73,6 +78,8 @@ async def upload_image(
     _current_user=Depends(require_active_user),
     db=Depends(get_db),
 ):
+    trace_id = getattr(request.state, "trace_id", None)
+
     if not can_write_stock_or_assets(token_data.role):
         raise HTTPException(
             status_code=403,
@@ -108,14 +115,26 @@ async def upload_image(
             content_type=file.content_type,
             tenant_id=resolved_tenant_id,
             store_id=resolved_store_id,
+            trace_id=trace_id,
         )
     except SpacesImageUploadError as exc:
+        logger.warning(
+            "upload_image_failed",
+            extra={
+                "error_code": exc.error_code,
+                "error_message": str(exc),
+                "tenant_id": resolved_tenant_id,
+                "store_id": resolved_store_id,
+                "trace_id": trace_id,
+            },
+        )
+        status_code = 502 if exc.error_code == "STORAGE_ERROR" else 400
         raise HTTPException(
-            status_code=400,
+            status_code=status_code,
             detail={
-                "code": "BAD_REQUEST",
+                "code": exc.error_code,
                 "message": str(exc),
-                "details": None,
+                "details": {"trace_id": trace_id} if trace_id else None,
             },
         ) from exc
 

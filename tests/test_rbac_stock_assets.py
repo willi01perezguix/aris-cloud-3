@@ -91,6 +91,8 @@ def test_upload_image_allows_superadmin_and_admin(client, db_session, monkeypatc
         data={"tenant_id": str(tenant.id), "store_id": str(store.id)},
     )
     assert admin_response.status_code == 200
+    admin_payload = admin_response.json()
+    assert set(admin_payload) == {"image_asset_id", "image_url", "image_thumb_url", "image_source", "image_updated_at"}
 
     superadmin_token = _login(client, "superadmin", "change-me")
     superadmin_response = client.post(
@@ -100,6 +102,8 @@ def test_upload_image_allows_superadmin_and_admin(client, db_session, monkeypatc
         data={"tenant_id": str(tenant.id), "store_id": str(store.id)},
     )
     assert superadmin_response.status_code == 200
+    superadmin_payload = superadmin_response.json()
+    assert set(superadmin_payload) == {"image_asset_id", "image_url", "image_thumb_url", "image_source", "image_updated_at"}
 
 
 @pytest.mark.parametrize("role", ["MANAGER", "USER", "CASHIER"])

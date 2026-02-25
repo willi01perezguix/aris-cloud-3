@@ -161,7 +161,7 @@ def _normalize_utc_datetime(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _commit_stock_items(db, *, operation: str) -> None:
+def _commit_stock_items(db, *, operation: str, trace_id: str | None = None) -> None:
     try:
         db.commit()
     except IntegrityError:
@@ -172,9 +172,19 @@ def _commit_stock_items(db, *, operation: str) -> None:
         )
     except ProgrammingError as exc:
         db.rollback()
-        logger.exception("Stock %s failed due to DB programming error", operation)
+        logger.exception(
+            "Stock %s failed due to DB programming error trace_id=%s",
+            operation,
+            trace_id or "",
+        )
         message = str(getattr(exc, "orig", exc)).lower()
         if "column" in message and ("does not exist" in message or "undefined" in message):
+            logger.error(
+                "Stock %s schema mismatch detected trace_id=%s detail=%s",
+                operation,
+                trace_id or "",
+                str(getattr(exc, "orig", exc)),
+            )
             raise AppError(
                 ErrorCatalog.DB_UNAVAILABLE,
                 details={
@@ -461,7 +471,7 @@ def import_stock_epc(
         for line in payload.lines
     ]
     db.add_all(items)
-    _commit_stock_items(db, operation="import-epc")
+    _commit_stock_items(db, operation="import-epc", trace_id=getattr(request.state, "trace_id", ""))
 
     response = StockImportResponse(
         tenant_id=scoped_tenant_id,
@@ -586,7 +596,7 @@ def import_stock_sku(
             )
 
     db.add_all(items)
-    _commit_stock_items(db, operation="import-sku")
+    _commit_stock_items(db, operation="import-sku", trace_id=getattr(request.state, "trace_id", ""))
 
     response = StockImportResponse(
         tenant_id=scoped_tenant_id,

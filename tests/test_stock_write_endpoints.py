@@ -126,6 +126,24 @@ def test_import_sku_success(client, db_session):
     assert total_rfid + total_pending == len(rows)
 
 
+def test_import_sku_forbidden_for_non_admin_role(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="import-sku-operator", role="USER")
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-sku-forbidden-1",
+        "lines": [_stock_line(None, status="PENDING", qty=1)],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-forbidden-1"},
+        json=payload,
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == ErrorCatalog.PERMISSION_DENIED.code
+
+
 
 
 def test_import_sku_applies_logistics_defaults(client, db_session):
@@ -291,6 +309,86 @@ def test_migrate_success_total_unchanged(client, db_session):
     assert before_pending - 1 == after_pending
     assert before_rfid + 1 == after_rfid
     assert before_pending + before_rfid == after_pending + after_rfid
+
+
+def test_migrate_sku_to_epc_forbidden_for_non_admin_role(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="migrate-forbidden", role="USER")
+    db_session.add(
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            sku="SKU-1",
+            description="Blue Jacket",
+            var1_value="Blue",
+            var2_value="L",
+            epc=None,
+            location_code="LOC-1",
+            pool="P1",
+            status="PENDING",
+            location_is_vendible=True,
+        )
+    )
+    db_session.commit()
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-migrate-forbidden-1",
+        "epc": "F" * 24,
+        "data": {
+            "sku": "SKU-1",
+            "description": "Blue Jacket",
+            "var1_value": "Blue",
+            "var2_value": "L",
+            "epc": None,
+            "location_code": "LOC-1",
+            "pool": "P1",
+            "status": "PENDING",
+            "location_is_vendible": True,
+            "image_asset_id": None,
+            "image_url": None,
+            "image_thumb_url": None,
+            "image_source": None,
+            "image_updated_at": None,
+        },
+    }
+
+    response = client.post(
+        "/aris3/stock/migrate-sku-to-epc",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "migrate-forbidden-1"},
+        json=payload,
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == ErrorCatalog.PERMISSION_DENIED.code
+
+
+def test_import_sku_tenant_admin_cannot_cross_tenant_scope(client, db_session):
+    run_seed(db_session)
+    _tenant_a, user_a = _create_tenant_user(db_session, suffix="sku-scope-a")
+    tenant_b, _user_b = _create_tenant_user(db_session, suffix="sku-scope-b")
+    token = _login(client, user_a.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-sku-cross-tenant-1",
+        "tenant_id": str(tenant_b.id),
+        "lines": [_stock_line(None, status="PENDING", qty=1)],
+    }
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-cross-tenant-1"},
+        json=payload,
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == ErrorCatalog.CROSS_TENANT_ACCESS_DENIED.code
+
+
+def test_list_stock_remains_available_for_non_admin_active_user(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="list-stock-user", role="USER")
+    token = _login(client, user.username, "Pass1234!")
+
+    response = client.get("/aris3/stock", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
 
 
 def test_migrate_failure_when_pending_zero(client, db_session):

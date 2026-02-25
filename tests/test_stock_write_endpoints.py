@@ -37,7 +37,7 @@ def _create_tenant_user(db_session, *, suffix: str, role: str = "ADMIN"):
     return tenant, user
 
 
-def _stock_line(epc: str | None, status: str, qty: int = 1, **prices):
+def _stock_line(epc: str | None, status: str, qty: int = 1, store_id: str | None = None, **prices):
     line = {
         "sku": "SKU-1",
         "description": "Blue Jacket",
@@ -47,6 +47,7 @@ def _stock_line(epc: str | None, status: str, qty: int = 1, **prices):
         "location_code": "LOC-1",
         "pool": "P1",
         "status": status,
+        "store_id": store_id,
         "location_is_vendible": True,
         "image_asset_id": str(uuid.uuid4()),
         "image_url": "https://example.com/image.png",
@@ -58,6 +59,69 @@ def _stock_line(epc: str | None, status: str, qty: int = 1, **prices):
     line.update(prices)
     return line
 
+
+
+
+def test_import_sku_requires_authentication(client):
+    response = client.post("/aris3/stock/import-sku", json={"transaction_id": "txn-no-auth", "lines": []})
+    assert response.status_code == 401
+
+
+def test_import_sku_rejects_cross_tenant_store_scope(client, db_session):
+    run_seed(db_session)
+    tenant_a, user_a = _create_tenant_user(db_session, suffix="sku-store-scope-a")
+    tenant_b, _user_b = _create_tenant_user(db_session, suffix="sku-store-scope-b")
+    store_b = db_session.query(Store).filter(Store.tenant_id == tenant_b.id).one()
+    token = _login(client, user_a.username, "Pass1234!")
+
+    response = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-store-scope-1"},
+        json={
+            "transaction_id": "txn-sku-store-scope-1",
+            "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(store_b.id))],
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == ErrorCatalog.CROSS_TENANT_ACCESS_DENIED.code
+    assert db_session.query(StockItem).filter(StockItem.tenant_id == tenant_a.id).count() == 0
+
+
+def test_import_sku_validation_requires_store_id_sku_and_qty(client, db_session):
+    run_seed(db_session)
+    _tenant, user = _create_tenant_user(db_session, suffix="sku-required-fields")
+    token = _login(client, user.username, "Pass1234!")
+
+    missing_store = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-missing-store"},
+        json={
+            "transaction_id": "txn-sku-missing-store",
+            "lines": [_stock_line(None, status="PENDING", qty=1, store_id=None)],
+        },
+    )
+    assert missing_store.status_code == 422
+
+    missing_sku = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-missing-sku"},
+        json={
+            "transaction_id": "txn-sku-missing-sku",
+            "lines": [{**_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id)), "sku": None}],
+        },
+    )
+    assert missing_sku.status_code == 422
+
+    missing_qty = client.post(
+        "/aris3/stock/import-sku",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-missing-qty"},
+        json={
+            "transaction_id": "txn-sku-missing-qty",
+            "lines": [{**_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id)), "qty": 0}],
+        },
+    )
+    assert missing_qty.status_code == 422
 
 def test_import_epc_success(client, db_session):
     run_seed(db_session)
@@ -99,7 +163,7 @@ def test_import_sku_success(client, db_session):
     token = _login(client, user.username, "Pass1234!")
     payload = {
         "transaction_id": "txn-sku-1",
-        "lines": [_stock_line(None, status="PENDING", qty=2)],
+        "lines": [_stock_line(None, status="PENDING", qty=2, store_id=str(user.store_id))],
     }
 
     response = client.post(
@@ -130,7 +194,7 @@ def test_import_sku_accepts_lines_without_epc_field(client, db_session):
     run_seed(db_session)
     tenant, user = _create_tenant_user(db_session, suffix="import-sku-no-epc")
     token = _login(client, user.username, "Pass1234!")
-    line = _stock_line(None, status="PENDING", qty=1)
+    line = _stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id))
     line.pop("epc")
     payload = {
         "transaction_id": "txn-sku-no-epc-1",
@@ -155,7 +219,7 @@ def test_import_sku_accepts_utc_z_image_updated_at(client, db_session):
     run_seed(db_session)
     tenant, user = _create_tenant_user(db_session, suffix="import-sku-z-datetime")
     token = _login(client, user.username, "Pass1234!")
-    line = _stock_line(None, status="PENDING", qty=1)
+    line = _stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id))
     line["image_updated_at"] = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
     payload = {
         "transaction_id": "txn-sku-z-datetime-1",
@@ -180,7 +244,7 @@ def test_import_sku_generates_idempotency_key_when_missing(client, db_session):
     token = _login(client, user.username, "Pass1234!")
     payload = {
         "transaction_id": "txn-sku-idem-default-1",
-        "lines": [_stock_line(None, status="PENDING", qty=1)],
+        "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id))],
     }
 
     response = client.post(
@@ -202,7 +266,7 @@ def test_import_sku_forbidden_for_non_admin_role(client, db_session):
     token = _login(client, user.username, "Pass1234!")
     payload = {
         "transaction_id": "txn-sku-forbidden-1",
-        "lines": [_stock_line(None, status="PENDING", qty=1)],
+        "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id))],
     }
 
     response = client.post(
@@ -230,6 +294,7 @@ def test_import_sku_applies_logistics_defaults(client, db_session):
                 "var2_value": "L",
                 "epc": None,
                 "status": "PENDING",
+                "store_id": str(user.store_id),
                 "image_asset_id": None,
                 "image_url": None,
                 "image_thumb_url": None,
@@ -457,7 +522,7 @@ def test_import_sku_tenant_admin_cannot_cross_tenant_scope(client, db_session):
     payload = {
         "transaction_id": "txn-sku-cross-tenant-1",
         "tenant_id": str(tenant_b.id),
-        "lines": [_stock_line(None, status="PENDING", qty=1)],
+        "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user_a.store_id))],
     }
 
     response = client.post(
@@ -565,7 +630,7 @@ def test_idempotency_replay_and_conflict_import_sku(client, db_session):
     token = _login(client, user.username, "Pass1234!")
     payload = {
         "transaction_id": "txn-idemp-sku-1",
-        "lines": [_stock_line(None, status="PENDING", qty=1)],
+        "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id))],
     }
     headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "idemp-sku-1"}
 
@@ -577,7 +642,7 @@ def test_idempotency_replay_and_conflict_import_sku(client, db_session):
 
     conflict_payload = {
         "transaction_id": "txn-idemp-sku-2",
-        "lines": [_stock_line(None, status="PENDING", qty=2)],
+        "lines": [_stock_line(None, status="PENDING", qty=2, store_id=str(user.store_id))],
     }
     conflict = client.post("/aris3/stock/import-sku", headers=headers, json=conflict_payload)
     assert conflict.status_code == 409
@@ -653,6 +718,7 @@ def test_import_sku_with_prices_persists_and_lists(client, db_session):
                 None,
                 status="PENDING",
                 qty=1,
+                store_id=str(user.store_id),
                 cost_price="12.30",
                 suggested_price="19.99",
                 sale_price="17.50",
@@ -684,7 +750,7 @@ def test_import_sku_without_prices_keeps_null_prices(client, db_session):
     run_seed(db_session)
     _tenant, user = _create_tenant_user(db_session, suffix="sku-no-prices")
     token = _login(client, user.username, "Pass1234!")
-    payload = {"transaction_id": "txn-sku-no-prices-1", "lines": [_stock_line(None, status="PENDING", qty=1)]}
+    payload = {"transaction_id": "txn-sku-no-prices-1", "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id))]}
 
     response = client.post(
         "/aris3/stock/import-sku",
@@ -813,7 +879,7 @@ def test_negative_price_validation(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "negative-prices-1"},
         json={
             "transaction_id": "txn-negative-prices-1",
-            "lines": [_stock_line(None, status="PENDING", qty=1, cost_price="-1.00")],
+            "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id), cost_price="-1.00")],
         },
     )
     assert response.status_code == 422
@@ -829,7 +895,7 @@ def test_price_validation_rejects_more_than_two_decimals(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "price-scale-1"},
         json={
             "transaction_id": "txn-price-scale-1",
-            "lines": [_stock_line(None, status="PENDING", qty=1, cost_price="12.345")],
+            "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id), cost_price="12.345")],
         },
     )
 
@@ -847,7 +913,7 @@ def test_import_sku_with_numeric_prices_is_accepted(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-numeric-prices-1"},
         json={
             "transaction_id": "txn-sku-numeric-prices-1",
-            "lines": [_stock_line(None, status="PENDING", qty=1, cost_price=25, suggested_price=35.0, sale_price=32.5)],
+            "lines": [_stock_line(None, status="PENDING", qty=1, store_id=str(user.store_id), cost_price=25, suggested_price=35.0, sale_price=32.5)],
         },
     )
     assert response.status_code == 201

@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.core.scope import is_superadmin
+from app.aris3.core.scope import can_write_stock_or_assets, is_superadmin
 from app.aris3.db.session import get_db
 from app.aris3.db.models import StockItem, Store
 from app.aris3.repos.stock import StockQueryFilters, StockRepository
@@ -75,8 +75,7 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
 
 
 def _require_tenant_admin(token_data) -> None:
-    role = (token_data.role or "").upper()
-    if role == "ADMIN" or is_superadmin(role):
+    if can_write_stock_or_assets(token_data.role):
         return
     raise AppError(ErrorCatalog.PERMISSION_DENIED)
 

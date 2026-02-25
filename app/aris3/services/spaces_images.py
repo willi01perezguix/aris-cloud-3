@@ -3,11 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import import_module
+import logging
 import mimetypes
 from pathlib import Path
+from urllib.parse import urlparse
 import uuid
 
 from app.aris3.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 _ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
@@ -29,7 +33,9 @@ class UploadedImageMetadata:
 
 
 class SpacesImageUploadError(Exception):
-    pass
+    def __init__(self, message: str, *, error_code: str = "BAD_REQUEST") -> None:
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class SpacesImageService:
@@ -51,6 +57,7 @@ class SpacesImageService:
         content_type: str | None,
         tenant_id: str | None,
         store_id: str | None,
+        trace_id: str | None,
     ) -> UploadedImageMetadata:
         self._validate_settings()
         if not file_bytes:
@@ -63,6 +70,20 @@ class SpacesImageService:
         resolved_content_type = self._resolve_content_type(content_type=content_type, extension=extension)
         key = self._build_object_key(image_asset_id=image_asset_id, tenant_id=tenant_id, store_id=store_id, extension=extension)
 
+        endpoint_url = self._normalized_endpoint_url()
+        logger.info(
+            "spaces_upload_start",
+            extra={
+                "bucket": self._bucket,
+                "endpoint": endpoint_url,
+                "tenant_id": tenant_id,
+                "store_id": store_id,
+                "trace_id": trace_id,
+            },
+        )
+
+        client_error_types = self._client_error_types()
+        botocore_error_types = self._botocore_error_types()
         client = self._build_s3_client()
         try:
             client.put_object(
@@ -73,8 +94,44 @@ class SpacesImageService:
                 ContentType=resolved_content_type,
                 CacheControl="public, max-age=31536000",
             )
+            logger.info(
+                "spaces_upload_ok",
+                extra={"key": key, "bytes": len(file_bytes), "trace_id": trace_id},
+            )
+        except client_error_types as exc:
+            s3_response = getattr(exc, "response", {}) or {}
+            logger.exception(
+                "spaces_upload_error",
+                extra={
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "s3_error": s3_response.get("Error"),
+                    "s3_response_metadata": s3_response.get("ResponseMetadata"),
+                    "trace_id": trace_id,
+                },
+            )
+            error_message = (s3_response.get("Error") or {}).get("Message") or str(exc)
+            raise SpacesImageUploadError(f"storage upload failed: {error_message}", error_code="STORAGE_ERROR") from exc
+        except botocore_error_types as exc:
+            logger.exception(
+                "spaces_upload_error",
+                extra={
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "trace_id": trace_id,
+                },
+            )
+            raise SpacesImageUploadError(f"storage upload failed: {str(exc)}", error_code="STORAGE_ERROR") from exc
         except Exception as exc:
-            raise SpacesImageUploadError("failed to upload image") from exc
+            logger.exception(
+                "spaces_upload_error",
+                extra={
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "trace_id": trace_id,
+                },
+            )
+            raise SpacesImageUploadError("storage upload failed: unexpected error", error_code="STORAGE_ERROR") from exc
 
         public_base = (self._cdn_base_url or self._origin_base_url).rstrip("/")
         image_url = f"{public_base}/{key}"
@@ -99,23 +156,48 @@ class SpacesImageService:
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
-            raise RuntimeError(f"missing spaces configuration: {', '.join(missing)}")
+            raise SpacesImageUploadError(
+                f"missing spaces configuration: {', '.join(missing)}",
+                error_code="BAD_REQUEST",
+            )
+
+    def _normalized_endpoint_url(self) -> str:
+        endpoint = (self._endpoint or "").strip()
+        if not endpoint:
+            return ""
+
+        parsed = urlparse(endpoint)
+        if parsed.scheme:
+            normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+        else:
+            normalized = f"https://{endpoint.lstrip('/')}".rstrip("/")
+        return normalized
 
     def _build_s3_client(self):
         boto3 = import_module("boto3")
         botocore_client = import_module("botocore.client")
-
-        endpoint_url = self._endpoint
-        if endpoint_url and not endpoint_url.startswith("http"):
-            endpoint_url = f"https://{endpoint_url}"
         return boto3.client(
             "s3",
             region_name=self._region,
-            endpoint_url=endpoint_url,
+            endpoint_url=self._normalized_endpoint_url(),
             aws_access_key_id=self._access_key,
             aws_secret_access_key=self._secret_key,
             config=botocore_client.Config(signature_version="s3v4"),
         )
+
+    def _client_error_types(self) -> tuple[type[BaseException], ...]:
+        try:
+            botocore_exceptions = import_module("botocore.exceptions")
+            return (botocore_exceptions.ClientError,)
+        except Exception:
+            return ()
+
+    def _botocore_error_types(self) -> tuple[type[BaseException], ...]:
+        try:
+            botocore_exceptions = import_module("botocore.exceptions")
+            return (botocore_exceptions.BotoCoreError,)
+        except Exception:
+            return ()
 
     def _resolve_extension(self, *, original_filename: str | None, content_type: str | None) -> str:
         from_filename = Path(original_filename or "").suffix.lower().lstrip(".")

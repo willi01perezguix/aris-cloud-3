@@ -8,6 +8,8 @@ from app.aris3.db.models import Store
 
 
 SUPERADMIN_ROLES = {"SUPERADMIN", "PLATFORM_ADMIN"}
+TENANT_ADMIN_ROLES = {"ADMIN"}
+STOCK_AND_ASSET_WRITE_ROLES = SUPERADMIN_ROLES | TENANT_ADMIN_ROLES
 DEFAULT_BROAD_STORE_ROLES = {"SUPERADMIN", "ADMIN"}
 
 
@@ -17,6 +19,15 @@ def _normalize_role(role: str | None) -> str:
 
 def is_superadmin(role: str | None) -> bool:
     return _normalize_role(role) in SUPERADMIN_ROLES
+
+
+def is_tenant_admin(role: str | None) -> bool:
+    return _normalize_role(role) in TENANT_ADMIN_ROLES
+
+
+def can_write_stock_or_assets(role: str | None) -> bool:
+    normalized_role = _normalize_role(role)
+    return normalized_role in STOCK_AND_ASSET_WRITE_ROLES
 
 
 def enforce_tenant_scope(

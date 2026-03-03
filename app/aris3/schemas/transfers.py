@@ -150,3 +150,21 @@ class TransferResponse(BaseModel):
 
 class TransferListResponse(BaseModel):
     rows: list[TransferResponse]
+    meta: "TransferListMeta | None" = None
+
+
+class TransferListMeta(BaseModel):
+    page: int
+    page_size: int
+    total: int
+
+
+class TransferStoreResponse(BaseModel):
+    id: str
+    code: str | None = None
+    name: str
+    active: bool | None = None
+
+
+class TransferStoreListResponse(BaseModel):
+    rows: list[TransferStoreResponse]

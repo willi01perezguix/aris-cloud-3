@@ -10,15 +10,45 @@ from app.aris3.db.models import Transfer, TransferLine, TransferMovement
 @dataclass(frozen=True)
 class TransferQueryFilters:
     tenant_id: str
+    status: str | None = None
+    origin_store_id: str | None = None
+    destination_store_id: str | None = None
+    page: int = 1
+    page_size: int = 50
+    sort_by: str = "created_at"
+    sort_dir: str = "desc"
 
 
 class TransferRepository:
     def __init__(self, db):
         self.db = db
 
-    def list_transfers(self, filters: TransferQueryFilters) -> list[Transfer]:
+    def list_transfers(self, filters: TransferQueryFilters) -> tuple[list[Transfer], int]:
         query = select(Transfer).where(Transfer.tenant_id == filters.tenant_id)
-        return self.db.execute(query.order_by(Transfer.created_at.desc())).scalars().all()
+        count_query = select(func.count()).select_from(Transfer).where(Transfer.tenant_id == filters.tenant_id)
+
+        if filters.status:
+            query = query.where(Transfer.status == filters.status)
+            count_query = count_query.where(Transfer.status == filters.status)
+        if filters.origin_store_id:
+            query = query.where(Transfer.origin_store_id == filters.origin_store_id)
+            count_query = count_query.where(Transfer.origin_store_id == filters.origin_store_id)
+        if filters.destination_store_id:
+            query = query.where(Transfer.destination_store_id == filters.destination_store_id)
+            count_query = count_query.where(Transfer.destination_store_id == filters.destination_store_id)
+
+        sort_column = Transfer.created_at if filters.sort_by == "created_at" else Transfer.updated_at
+        if filters.sort_dir == "asc":
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+
+        offset = (max(filters.page, 1) - 1) * max(filters.page_size, 1)
+        query = query.offset(offset).limit(max(filters.page_size, 1))
+
+        rows = self.db.execute(query).scalars().all()
+        total = int(self.db.execute(count_query).scalar_one() or 0)
+        return rows, total
 
     def get_transfer(self, transfer_id: str, tenant_id: str) -> Transfer | None:
         return (

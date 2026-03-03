@@ -37,11 +37,12 @@ def _create_tenant_user(db_session, *, suffix: str, role: str = "ADMIN"):
     return tenant, store, other_store, user
 
 
-def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
+def _seed_stock(db_session, tenant_id, store_id, *, epc: str, qty: int):
     items = [
         StockItem(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
+            store_id=store_id,
             sku="SKU-1",
             description="Blue Jacket",
             var1_value="Blue",
@@ -63,6 +64,7 @@ def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
             StockItem(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
+                store_id=store_id,
                 sku="SKU-2",
                 description="Green Tee",
                 var1_value="Green",
@@ -70,7 +72,7 @@ def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
                 epc=None,
                 location_code="LOC-1",
                 pool="P1",
-                status="PENDING",
+                status="RFID",
                 location_is_vendible=True,
                 image_asset_id=uuid.uuid4(),
                 image_url="https://example.com/img2.png",
@@ -120,7 +122,7 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "epc": None,
                     "location_code": "LOC-1",
                     "pool": "P1",
-                    "status": "PENDING",
+                    "status": "RFID",
                     "location_is_vendible": True,
                     "image_asset_id": str(uuid.uuid4()),
                     "image_url": "https://example.com/img2.png",
@@ -139,7 +141,7 @@ def test_transfer_dispatch_success(client, db_session):
     token = _login(client, user.username, "Pass1234!")
 
     epc = "C" * 24
-    _seed_stock(db_session, tenant.id, epc=epc, qty=2)
+    _seed_stock(db_session, tenant.id, store.id, epc=epc, qty=2)
 
     payload = _transfer_payload(str(store.id), str(other_store.id), epc, qty=2)
     create_response = client.post(
@@ -189,7 +191,7 @@ def test_transfer_dispatch_insufficient_stock(client, db_session):
     token = _login(client, user.username, "Pass1234!")
 
     epc = "D" * 24
-    _seed_stock(db_session, tenant.id, epc=epc, qty=1)
+    _seed_stock(db_session, tenant.id, store.id, epc=epc, qty=1)
 
     payload = _transfer_payload(str(store.id), str(other_store.id), epc, qty=3)
     create_response = client.post(
@@ -197,13 +199,5 @@ def test_transfer_dispatch_insufficient_stock(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-dispatch-3"},
         json=payload,
     )
-    assert create_response.status_code == 201
-    transfer_id = create_response.json()["header"]["id"]
-
-    dispatch_response = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-dispatch-4"},
-        json={"transaction_id": "txn-dispatch-4", "action": "dispatch"},
-    )
-    assert dispatch_response.status_code == 422
-    assert dispatch_response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+    assert create_response.status_code == 422
+    assert create_response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code

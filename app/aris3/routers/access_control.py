@@ -85,7 +85,7 @@ async def effective_permissions(
 
 @router.get(
     "/effective-permissions/users/{user_id}",
-    deprecated=True,
+    include_in_schema=False,
     response_model=EffectivePermissionsResponse,
     summary="Resolve effective permissions for user",
     description="Computes effective permissions for a target user using full policy layering.",
@@ -161,7 +161,7 @@ async def effective_permissions_for_user(
 
 @router.get(
     "/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions",
-    deprecated=True,
+    include_in_schema=False,
     response_model=EffectivePermissionsResponse,
 )
 async def effective_permissions_for_store_user(
@@ -251,7 +251,9 @@ async def permission_catalog(
     _current_user=Depends(require_active_user),
     db=Depends(get_db),
 ):
-    _require_admin(token_data)
+    # Public self-surface endpoint: authenticated users can inspect the catalog
+    # while administrative ACL management remains under /aris3/admin/access-control.
+    _ = token_data
     service = AccessControlPolicyService(db)
     permissions = service.list_permission_catalog()
     return PermissionCatalogResponse(
@@ -262,7 +264,9 @@ async def permission_catalog(
     )
 
 
-@router.get("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
+# Legacy scoped ACL routes are intentionally hidden from OpenAPI to keep the
+# public surface minimal and focused on self-context read-only endpoints.
+@router.get("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse, include_in_schema=False)
 async def get_tenant_role_policy(
     request: Request,
     tenant_id: str,
@@ -284,7 +288,7 @@ async def get_tenant_role_policy(
     )
 
 
-@router.put("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
+@router.put("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse, include_in_schema=False)
 async def replace_tenant_role_policy(
     request: Request,
     tenant_id: str,
@@ -355,7 +359,7 @@ async def replace_tenant_role_policy(
 @router.get(
     "/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
     response_model=StoreRolePolicyResponse,
-    deprecated=True,
+    include_in_schema=False,
 )
 async def get_store_role_policy(
     request: Request,
@@ -396,7 +400,7 @@ async def get_store_role_policy(
 @router.put(
     "/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
     response_model=StoreRolePolicyResponse,
-    deprecated=True,
+    include_in_schema=False,
 )
 async def replace_store_role_policy(
     request: Request,
@@ -477,7 +481,7 @@ async def replace_store_role_policy(
     return response
 
 
-@router.get("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse, deprecated=True)
+@router.get("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse, include_in_schema=False)
 async def get_user_permission_overrides(
     request: Request,
     tenant_id: str,
@@ -503,7 +507,7 @@ async def get_user_permission_overrides(
     )
 
 
-@router.put("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse, deprecated=True)
+@router.put("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse, include_in_schema=False)
 async def replace_user_permission_overrides(
     request: Request,
     tenant_id: str,
@@ -576,7 +580,7 @@ async def replace_user_permission_overrides(
     return response
 
 
-@router.get("/platform/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
+@router.get("/platform/role-policies/{role_name}", response_model=RolePolicyResponse, include_in_schema=False)
 async def get_platform_role_policy(
     request: Request,
     role_name: str,
@@ -597,7 +601,7 @@ async def get_platform_role_policy(
     )
 
 
-@router.put("/platform/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
+@router.put("/platform/role-policies/{role_name}", response_model=RolePolicyResponse, include_in_schema=False)
 async def replace_platform_role_policy(
     request: Request,
     role_name: str,

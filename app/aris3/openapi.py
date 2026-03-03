@@ -18,8 +18,8 @@ TAG_METADATA = [
     },
     {"name": "Admin Settings", "description": "Administrative runtime settings endpoints."},
     {
-        "name": "Access Control Scoped",
-        "description": "Scope-explicit access-control endpoints where tenant/store/user identifiers are provided in path parameters.",
+        "name": "Access Control (Self)",
+        "description": "Self-service access-control read endpoints resolved from the authenticated request context.",
     },
 ]
 
@@ -135,7 +135,7 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     ("/aris3/access-control/permission-catalog", "get"): {
         "summary": "Permission catalog",
         "description": (
-            "Scoped permission catalog resolved from authenticated context and optional query parameters. "
+            "Self-context permission catalog resolved from authenticated context. "
             "Lists permission keys available for role templates, overlays, and user overrides."
         ),
     },
@@ -147,15 +147,6 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
 
 
 _ACCESS_CONTROL_SUMMARY_OVERRIDES: dict[tuple[str, str], str] = {
-    ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions", "get"): "Effective permissions for store user",
-    ("/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}", "get"): "Get tenant role policy",
-    ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}", "get"): "Get store role policy",
-    ("/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides", "get"): "Get user permission overrides",
-    ("/aris3/access-control/platform/role-policies/{role_name}", "get"): "Get platform role policy",
-    ("/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}", "put"): "Replace tenant role policy",
-    ("/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}", "put"): "Replace store role policy",
-    ("/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides", "put"): "Replace user permission overrides",
-    ("/aris3/access-control/platform/role-policies/{role_name}", "put"): "Replace platform role policy",
     ("/aris3/admin/access-control/role-templates/{role_name}", "put"): "Replace admin role template",
     ("/aris3/admin/access-control/user-overrides/{user_id}", "patch"): "Patch user overrides (admin)",
 }
@@ -264,7 +255,7 @@ def _operation_id(method: str, path: str) -> str:
 
 def _assign_tag(path: str) -> str | None:
     if path.startswith("/aris3/access-control"):
-        return "Access Control Scoped"
+        return "Access Control (Self)"
     if path.startswith("/aris3/admin/access-control"):
         return "Admin Access Control"
     if path.startswith("/aris3/admin/tenants"):
@@ -289,13 +280,10 @@ def _apply_access_control_descriptions(path: str, method: str, operation: dict) 
     )
 
     if path.startswith("/aris3/access-control"):
-        if _is_explicit_scope_path(path):
-            context = "Scoped endpoint with explicit tenant/store/user identifiers in the request path."
+        if method == "get":
+            context = "Self-context endpoint resolved from the authenticated request context."
         else:
-            if method == "get":
-                context = "Scoped endpoint resolved from authenticated context and optional query parameters."
-            else:
-                context = "Scoped endpoint resolved from authenticated context and optional request body/query parameters."
+            context = "Self-context endpoint resolved from the authenticated request context."
         operation["description"] = f"{context}\n\n{hierarchy}"
 
     if path.startswith("/aris3/admin/access-control"):
@@ -331,6 +319,32 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         "description": "Validation error",
         "content": {"application/json": {"schema": {"$ref": VALIDATION_ERROR_REF}}},
     }
+
+    if path.startswith("/aris3/admin/access-control"):
+        responses.setdefault(
+            "401",
+            {
+                "description": "Unauthorized",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                        "example": {"code": "INVALID_TOKEN", "message": "Invalid token", "details": None, "trace_id": "trace-123"},
+                    }
+                },
+            },
+        )
+        responses.setdefault(
+            "403",
+            {
+                "description": "Forbidden",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                        "example": {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": None, "trace_id": "trace-123"},
+                    }
+                },
+            },
+        )
 
     explicit_identifier_path = any(token in path for token in ("{tenant_id}", "{store_id}", "{user_id}"))
     should_include_404 = (method in {"get", "put", "patch", "delete"} and explicit_identifier_path) or (

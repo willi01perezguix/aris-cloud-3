@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.aris3.db.models import Transfer, TransferLine, TransferMovement
 
@@ -17,6 +17,7 @@ class TransferQueryFilters:
     page_size: int = 50
     sort_by: str = "created_at"
     sort_dir: str = "desc"
+    visible_store_ids: set[str] | None = None
 
 
 class TransferRepository:
@@ -26,6 +27,16 @@ class TransferRepository:
     def list_transfers(self, filters: TransferQueryFilters) -> tuple[list[Transfer], int]:
         query = select(Transfer).where(Transfer.tenant_id == filters.tenant_id)
         count_query = select(func.count()).select_from(Transfer).where(Transfer.tenant_id == filters.tenant_id)
+
+        if filters.visible_store_ids is not None:
+            if not filters.visible_store_ids:
+                return [], 0
+            scoped_condition = or_(
+                Transfer.origin_store_id.in_(filters.visible_store_ids),
+                Transfer.destination_store_id.in_(filters.visible_store_ids),
+            )
+            query = query.where(scoped_condition)
+            count_query = count_query.where(scoped_condition)
 
         if filters.status:
             query = query.where(Transfer.status == filters.status)

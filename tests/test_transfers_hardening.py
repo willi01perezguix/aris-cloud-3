@@ -217,3 +217,27 @@ def test_transfers_filters_scope_and_stores_endpoint(client, db_session):
     )
     assert detail.status_code == 200
     assert detail.json()["lines"][0]["snapshot"]["image_thumb_url"] == "https://example.com/thumb.png"
+
+
+def test_transfer_rejects_cross_tenant_query_scope_even_if_client_sends_tenant_id(client, db_session):
+    run_seed(db_session)
+    tenant, store, other_store, user = _create_tenant_user(db_session, suffix="h-6")
+    tenant_b, _store_b, _other_b, _user_b = _create_tenant_user(db_session, suffix="h-7")
+    token = _login(client, user.username, "Pass1234!")
+    epc = "D" * 24
+    _seed_epc_stock(db_session, tenant.id, store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "tr-hard-12"},
+        json={**_transfer_payload(str(store.id), str(other_store.id), epc), "tenant_id": str(tenant_b.id)},
+    )
+    assert create.status_code == 403
+    assert create.json()["code"] == ErrorCatalog.CROSS_TENANT_ACCESS_DENIED.code
+
+    rows = client.get(
+        f"/aris3/transfers?tenant_id={tenant_b.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert rows.status_code == 403
+    assert rows.json()["code"] == ErrorCatalog.CROSS_TENANT_ACCESS_DENIED.code

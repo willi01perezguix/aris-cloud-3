@@ -74,6 +74,30 @@ def require_permission(permission_key: str):
     return dependency
 
 
+def require_any_permission(permission_keys: list[str] | tuple[str, ...]):
+    keys = [key.strip() for key in permission_keys if key and key.strip()]
+
+    def dependency(
+        request: Request,
+        token_data: TokenData = Depends(get_current_token_data),
+        context: RequestContext = Depends(require_request_context),
+        db=Depends(get_db),
+    ):
+        cache = getattr(request.state, "permission_cache", None)
+        if cache is None:
+            cache = {}
+            request.state.permission_cache = cache
+        service = AccessControlService(db, cache=cache)
+        for permission_key in keys:
+            decision = service.evaluate_permission(permission_key, context, token_data)
+            if decision.allowed:
+                return decision
+        metrics.increment_rbac_denied()
+        raise AppError(ErrorCatalog.PERMISSION_DENIED)
+
+    return dependency
+
+
 __all__ = [
     "get_current_token_data",
     "get_current_user",
@@ -81,4 +105,5 @@ __all__ = [
     "require_request_context",
     "get_request_context",
     "require_permission",
+    "require_any_permission",
 ]

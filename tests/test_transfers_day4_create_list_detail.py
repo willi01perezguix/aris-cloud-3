@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import Store, Tenant, User
+from app.aris3.db.models import StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
 
 
@@ -34,6 +34,63 @@ def _create_tenant_user(db_session, *, suffix: str, role: str = "ADMIN"):
     db_session.add_all([tenant, store, other_store, user])
     db_session.commit()
     return tenant, store, other_store, user
+
+
+
+
+def _seed_stock_for_transfer(db_session, tenant_id, store_id):
+    db_session.add(
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            store_id=store_id,
+            sku="SKU-1",
+            description="Blue Jacket",
+            var1_value="Blue",
+            var2_value="L",
+            epc="A" * 24,
+            location_code="LOC-1",
+            pool="P1",
+            status="RFID",
+            location_is_vendible=True,
+            image_asset_id=uuid.uuid4(),
+            image_url="https://example.com/img.png",
+            image_thumb_url="https://example.com/thumb.png",
+            image_source="catalog",
+            image_updated_at=datetime.utcnow(),
+        )
+    )
+    db_session.add_all([
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            store_id=store_id,
+            sku="SKU-2",
+            description="Green Tee",
+            var1_value="Green",
+            var2_value="M",
+            epc=None,
+            location_code="LOC-1",
+            pool="P1",
+            status="RFID",
+            location_is_vendible=True,
+        ),
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            store_id=store_id,
+            sku="SKU-2",
+            description="Green Tee",
+            var1_value="Green",
+            var2_value="M",
+            epc=None,
+            location_code="LOC-1",
+            pool="P1",
+            status="RFID",
+            location_is_vendible=True,
+        ),
+    ])
+    db_session.commit()
 
 
 def _transfer_payload(origin_store_id: str, destination_store_id: str):
@@ -79,7 +136,7 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str):
                     "epc": None,
                     "location_code": "LOC-1",
                     "pool": "P1",
-                    "status": "PENDING",
+                    "status": "RFID",
                     "location_is_vendible": True,
                     "image_asset_id": str(uuid.uuid4()),
                     "image_url": "https://example.com/img2.png",
@@ -97,6 +154,7 @@ def test_transfer_create_list_detail(client, db_session):
     tenant, store, other_store, user = _create_tenant_user(db_session, suffix="create")
     token = _login(client, user.username, "Pass1234!")
 
+    _seed_stock_for_transfer(db_session, tenant.id, store.id)
     payload = _transfer_payload(str(store.id), str(other_store.id))
     response = client.post(
         "/aris3/transfers",
@@ -131,6 +189,7 @@ def test_transfer_list_tenant_scoped(client, db_session):
     tenant_b, store_b, other_store_b, user_b = _create_tenant_user(db_session, suffix="list-b")
 
     token_a = _login(client, user_a.username, "Pass1234!")
+    _seed_stock_for_transfer(db_session, tenant_a.id, store_a.id)
     payload = _transfer_payload(str(store_a.id), str(other_store_a.id))
     create_response = client.post(
         "/aris3/transfers",
@@ -170,6 +229,7 @@ def test_transfer_create_bodega_to_store_same_tenant(client, db_session):
     db_session.commit()
     token = _login(client, user.username, "Pass1234!")
 
+    _seed_stock_for_transfer(db_session, tenant.id, bodega_store.id)
     payload = _transfer_payload(str(bodega_store.id), str(store.id))
     response = client.post(
         "/aris3/transfers",

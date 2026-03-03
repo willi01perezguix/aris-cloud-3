@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete
-from sqlalchemy import select
+from sqlalchemy import and_, delete, or_, select
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
@@ -20,8 +19,11 @@ from app.aris3.schemas.transfers import (
     TransferLineCreate,
     TransferLineResponse,
     TransferLineSnapshot,
+    TransferListMeta,
     TransferListResponse,
     TransferResponse,
+    TransferStoreListResponse,
+    TransferStoreResponse,
     TransferUpdateRequest,
 )
 from app.aris3.services.audit import AuditEventPayload, AuditService
@@ -31,6 +33,168 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 router = APIRouter()
 _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_RECEIVE_POOL = "SALE"
+_BROAD_ACCESS_ROLES = {"SUPERADMIN", "PLATFORM_ADMIN", "ADMIN"}
+_ACTIVE_TRANSFER_STATUSES = {"DRAFT", "DISPATCHED", "PARTIAL_RECEIVED"}
+
+
+def _normalized_role(token_data) -> str:
+    return (getattr(token_data, "role", None) or "").upper()
+
+
+def _has_broad_transfer_scope(token_data) -> bool:
+    return _normalized_role(token_data) in _BROAD_ACCESS_ROLES
+
+
+def _enforce_origin_store_scope(token_data, origin_store_id: str) -> None:
+    if _has_broad_transfer_scope(token_data):
+        return
+    if not token_data.store_id or str(token_data.store_id) != str(origin_store_id):
+        raise AppError(
+            ErrorCatalog.STORE_SCOPE_MISMATCH,
+            details={"message": "origin store is outside user scope", "origin_store_id": origin_store_id},
+        )
+
+
+def _enforce_destination_store_scope(token_data, destination_store_id: str) -> None:
+    if _has_broad_transfer_scope(token_data):
+        return
+    if not token_data.store_id or str(token_data.store_id) != str(destination_store_id):
+        raise AppError(
+            ErrorCatalog.STORE_SCOPE_MISMATCH,
+            details={"message": "destination store is outside user scope", "destination_store_id": destination_store_id},
+        )
+
+
+def _is_visible_transfer(token_data, transfer: Transfer) -> bool:
+    if _has_broad_transfer_scope(token_data):
+        return True
+    user_store_id = str(token_data.store_id) if token_data.store_id else None
+    if not user_store_id:
+        return False
+    return user_store_id in {str(transfer.origin_store_id), str(transfer.destination_store_id)}
+
+
+def _stock_snapshot_from_item(item: StockItem) -> dict:
+    return {
+        "sku": item.sku,
+        "description": item.description,
+        "var1_value": item.var1_value,
+        "var2_value": item.var2_value,
+        "cost_price": item.cost_price,
+        "suggested_price": item.suggested_price,
+        "sale_price": item.sale_price,
+        "epc": item.epc,
+        "location_code": item.location_code,
+        "pool": item.pool,
+        "status": item.status,
+        "location_is_vendible": item.location_is_vendible,
+        "image_asset_id": item.image_asset_id,
+        "image_url": item.image_url,
+        "image_thumb_url": item.image_thumb_url,
+        "image_source": item.image_source,
+        "image_updated_at": item.image_updated_at,
+    }
+
+
+def _active_transfer_line_exists(db, *, tenant_id: str, line: TransferLineCreate, exclude_transfer_id: str | None = None) -> bool:
+    conditions = [
+        TransferLine.tenant_id == tenant_id,
+        Transfer.id == TransferLine.transfer_id,
+        Transfer.tenant_id == tenant_id,
+        Transfer.status.in_(_ACTIVE_TRANSFER_STATUSES),
+    ]
+    if exclude_transfer_id:
+        conditions.append(Transfer.id != exclude_transfer_id)
+    if line.line_type == "EPC":
+        conditions.append(TransferLine.epc == line.snapshot.epc)
+    else:
+        conditions.extend(
+            [
+                TransferLine.sku == line.snapshot.sku,
+                TransferLine.description == line.snapshot.description,
+                TransferLine.var1_value == line.snapshot.var1_value,
+                TransferLine.var2_value == line.snapshot.var2_value,
+                TransferLine.location_code == line.snapshot.location_code,
+                TransferLine.pool == line.snapshot.pool,
+                TransferLine.status == line.snapshot.status,
+            ]
+        )
+    query = select(TransferLine.id).join(Transfer, Transfer.id == TransferLine.transfer_id).where(and_(*conditions)).limit(1)
+    return db.execute(query).scalars().first() is not None
+
+
+def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: TransferLineCreate, exclude_transfer_id: str | None = None) -> dict:
+    _validate_transfer_snapshot(line)
+    if line.snapshot.status == "PENDING":
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "PENDING stock is not transferable"})
+
+    if line.line_type == "EPC":
+        stock_row = (
+            db.execute(
+                select(StockItem)
+                .where(
+                    StockItem.tenant_id == tenant_id,
+                    or_(StockItem.store_id == origin_store_id, StockItem.store_id.is_(None)),
+                    StockItem.epc == line.snapshot.epc,
+                )
+                .with_for_update()
+            )
+            .scalars()
+            .first()
+        )
+        if not stock_row:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not found in origin store", "epc": line.snapshot.epc})
+        if stock_row.status == "PENDING":
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "PENDING stock is not transferable", "epc": line.snapshot.epc})
+    else:
+        stock_rows = (
+            db.execute(
+                select(StockItem)
+                .where(
+                    StockItem.tenant_id == tenant_id,
+                    or_(StockItem.store_id == origin_store_id, StockItem.store_id.is_(None)),
+                    StockItem.sku == line.snapshot.sku,
+                    StockItem.description == line.snapshot.description,
+                    StockItem.var1_value == line.snapshot.var1_value,
+                    StockItem.var2_value == line.snapshot.var2_value,
+                    StockItem.epc.is_(None),
+                    StockItem.location_code == line.snapshot.location_code,
+                    StockItem.pool == line.snapshot.pool,
+                    StockItem.status == line.snapshot.status,
+                    StockItem.status != "PENDING",
+                    StockItem.pool != _IN_TRANSIT_CODE,
+                    StockItem.location_code != _IN_TRANSIT_CODE,
+                )
+                .order_by(StockItem.created_at.asc())
+                .limit(line.qty)
+                .with_for_update()
+            )
+            .scalars()
+            .all()
+        )
+        if len(stock_rows) < line.qty:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "insufficient transferable stock for SKU line", "sku": line.snapshot.sku})
+        stock_row = stock_rows[0]
+
+    if _active_transfer_line_exists(db, tenant_id=tenant_id, line=line, exclude_transfer_id=exclude_transfer_id):
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "stock is already committed in an active transfer"})
+
+    return {"line_type": line.line_type, "qty": line.qty, "snapshot": _stock_snapshot_from_item(stock_row)}
+
+
+def _normalize_transfer_lines(db, *, tenant_id: str, origin_store_id: str, lines: list[TransferLineCreate], exclude_transfer_id: str | None = None) -> list[dict]:
+    normalized: list[dict] = []
+    for line in lines:
+        normalized.append(
+            _normalize_transfer_line(
+                db,
+                tenant_id=tenant_id,
+                origin_store_id=origin_store_id,
+                line=line,
+                exclude_transfer_id=exclude_transfer_id,
+            )
+        )
+    return normalized
 
 
 
@@ -269,19 +433,62 @@ def _transfer_response(repo: TransferRepository, transfer: Transfer, lines: list
 
 @router.get("/aris3/transfers", response_model=TransferListResponse)
 def list_transfers(
+    status: str | None = Query(default=None),
+    origin_store_id: str | None = Query(default=None),
+    destination_store_id: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    sort_by: str = Query(default="created_at"),
+    sort_dir: str = Query(default="desc"),
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("TRANSFER_VIEW")),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id or token_data.tenant_id)
+    if sort_by not in {"created_at", "updated_at"}:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid sort_by"})
+    if sort_dir not in {"asc", "desc"}:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid sort_dir"})
+
+    repo = TransferRepository(db)
+    rows, total = repo.list_transfers(
+        TransferQueryFilters(
+            tenant_id=scoped_tenant_id,
+            status=status,
+            origin_store_id=origin_store_id,
+            destination_store_id=destination_store_id,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
+    responses = []
+    for transfer in rows:
+        if not _is_visible_transfer(token_data, transfer):
+            continue
+        lines = repo.get_lines(_normalize_uuid(transfer.id))
+        responses.append(_transfer_response(repo, transfer, lines))
+    response = TransferListResponse(rows=responses)
+    response_dict = response.model_dump(mode="json")
+    response_dict["meta"] = TransferListMeta(page=page, page_size=page_size, total=total).model_dump(mode="json")
+    return JSONResponse(content=response_dict)
+
+
+@router.get("/aris3/stores", response_model=TransferStoreListResponse)
+def list_tenant_stores(
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("TRANSFER_VIEW")),
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
-    repo = TransferRepository(db)
-    rows = repo.list_transfers(TransferQueryFilters(tenant_id=scoped_tenant_id))
-    responses = []
-    for transfer in rows:
-        lines = repo.get_lines(_normalize_uuid(transfer.id))
-        responses.append(_transfer_response(repo, transfer, lines))
-    return TransferListResponse(rows=responses)
+    rows = db.execute(select(Store).where(Store.tenant_id == scoped_tenant_id).order_by(Store.name.asc())).scalars().all()
+    return TransferStoreListResponse(
+        rows=[TransferStoreResponse(id=_normalize_uuid(row.id), code=row.name, name=row.name, active=True) for row in rows]
+    )
 
 
 @router.post("/aris3/transfers", response_model=TransferResponse, status_code=201)
@@ -302,6 +509,7 @@ def create_transfer(
         )
     _ensure_store_tenant(db, scoped_tenant_id, payload.origin_store_id, field_name="origin_store_id")
     _ensure_store_tenant(db, scoped_tenant_id, payload.destination_store_id, field_name="destination_store_id")
+    _enforce_origin_store_scope(token_data, payload.origin_store_id)
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -326,8 +534,12 @@ def create_transfer(
             details={"message": "lines must not be empty"},
         )
 
-    for line in payload.lines:
-        _validate_transfer_snapshot(line)
+    normalized_lines = _normalize_transfer_lines(
+        db,
+        tenant_id=scoped_tenant_id,
+        origin_store_id=payload.origin_store_id,
+        lines=payload.lines,
+    )
 
     transfer = Transfer(
         tenant_id=scoped_tenant_id,
@@ -341,31 +553,31 @@ def create_transfer(
     db.flush()
 
     lines = []
-    for line in payload.lines:
-        snapshot = line.snapshot
+    for line in normalized_lines:
+        snapshot = line["snapshot"]
         lines.append(
             TransferLine(
                 transfer_id=transfer.id,
                 tenant_id=scoped_tenant_id,
-                line_type=line.line_type,
-                qty=line.qty,
-                sku=snapshot.sku,
-                description=snapshot.description,
-                var1_value=snapshot.var1_value,
-                var2_value=snapshot.var2_value,
-                cost_price=snapshot.cost_price,
-                suggested_price=snapshot.suggested_price,
-                sale_price=snapshot.sale_price,
-                epc=snapshot.epc,
-                location_code=snapshot.location_code,
-                pool=snapshot.pool,
-                status=snapshot.status,
-                location_is_vendible=snapshot.location_is_vendible,
-                image_asset_id=snapshot.image_asset_id,
-                image_url=snapshot.image_url,
-                image_thumb_url=snapshot.image_thumb_url,
-                image_source=snapshot.image_source,
-                image_updated_at=snapshot.image_updated_at,
+                line_type=line["line_type"],
+                qty=line["qty"],
+                sku=snapshot["sku"],
+                description=snapshot["description"],
+                var1_value=snapshot["var1_value"],
+                var2_value=snapshot["var2_value"],
+                cost_price=snapshot["cost_price"],
+                suggested_price=snapshot["suggested_price"],
+                sale_price=snapshot["sale_price"],
+                epc=snapshot["epc"],
+                location_code=snapshot["location_code"],
+                pool=snapshot["pool"],
+                status=snapshot["status"],
+                location_is_vendible=snapshot["location_is_vendible"],
+                image_asset_id=snapshot["image_asset_id"],
+                image_url=snapshot["image_url"],
+                image_thumb_url=snapshot["image_thumb_url"],
+                image_source=snapshot["image_source"],
+                image_updated_at=snapshot["image_updated_at"],
             )
         )
     db.add_all(lines)
@@ -424,7 +636,15 @@ def update_transfer(
     request.state.idempotency = context
 
     repo = TransferRepository(db)
-    transfer = repo.get_transfer(transfer_id, scoped_tenant_id)
+    transfer = (
+        db.execute(
+            select(Transfer)
+            .where(Transfer.id == transfer_id, Transfer.tenant_id == scoped_tenant_id)
+            .with_for_update()
+        )
+        .scalars()
+        .first()
+    )
     if not transfer:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "transfer not found"})
     if transfer.status != "DRAFT":
@@ -433,18 +653,20 @@ def update_transfer(
             details={"message": "only draft transfers can be updated"},
         )
 
-    if payload.origin_store_id and payload.destination_store_id:
-        if payload.origin_store_id == payload.destination_store_id:
-            raise AppError(
-                ErrorCatalog.VALIDATION_ERROR,
-                details={"message": "origin_store_id and destination_store_id must differ"},
-            )
-    if payload.origin_store_id:
-        _ensure_store_tenant(db, scoped_tenant_id, payload.origin_store_id, field_name="origin_store_id")
-        transfer.origin_store_id = payload.origin_store_id
-    if payload.destination_store_id:
-        _ensure_store_tenant(db, scoped_tenant_id, payload.destination_store_id, field_name="destination_store_id")
-        transfer.destination_store_id = payload.destination_store_id
+    current_origin_store_id = str(payload.origin_store_id or transfer.origin_store_id)
+    current_destination_store_id = str(payload.destination_store_id or transfer.destination_store_id)
+    if current_origin_store_id == current_destination_store_id:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "origin_store_id and destination_store_id must differ"},
+        )
+
+    _ensure_store_tenant(db, scoped_tenant_id, current_origin_store_id, field_name="origin_store_id")
+    _ensure_store_tenant(db, scoped_tenant_id, current_destination_store_id, field_name="destination_store_id")
+    _enforce_origin_store_scope(token_data, current_origin_store_id)
+
+    transfer.origin_store_id = current_origin_store_id
+    transfer.destination_store_id = current_destination_store_id
 
     if payload.lines is not None:
         if not payload.lines:
@@ -452,35 +674,40 @@ def update_transfer(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "lines must not be empty"},
             )
-        for line in payload.lines:
-            _validate_transfer_snapshot(line)
+        normalized_lines = _normalize_transfer_lines(
+            db,
+            tenant_id=scoped_tenant_id,
+            origin_store_id=current_origin_store_id,
+            lines=payload.lines,
+            exclude_transfer_id=transfer_id,
+        )
         db.execute(delete(TransferLine).where(TransferLine.transfer_id == transfer.id))
         new_lines = []
-        for line in payload.lines:
-            snapshot = line.snapshot
+        for line in normalized_lines:
+            snapshot = line["snapshot"]
             new_lines.append(
                 TransferLine(
                     transfer_id=transfer.id,
                     tenant_id=scoped_tenant_id,
-                    line_type=line.line_type,
-                    qty=line.qty,
-                    sku=snapshot.sku,
-                    description=snapshot.description,
-                    var1_value=snapshot.var1_value,
-                    var2_value=snapshot.var2_value,
-                    cost_price=snapshot.cost_price,
-                    suggested_price=snapshot.suggested_price,
-                    sale_price=snapshot.sale_price,
-                    epc=snapshot.epc,
-                    location_code=snapshot.location_code,
-                    pool=snapshot.pool,
-                    status=snapshot.status,
-                    location_is_vendible=snapshot.location_is_vendible,
-                    image_asset_id=snapshot.image_asset_id,
-                    image_url=snapshot.image_url,
-                    image_thumb_url=snapshot.image_thumb_url,
-                    image_source=snapshot.image_source,
-                    image_updated_at=snapshot.image_updated_at,
+                    line_type=line["line_type"],
+                    qty=line["qty"],
+                    sku=snapshot["sku"],
+                    description=snapshot["description"],
+                    var1_value=snapshot["var1_value"],
+                    var2_value=snapshot["var2_value"],
+                    cost_price=snapshot["cost_price"],
+                    suggested_price=snapshot["suggested_price"],
+                    sale_price=snapshot["sale_price"],
+                    epc=snapshot["epc"],
+                    location_code=snapshot["location_code"],
+                    pool=snapshot["pool"],
+                    status=snapshot["status"],
+                    location_is_vendible=snapshot["location_is_vendible"],
+                    image_asset_id=snapshot["image_asset_id"],
+                    image_url=snapshot["image_url"],
+                    image_thumb_url=snapshot["image_thumb_url"],
+                    image_source=snapshot["image_source"],
+                    image_updated_at=snapshot["image_updated_at"],
                 )
             )
         db.add_all(new_lines)
@@ -521,7 +748,7 @@ def get_transfer_detail(
     scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     repo = TransferRepository(db)
     transfer = repo.get_transfer(transfer_id, scoped_tenant_id)
-    if not transfer:
+    if not transfer or not _is_visible_transfer(token_data, transfer):
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "transfer not found"})
     lines = repo.get_lines(transfer_id)
     return _transfer_response(repo, transfer, lines)
@@ -572,6 +799,7 @@ def transfer_actions(
 
     action = payload.action
     if action == "dispatch":
+        _enforce_origin_store_scope(token_data, str(transfer.origin_store_id))
         if transfer.status != "DRAFT":
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
@@ -597,8 +825,10 @@ def transfer_actions(
                         .where(
                             StockItem.tenant_id == scoped_tenant_id,
                             StockItem.epc == line.epc,
+                            or_(StockItem.store_id == transfer.origin_store_id, StockItem.store_id.is_(None)),
                             StockItem.location_code == line.location_code,
                             StockItem.pool == line.pool,
+                            StockItem.status != "PENDING",
                         )
                         .with_for_update()
                     )
@@ -612,6 +842,7 @@ def transfer_actions(
                     )
                 row.location_code = _IN_TRANSIT_CODE
                 row.pool = _IN_TRANSIT_CODE
+                row.store_id = transfer.origin_store_id
                 row.location_is_vendible = False
                 row.updated_at = datetime.utcnow()
                 movements.append(
@@ -635,6 +866,7 @@ def transfer_actions(
                         select(StockItem)
                         .where(
                             StockItem.tenant_id == scoped_tenant_id,
+                            or_(StockItem.store_id == transfer.origin_store_id, StockItem.store_id.is_(None)),
                             StockItem.sku == line.sku,
                             StockItem.description == line.description,
                             StockItem.var1_value == line.var1_value,
@@ -643,6 +875,7 @@ def transfer_actions(
                             StockItem.location_code == line.location_code,
                             StockItem.pool == line.pool,
                             StockItem.status == line.status,
+                            StockItem.status != "PENDING",
                         )
                         .with_for_update()
                         .order_by(StockItem.created_at.asc())
@@ -659,6 +892,7 @@ def transfer_actions(
                 for row in pending_rows:
                     row.location_code = _IN_TRANSIT_CODE
                     row.pool = _IN_TRANSIT_CODE
+                    row.store_id = transfer.origin_store_id
                     row.location_is_vendible = False
                     row.updated_at = datetime.utcnow()
                 movements.append(
@@ -705,7 +939,7 @@ def transfer_actions(
         return response
 
     if action == "receive":
-        _require_destination_user(current_user, transfer)
+        _enforce_destination_store_scope(token_data, str(transfer.destination_store_id))
         if transfer.status not in {"DISPATCHED", "PARTIAL_RECEIVED"}:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
@@ -761,6 +995,7 @@ def transfer_actions(
                         .where(
                             StockItem.tenant_id == scoped_tenant_id,
                             StockItem.epc == line.epc,
+                            or_(StockItem.store_id == transfer.origin_store_id, StockItem.store_id.is_(None)),
                             StockItem.location_code == _IN_TRANSIT_CODE,
                             StockItem.pool == _IN_TRANSIT_CODE,
                         )
@@ -776,6 +1011,7 @@ def transfer_actions(
                     )
                 row.location_code = target_location_code
                 row.pool = target_pool
+                row.store_id = transfer.destination_store_id
                 row.location_is_vendible = target_is_vendible
                 row.updated_at = datetime.utcnow()
             else:
@@ -784,6 +1020,7 @@ def transfer_actions(
                         select(StockItem)
                         .where(
                             StockItem.tenant_id == scoped_tenant_id,
+                            or_(StockItem.store_id == transfer.origin_store_id, StockItem.store_id.is_(None)),
                             StockItem.sku == line.sku,
                             StockItem.description == line.description,
                             StockItem.var1_value == line.var1_value,
@@ -792,6 +1029,7 @@ def transfer_actions(
                             StockItem.location_code == _IN_TRANSIT_CODE,
                             StockItem.pool == _IN_TRANSIT_CODE,
                             StockItem.status == line.status,
+                            StockItem.status != "PENDING",
                         )
                         .with_for_update()
                         .order_by(StockItem.created_at.asc())
@@ -811,6 +1049,7 @@ def transfer_actions(
                 for row in pending_rows:
                     row.location_code = target_location_code
                     row.pool = target_pool
+                    row.store_id = transfer.destination_store_id
                     row.location_is_vendible = target_is_vendible
                     row.updated_at = datetime.utcnow()
 
@@ -877,7 +1116,7 @@ def transfer_actions(
         return response
 
     if action == "report_shortages":
-        _require_destination_user(current_user, transfer)
+        _enforce_destination_store_scope(token_data, str(transfer.destination_store_id))
         if transfer.status not in {"DISPATCHED", "PARTIAL_RECEIVED"}:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
@@ -977,7 +1216,7 @@ def transfer_actions(
         return response
 
     if action == "resolve_shortages":
-        _require_destination_user(current_user, transfer)
+        _enforce_destination_store_scope(token_data, str(transfer.destination_store_id))
         if transfer.status not in {"DISPATCHED", "PARTIAL_RECEIVED"}:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
@@ -1076,7 +1315,8 @@ def transfer_actions(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == scoped_tenant_id,
-                                StockItem.sku == line.sku,
+                                or_(StockItem.store_id == transfer.origin_store_id, StockItem.store_id.is_(None)),
+                            StockItem.sku == line.sku,
                                 StockItem.description == line.description,
                                 StockItem.var1_value == line.var1_value,
                                 StockItem.var2_value == line.var2_value,
@@ -1084,6 +1324,7 @@ def transfer_actions(
                                 StockItem.location_code == _IN_TRANSIT_CODE,
                                 StockItem.pool == _IN_TRANSIT_CODE,
                                 StockItem.status == line.status,
+                            StockItem.status != "PENDING",
                             )
                             .with_for_update()
                             .order_by(StockItem.created_at.asc())

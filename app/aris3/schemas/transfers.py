@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 _TRANSFER_LINE_SNAPSHOT_EXAMPLE = {
@@ -70,7 +70,7 @@ class TransferLineResponse(BaseModel):
 
 class TransferCreateRequest(BaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     origin_store_id: str
     destination_store_id: str
     lines: list[TransferLineCreate]
@@ -78,7 +78,7 @@ class TransferCreateRequest(BaseModel):
 
 class TransferUpdateRequest(BaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     origin_store_id: str | None = None
     destination_store_id: str | None = None
     lines: list[TransferLineCreate] | None = None
@@ -111,7 +111,7 @@ class TransferShortageResolution(BaseModel):
 
 class TransferActionRequest(BaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     action: Literal["dispatch", "cancel", "receive", "report_shortages", "resolve_shortages"]
     receive_lines: list[TransferReceiveLine] | None = None
     shortages: list[TransferShortageLine] | None = None

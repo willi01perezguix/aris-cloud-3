@@ -115,7 +115,7 @@ def _tenant_id_or_error(token_data) -> str:
     return token_data.tenant_id
 
 
-def _resolve_variant_fields_tenant_id(*, token_data, current_user: User, requested_tenant_id: str | None, db) -> str:
+def _resolve_settings_tenant_id(*, token_data, current_user: User, requested_tenant_id: str | None, db) -> str:
     user_role = (current_user.role or "").upper()
     token_tenant_id = token_data.tenant_id
 
@@ -546,12 +546,18 @@ def _return_policy_response(settings: ReturnPolicySettings | None, trace_id: str
 @router.get("/settings/return-policy", response_model=ReturnPolicySettingsResponse)
 async def get_return_policy(
     request: Request,
+    tenant_id: str | None = Query(default=None, description="Optional tenant scope for superadmin; required for superadmin."),
     token_data=Depends(get_current_token_data),
-    _current_user=Depends(require_active_user),
-    _permission=Depends(require_permission("TENANT_VIEW")),
+    current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("SETTINGS_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
+    tenant_id = _resolve_settings_tenant_id(
+        token_data=token_data,
+        current_user=current_user,
+        requested_tenant_id=tenant_id,
+        db=db,
+    )
     settings = ReturnPolicySettingsRepository(db).get_by_tenant_id(tenant_id)
     return _return_policy_response(settings, getattr(request.state, "trace_id", ""))
 
@@ -566,12 +572,18 @@ async def get_return_policy(
 async def patch_return_policy(
     request: Request,
     payload: ReturnPolicySettingsPatchRequest,
+    tenant_id: str | None = Query(default=None, description="Optional tenant scope for superadmin; required for superadmin."),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("SETTINGS_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
+    tenant_id = _resolve_settings_tenant_id(
+        token_data=token_data,
+        current_user=current_user,
+        requested_tenant_id=tenant_id,
+        db=db,
+    )
     if all(
         value is None
         for value in [
@@ -2469,7 +2481,7 @@ async def get_variant_fields(
     _permission=Depends(require_permission("TENANT_VIEW")),
     db=Depends(get_db),
 ):
-    resolved_tenant_id = _resolve_variant_fields_tenant_id(
+    resolved_tenant_id = _resolve_settings_tenant_id(
         token_data=token_data,
         current_user=current_user,
         requested_tenant_id=tenant_id,
@@ -2502,7 +2514,7 @@ async def patch_variant_fields(
     _permission=Depends(require_permission("SETTINGS_MANAGE")),
     db=Depends(get_db),
 ):
-    resolved_tenant_id = _resolve_variant_fields_tenant_id(
+    resolved_tenant_id = _resolve_settings_tenant_id(
         token_data=token_data,
         current_user=current_user,
         requested_tenant_id=tenant_id,

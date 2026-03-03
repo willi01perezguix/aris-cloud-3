@@ -85,6 +85,7 @@ async def effective_permissions(
 
 @router.get(
     "/effective-permissions/users/{user_id}",
+    deprecated=True,
     response_model=EffectivePermissionsResponse,
     summary="Resolve effective permissions for user",
     description="Computes effective permissions for a target user using full policy layering.",
@@ -160,6 +161,7 @@ async def effective_permissions_for_user(
 
 @router.get(
     "/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions",
+    deprecated=True,
     response_model=EffectivePermissionsResponse,
 )
 async def effective_permissions_for_store_user(
@@ -260,7 +262,7 @@ async def permission_catalog(
     )
 
 
-@router.get("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse)
+@router.get("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
 async def get_tenant_role_policy(
     request: Request,
     tenant_id: str,
@@ -282,7 +284,7 @@ async def get_tenant_role_policy(
     )
 
 
-@router.put("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse)
+@router.put("/tenants/{tenant_id}/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
 async def replace_tenant_role_policy(
     request: Request,
     tenant_id: str,
@@ -353,6 +355,7 @@ async def replace_tenant_role_policy(
 @router.get(
     "/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
     response_model=StoreRolePolicyResponse,
+    deprecated=True,
 )
 async def get_store_role_policy(
     request: Request,
@@ -393,6 +396,7 @@ async def get_store_role_policy(
 @router.put(
     "/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
     response_model=StoreRolePolicyResponse,
+    deprecated=True,
 )
 async def replace_store_role_policy(
     request: Request,
@@ -473,7 +477,7 @@ async def replace_store_role_policy(
     return response
 
 
-@router.get("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse)
+@router.get("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse, deprecated=True)
 async def get_user_permission_overrides(
     request: Request,
     tenant_id: str,
@@ -499,7 +503,7 @@ async def get_user_permission_overrides(
     )
 
 
-@router.put("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse)
+@router.put("/tenants/{tenant_id}/users/{user_id}/permission-overrides", response_model=UserPermissionOverrideResponse, deprecated=True)
 async def replace_user_permission_overrides(
     request: Request,
     tenant_id: str,
@@ -572,7 +576,7 @@ async def replace_user_permission_overrides(
     return response
 
 
-@router.get("/platform/role-policies/{role_name}", response_model=RolePolicyResponse)
+@router.get("/platform/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
 async def get_platform_role_policy(
     request: Request,
     role_name: str,
@@ -593,7 +597,7 @@ async def get_platform_role_policy(
     )
 
 
-@router.put("/platform/role-policies/{role_name}", response_model=RolePolicyResponse)
+@router.put("/platform/role-policies/{role_name}", response_model=RolePolicyResponse, deprecated=True)
 async def replace_platform_role_policy(
     request: Request,
     role_name: str,

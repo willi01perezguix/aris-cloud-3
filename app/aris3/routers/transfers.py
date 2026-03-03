@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_, delete, or_, select
 
-from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
+from app.aris3.core.deps import get_current_token_data, require_active_user, require_any_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
+from app.aris3.core.context import get_request_context
 from app.aris3.core.scope import is_superadmin
 from app.aris3.db.models import StockItem, Store, Transfer, TransferLine, TransferMovement
 from app.aris3.db.session import get_db
@@ -26,6 +27,7 @@ from app.aris3.schemas.transfers import (
     TransferStoreResponse,
     TransferUpdateRequest,
 )
+from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
 
@@ -199,10 +201,6 @@ def _normalize_transfer_lines(db, *, tenant_id: str, origin_store_id: str, lines
 
 
 def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
-    if is_superadmin(token_data.role):
-        if not tenant_id:
-            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED)
-        return tenant_id
     if not token_data.tenant_id:
         raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED)
     if tenant_id and tenant_id != token_data.tenant_id:
@@ -210,8 +208,30 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
     return token_data.tenant_id
 
 
+def _visible_store_ids(token_data) -> set[str] | None:
+    if _has_broad_transfer_scope(token_data):
+        return None
+    if not token_data.store_id:
+        return set()
+    return {str(token_data.store_id)}
+
+
 def _resolve_tenant_id_from_request(token_data, tenant_id: str | None) -> str:
     return _resolve_tenant_id(token_data, tenant_id)
+
+
+def _require_action_permission(request: Request, db, permission_key: str, token_data) -> None:
+    context = get_request_context(request)
+    cache = getattr(request.state, "permission_cache", None)
+    if cache is None:
+        cache = {}
+        request.state.permission_cache = cache
+    service = AccessControlService(db, cache=cache)
+    for key in (permission_key, "TRANSFER_MANAGE"):
+        decision = service.evaluate_permission(key, context, token_data)
+        if decision.allowed:
+            return
+    raise AppError(ErrorCatalog.PERMISSION_DENIED)
 
 
 def _require_transaction_id(transaction_id: str | None) -> None:
@@ -436,17 +456,18 @@ def list_transfers(
     status: str | None = Query(default=None),
     origin_store_id: str | None = Query(default=None),
     destination_store_id: str | None = Query(default=None),
-    tenant_id: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None, deprecated=True),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     sort_by: str = Query(default="created_at"),
     sort_dir: str = Query(default="desc"),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
-    _permission=Depends(require_permission("TRANSFER_VIEW")),
+    _permission=Depends(require_any_permission(("transfers.read", "TRANSFER_VIEW"))),
     db=Depends(get_db),
 ):
-    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id or token_data.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    visible_store_ids = _visible_store_ids(token_data)
     if sort_by not in {"created_at", "updated_at"}:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid sort_by"})
     if sort_dir not in {"asc", "desc"}:
@@ -463,12 +484,11 @@ def list_transfers(
             page_size=page_size,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            visible_store_ids=visible_store_ids,
         )
     )
     responses = []
     for transfer in rows:
-        if not _is_visible_transfer(token_data, transfer):
-            continue
         lines = repo.get_lines(_normalize_uuid(transfer.id))
         responses.append(_transfer_response(repo, transfer, lines))
     response = TransferListResponse(rows=responses)
@@ -481,11 +501,17 @@ def list_transfers(
 def list_tenant_stores(
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
-    _permission=Depends(require_permission("TRANSFER_VIEW")),
+    _permission=Depends(require_any_permission(("transfers.read", "TRANSFER_VIEW"))),
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
-    rows = db.execute(select(Store).where(Store.tenant_id == scoped_tenant_id).order_by(Store.name.asc())).scalars().all()
+    visible_store_ids = _visible_store_ids(token_data)
+    query = select(Store).where(Store.tenant_id == scoped_tenant_id)
+    if visible_store_ids is not None:
+        if not visible_store_ids:
+            return TransferStoreListResponse(rows=[])
+        query = query.where(Store.id.in_(visible_store_ids))
+    rows = db.execute(query.order_by(Store.name.asc())).scalars().all()
     return TransferStoreListResponse(
         rows=[TransferStoreResponse(id=_normalize_uuid(row.id), code=row.name, name=row.name, active=True) for row in rows]
     )
@@ -497,7 +523,7 @@ def create_transfer(
     payload: TransferCreateRequest,
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
-    _permission=Depends(require_permission("TRANSFER_MANAGE")),
+    _permission=Depends(require_any_permission(("transfers.create", "TRANSFER_MANAGE"))),
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
@@ -612,7 +638,7 @@ def update_transfer(
     payload: TransferUpdateRequest,
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
-    _permission=Depends(require_permission("TRANSFER_MANAGE")),
+    _permission=Depends(require_any_permission(("transfers.update", "TRANSFER_MANAGE"))),
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
@@ -742,7 +768,7 @@ def get_transfer_detail(
     transfer_id: str,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
-    _permission=Depends(require_permission("TRANSFER_VIEW")),
+    _permission=Depends(require_any_permission(("transfers.read", "TRANSFER_VIEW"))),
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
@@ -761,7 +787,7 @@ def transfer_actions(
     payload: TransferActionRequest,
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
-    _permission=Depends(require_permission("TRANSFER_MANAGE")),
+    _permission=Depends(require_any_permission(("transfers.dispatch", "transfers.receive", "transfers.cancel", "transfers.resolve", "TRANSFER_MANAGE"))),
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
@@ -799,6 +825,7 @@ def transfer_actions(
 
     action = payload.action
     if action == "dispatch":
+        _require_action_permission(request, db, "transfers.dispatch", token_data)
         _enforce_origin_store_scope(token_data, str(transfer.origin_store_id))
         if transfer.status != "DRAFT":
             raise AppError(
@@ -939,6 +966,7 @@ def transfer_actions(
         return response
 
     if action == "receive":
+        _require_action_permission(request, db, "transfers.receive", token_data)
         _enforce_destination_store_scope(token_data, str(transfer.destination_store_id))
         if transfer.status not in {"DISPATCHED", "PARTIAL_RECEIVED"}:
             raise AppError(
@@ -1116,6 +1144,7 @@ def transfer_actions(
         return response
 
     if action == "report_shortages":
+        _require_action_permission(request, db, "transfers.resolve", token_data)
         _enforce_destination_store_scope(token_data, str(transfer.destination_store_id))
         if transfer.status not in {"DISPATCHED", "PARTIAL_RECEIVED"}:
             raise AppError(
@@ -1216,6 +1245,7 @@ def transfer_actions(
         return response
 
     if action == "resolve_shortages":
+        _require_action_permission(request, db, "transfers.resolve", token_data)
         _enforce_destination_store_scope(token_data, str(transfer.destination_store_id))
         if transfer.status not in {"DISPATCHED", "PARTIAL_RECEIVED"}:
             raise AppError(
@@ -1410,6 +1440,7 @@ def transfer_actions(
         return response
 
     if action == "cancel":
+        _require_action_permission(request, db, "transfers.cancel", token_data)
         if transfer.status == "DISPATCHED" and transfer.received_at is not None:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,

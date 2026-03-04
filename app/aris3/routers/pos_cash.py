@@ -43,6 +43,13 @@ POS_STANDARD_ERROR_RESPONSES = {
     422: {"description": "Validation error", "model": ApiValidationErrorResponse},
 }
 
+POS_LIST_ERROR_RESPONSES = {
+    401: {"description": "Unauthorized", "model": ApiErrorResponse},
+    403: {"description": "Forbidden", "model": ApiErrorResponse},
+    409: {"description": "Business conflict", "model": ApiErrorResponse},
+    422: {"description": "Validation error", "model": ApiValidationErrorResponse},
+}
+
 MOVEMENT_TYPE_MAP = {
     "OPEN": "OPENING",
     "OPENING": "OPENING",
@@ -532,7 +539,7 @@ def cash_session_action(
     return response
 
 
-@router.get("/aris3/pos/cash/movements", response_model=PosCashMovementListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.get("/aris3/pos/cash/movements", response_model=PosCashMovementListResponse, responses=POS_LIST_ERROR_RESPONSES)
 def list_cash_movements(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
@@ -790,7 +797,7 @@ def close_day(
     return response
 
 
-@router.get("/aris3/pos/cash/day-close/summary", response_model=PosCashDayCloseSummaryListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.get("/aris3/pos/cash/day-close/summary", response_model=PosCashDayCloseSummaryListResponse, responses=POS_LIST_ERROR_RESPONSES)
 def list_day_close_summary(
     store_id: str | None = None,
     business_date_from: date | None = None,

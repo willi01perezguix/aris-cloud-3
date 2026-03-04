@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
@@ -15,15 +15,15 @@ POSMoney = Annotated[
         {
             "anyOf": [
                 {"type": "number"},
-                {"type": "string", "pattern": r"^-?\d{1,10}(?:\.\d{1,2})?$"},
+                {"type": "string", "pattern": r"^-?\d+\.\d{1,2}$"},
             ]
         },
         mode="validation",
     ),
-    WithJsonSchema({"type": "string", "pattern": r"^-?\d{1,10}(?:\.\d{2})?$"}, mode="serialization"),
+    WithJsonSchema({"type": "string", "pattern": r"^-?\d+\.\d{2}$"}, mode="serialization"),
 ]
 
-_MONEY_FIELD_DESCRIPTION = "Acepta number o string decimal; se serializa como string con dos decimales"
+_MONEY_FIELD_DESCRIPTION = "Money serializado como string decimal de 2 decimales"
 
 
 def money_field(*examples: str) -> Field:
@@ -41,27 +41,37 @@ class PosBaseModel(BaseModel):
 
 
 class PosSaleLineSnapshot(PosBaseModel):
-    sku: str | None
-    description: str | None
-    var1_value: str | None
-    var2_value: str | None
-    epc: str | None
-    location_code: str | None
-    pool: str | None
-    status: str | None
-    location_is_vendible: bool
-    image_asset_id: UUID | None
-    image_url: str | None
-    image_thumb_url: str | None
-    image_source: str | None
-    image_updated_at: datetime | None
+    sku: str | None = None
+    description: str | None = None
+    var1_value: str | None = None
+    var2_value: str | None = None
+    epc: str | None = None
+    location_code: str | None = None
+    pool: str | None = None
+    status: str | None = None
+    location_is_vendible: bool = True
+    image_asset_id: UUID | None = None
+    image_url: str | None = None
+    image_thumb_url: str | None = None
+    image_source: str | None = None
+    image_updated_at: datetime | None = None
 
 
 class PosSaleLineCreate(PosBaseModel):
     line_type: Literal["EPC", "SKU"]
     qty: int = 1
-    unit_price: POSMoney = money_field("25.00", "125.50")
-    snapshot: PosSaleLineSnapshot
+    # canonical selector fields
+    sku: str | None = Field(default=None, description="Canonical selector for SKU lines")
+    epc: str | None = Field(default=None, description="Canonical selector for EPC lines")
+    # legacy compatibility fields (transitional)
+    unit_price: POSMoney | None = Field(default=None, description=_MONEY_FIELD_DESCRIPTION, examples=["25.00", "125.50"])
+    status: str | None = Field(default=None)
+    location_code: str | None = Field(default=None)
+    pool: str | None = Field(default=None)
+    snapshot: PosSaleLineSnapshot | None = Field(
+        default=None,
+        description="Legacy snapshot input; backend always rebuilds authoritative snapshot from stock",
+    )
 
 
 class PosPaymentCreate(PosBaseModel):
@@ -74,14 +84,14 @@ class PosPaymentCreate(PosBaseModel):
 
 class PosSaleCreateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = Field(default=None)
     store_id: str | None = None
     lines: list[PosSaleLineCreate]
 
 
 class PosSaleUpdateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = Field(default=None)
     lines: list[PosSaleLineCreate] | None = None
 
 
@@ -93,13 +103,10 @@ class PosReturnItem(PosBaseModel):
 
 class PosSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
-    action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"] = Field(
-        description=(
-            "Acciones permitidas: checkout, cancel, REFUND_ITEMS (refund only), "
-            "EXCHANGE_ITEMS (exchange-only o exchange+refund)."
-        ),
-        examples=["checkout", "REFUND_ITEMS", "EXCHANGE_ITEMS"],
+    tenant_id: str | None = Field(default=None)
+    action: Literal["checkout", "cancel", "CHECKOUT", "CANCEL", "REFUND_ITEMS", "EXCHANGE_ITEMS"] = Field(
+        description="Acciones permitidas: CHECKOUT, CANCEL, REFUND_ITEMS (deprecated), EXCHANGE_ITEMS (deprecated).",
+        examples=["CHECKOUT", "CANCEL"],
     )
     payments: list[PosPaymentCreate] | None = None
     refund_payments: list[PosPaymentCreate] | None = Field(default=None, description="Reembolsos para devoluciones o cambios con saldo a favor del cliente")
@@ -114,6 +121,8 @@ class PosSaleHeaderResponse(PosBaseModel):
     tenant_id: str
     store_id: str
     status: str
+    business_date: date | None = None
+    timezone: str | None = None
     total_due: POSMoney = money_field("0.00", "125.50")
     paid_total: POSMoney = money_field("0.00", "125.50")
     balance_due: POSMoney = money_field("0.00")
@@ -187,3 +196,7 @@ class PosSaleListResponse(PosBaseModel):
     page_size: int
     total: int
     rows: list[PosSaleResponse]
+
+# shared alias for returns module
+SaleLineSelector = PosSaleLineCreate
+

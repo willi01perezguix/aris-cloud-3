@@ -119,29 +119,51 @@ def _authoritative_price(stock: StockItem, fallback: Decimal) -> Decimal:
     return fallback.quantize(Decimal("0.01"))
 
 
+def _line_fallback_price(line: PosSaleLineCreate) -> Decimal:
+    if line.unit_price is not None:
+        return Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
+    return Decimal("0.00")
+
+
+def _line_snapshot_or_default(line: PosSaleLineCreate) -> PosSaleLineSnapshot:
+    snapshot = line.snapshot
+    if snapshot is not None:
+        return snapshot
+    return PosSaleLineSnapshot(
+        sku=line.sku,
+        epc=line.epc,
+        location_code=line.location_code,
+        pool=line.pool,
+        status=line.status,
+        location_is_vendible=True,
+    )
+
+
 def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, store_id: str) -> PosSaleLineCreate:
     _validate_sale_snapshot(line)
-    snapshot = line.snapshot
+    snapshot = _line_snapshot_or_default(line)
+    fallback_price = _line_fallback_price(line)
+
     if line.line_type == "EPC":
-        stock = (
-            db.execute(
-                select(StockItem).where(
-                    StockItem.tenant_id == tenant_id,
-                    StockItem.epc == snapshot.epc,
-                    StockItem.location_code == snapshot.location_code,
-                    StockItem.pool == snapshot.pool,
-                    StockItem.status == "RFID",
-                    StockItem.location_is_vendible.is_(True),
-                )
-            )
-            .scalars()
-            .first()
-        )
+        epc = snapshot.epc or line.epc
+        filters = [
+            StockItem.tenant_id == tenant_id,
+            StockItem.epc == epc,
+            StockItem.status == "RFID",
+            StockItem.location_is_vendible.is_(True),
+        ]
+        if snapshot.location_code:
+            filters.append(StockItem.location_code == snapshot.location_code)
+        if snapshot.pool:
+            filters.append(StockItem.pool == snapshot.pool)
+        stock = db.execute(select(StockItem).where(*filters)).scalars().first()
         if not stock:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not available for sale", "epc": snapshot.epc})
-        expected_price = _authoritative_price(stock, line.unit_price)
-        if line.unit_price.quantize(Decimal("0.01")) != expected_price:
-            raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(line.unit_price)})
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not available for sale", "epc": epc})
+
+        expected_price = _authoritative_price(stock, fallback_price)
+        if line.unit_price is not None and fallback_price != expected_price and stock.sale_price is not None:
+            raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price)})
+
         rebuilt_snapshot = PosSaleLineSnapshot(
             sku=stock.sku,
             description=stock.description,
@@ -160,33 +182,31 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
         )
         return PosSaleLineCreate(line_type=line.line_type, qty=1, unit_price=expected_price, snapshot=rebuilt_snapshot)
 
-    count = db.execute(select(func.count()).select_from(StockItem).where(
+    sku = snapshot.sku or line.sku
+    filters = [
         StockItem.tenant_id == tenant_id,
-        StockItem.sku == snapshot.sku,
-        StockItem.location_code == snapshot.location_code,
-        StockItem.pool == snapshot.pool,
+        StockItem.sku == sku,
         StockItem.status == "PENDING",
         StockItem.location_is_vendible.is_(True),
-    )).scalar_one()
+    ]
+    if snapshot.location_code:
+        filters.append(StockItem.location_code == snapshot.location_code)
+    if snapshot.pool:
+        filters.append(StockItem.pool == snapshot.pool)
+
+    count = db.execute(select(func.count()).select_from(StockItem).where(*filters)).scalar_one()
     if int(count or 0) < line.qty:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "insufficient stock for sku", "sku": snapshot.sku})
-    stock = (
-        db.execute(select(StockItem).where(
-            StockItem.tenant_id == tenant_id,
-            StockItem.sku == snapshot.sku,
-            StockItem.location_code == snapshot.location_code,
-            StockItem.pool == snapshot.pool,
-            StockItem.status == "PENDING",
-            StockItem.location_is_vendible.is_(True),
-        ).order_by(StockItem.created_at))
-        .scalars()
-        .first()
-    )
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "insufficient stock for sku", "sku": sku})
+
+    stock = db.execute(select(StockItem).where(*filters).order_by(StockItem.created_at)).scalars().first()
     if not stock:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sku not available for sale", "sku": snapshot.sku})
-    expected_price = _authoritative_price(stock, line.unit_price)
-    if line.unit_price.quantize(Decimal("0.01")) != expected_price:
-        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(line.unit_price), "sku": snapshot.sku})
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sku not available for sale", "sku": sku})
+
+    expected_price = _authoritative_price(stock, fallback_price)
+    # Transitional backward compatibility: accept legacy unit_price as fallback when catalog/stock has no sale_price.
+    if line.unit_price is not None and fallback_price != expected_price and stock.sale_price is not None:
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price), "sku": sku})
+
     rebuilt_snapshot = PosSaleLineSnapshot(
         sku=stock.sku,
         description=stock.description,
@@ -207,13 +227,13 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
 
 
 def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
-    snapshot = line.snapshot
+    snapshot = _line_snapshot_or_default(line)
     if line.qty < 1:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "qty must be at least 1", "qty": line.qty},
         )
-    if line.unit_price < 0:
+    if line.unit_price is not None and line.unit_price < 0:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "unit_price must be >= 0", "unit_price": str(line.unit_price)},
@@ -224,23 +244,22 @@ def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "qty must be 1 for EPC lines", "qty": line.qty},
             )
-        if not snapshot.epc:
+        if not (snapshot.epc or line.epc):
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "epc is required for EPC lines"},
             )
-    if line.line_type == "SKU" and snapshot.epc is not None:
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "epc must be empty for SKU lines"},
-        )
-    if not snapshot.location_code or not snapshot.pool:
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "location_code and pool are required in line snapshot"},
-        )
-
-
+    if line.line_type == "SKU":
+        if snapshot.epc is not None:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "epc must be empty for SKU lines"},
+            )
+        if not (snapshot.sku or line.sku):
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "sku is required for SKU lines"},
+            )
 def _line_total(line: PosSaleLineCreate) -> Decimal:
     return (line.unit_price * Decimal(line.qty)).quantize(Decimal("0.01"))
 
@@ -1039,7 +1058,9 @@ def sale_action(
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
 
-    if payload.action == "cancel":
+    action = str(payload.action).upper()
+
+    if action == "CANCEL":
         if sale.status != "DRAFT":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be DRAFT to cancel"})
         sale.status = "CANCELED"
@@ -1068,7 +1089,7 @@ def sale_action(
         )
         return response
 
-    if payload.action == "REFUND_ITEMS":
+    if action == "REFUND_ITEMS":
         _require_action_permission(request, token_data, db, "POS_SALE_REFUND")
         if sale.status != "PAID":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be PAID to refund"})
@@ -1353,7 +1374,7 @@ def sale_action(
         )
         return response
 
-    if payload.action == "EXCHANGE_ITEMS":
+    if action == "EXCHANGE_ITEMS":
         _require_action_permission(request, token_data, db, "POS_SALE_EXCHANGE")
         if sale.status != "PAID":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be PAID to exchange"})
@@ -1783,7 +1804,7 @@ def sale_action(
         )
         return response
 
-    if payload.action != "checkout":
+    if action != "CHECKOUT":
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "unsupported action"})
     if sale.status != "DRAFT":
         raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "sale must be DRAFT to checkout"})

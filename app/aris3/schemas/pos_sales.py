@@ -5,7 +5,29 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema, field_serializer
+
+
+POSMoney = Annotated[
+    Decimal,
+    PlainSerializer(lambda value: format(value.quantize(Decimal("0.01")), "f"), return_type=str, when_used="json"),
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "number"},
+                {"type": "string", "pattern": r"^-?\d{1,10}(?:\.\d{1,2})?$"},
+            ]
+        },
+        mode="validation",
+    ),
+    WithJsonSchema({"type": "string", "pattern": r"^-?\d{1,10}(?:\.\d{2})?$"}, mode="serialization"),
+]
+
+_MONEY_FIELD_DESCRIPTION = "Acepta number o string decimal; se serializa como string con dos decimales"
+
+
+def money_field(*examples: str) -> Field:
+    return Field(description=_MONEY_FIELD_DESCRIPTION, examples=list(examples) or ["0.00", "25.00", "125.50", "-10.00"])
 
 
 class PosBaseModel(BaseModel):
@@ -38,13 +60,13 @@ class PosSaleLineSnapshot(PosBaseModel):
 class PosSaleLineCreate(PosBaseModel):
     line_type: Literal["EPC", "SKU"]
     qty: int = 1
-    unit_price: Decimal
+    unit_price: POSMoney = money_field("25.00", "125.50")
     snapshot: PosSaleLineSnapshot
 
 
 class PosPaymentCreate(PosBaseModel):
     method: Literal["CASH", "CARD", "TRANSFER"]
-    amount: Decimal
+    amount: POSMoney = money_field("25.00", "125.50")
     authorization_code: str | None = None
     bank_name: str | None = None
     voucher_number: str | None = None
@@ -72,7 +94,9 @@ class PosReturnItem(PosBaseModel):
 class PosSaleActionRequest(PosBaseModel):
     transaction_id: str | None
     tenant_id: Annotated[str | None, Field(deprecated=True)] = None
-    action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"]
+    action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"] = Field(
+        description="Acciones permitidas: checkout, cancel, REFUND_ITEMS, EXCHANGE_ITEMS"
+    )
     payments: list[PosPaymentCreate] | None = None
     refund_payments: list[PosPaymentCreate] | None = None
     return_items: list[PosReturnItem] | None = None
@@ -86,10 +110,10 @@ class PosSaleHeaderResponse(PosBaseModel):
     tenant_id: str
     store_id: str
     status: str
-    total_due: Decimal
-    paid_total: Decimal
-    balance_due: Decimal
-    change_due: Decimal
+    total_due: POSMoney = money_field("0.00", "125.50")
+    paid_total: POSMoney = money_field("0.00", "125.50")
+    balance_due: POSMoney = money_field("0.00")
+    change_due: POSMoney = money_field("0.00", "25.00")
     created_by_user_id: str | None
     updated_by_user_id: str | None
     checked_out_by_user_id: str | None
@@ -104,8 +128,8 @@ class PosSaleLineResponse(PosBaseModel):
     id: str
     line_type: str
     qty: int
-    unit_price: Decimal
-    line_total: Decimal
+    unit_price: POSMoney = money_field("25.00", "125.50")
+    line_total: POSMoney = money_field("25.00", "125.50")
     snapshot: PosSaleLineSnapshot
     created_at: datetime
 
@@ -113,7 +137,7 @@ class PosSaleLineResponse(PosBaseModel):
 class PosPaymentResponse(PosBaseModel):
     id: str
     method: str
-    amount: Decimal
+    amount: POSMoney = money_field("25.00", "125.50")
     authorization_code: str | None
     bank_name: str | None
     voucher_number: str | None
@@ -122,21 +146,21 @@ class PosPaymentResponse(PosBaseModel):
 
 class PosPaymentSummary(PosBaseModel):
     method: str
-    amount: Decimal
+    amount: POSMoney = money_field("25.00", "125.50")
 
 
 class PosReturnTotals(PosBaseModel):
-    subtotal: Decimal
-    restocking_fee: Decimal
-    total: Decimal
+    subtotal: POSMoney = money_field("0.00", "125.50")
+    restocking_fee: POSMoney = money_field("0.00", "25.00")
+    total: POSMoney = money_field("0.00", "125.50")
 
 
 class PosReturnEventSummary(PosBaseModel):
     id: str
     action: str
-    refund_total: Decimal
-    exchange_total: Decimal
-    net_adjustment: Decimal
+    refund_total: POSMoney = money_field("0.00", "125.50")
+    exchange_total: POSMoney = money_field("0.00", "125.50")
+    net_adjustment: POSMoney = money_field("-10.00", "0.00", "25.00")
     created_at: datetime
 
 
@@ -147,7 +171,7 @@ class PosSaleResponse(PosBaseModel):
     payment_summary: list[PosPaymentSummary]
     refunded_totals: PosReturnTotals
     exchanged_totals: PosReturnTotals
-    net_adjustment: Decimal
+    net_adjustment: POSMoney = money_field("-10.00", "0.00", "25.00")
     return_events: list[PosReturnEventSummary]
 
 

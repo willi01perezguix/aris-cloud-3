@@ -50,6 +50,13 @@ POS_LIST_ERROR_RESPONSES = {
     422: {"description": "Validation error", "model": ApiValidationErrorResponse},
 }
 
+CASH_ERROR_EXAMPLES = {
+    "401": {"code": "UNAUTHORIZED", "message": "Authentication required", "details": {"message": "Missing bearer token"}, "trace_id": "trace-cash-401"},
+    "403": {"code": "FORBIDDEN", "message": "You do not have access to this store", "details": {"required_permission": "POS_CASH_MANAGE"}, "trace_id": "trace-cash-403"},
+    "404_session": {"code": "NOT_FOUND", "message": "cash session not found", "details": {"cash_session_id": "00000000-0000-0000-0000-000000009999"}, "trace_id": "trace-cash-404"},
+    "409": {"code": "BUSINESS_CONFLICT", "message": "checkout blocked by pending cash balance", "details": {"balance_due": "5.00"}, "trace_id": "trace-cash-409"},
+}
+
 MOVEMENT_TYPE_MAP = {
     "OPEN": "OPENING",
     "OPENING": "OPENING",
@@ -266,7 +273,14 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
         )
 
 
-@router.get("/aris3/pos/cash/session/current", response_model=PosCashSessionCurrentResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Get current open cash session", description="Returns the currently OPEN cash session for the cashier/store context. `closed_at` is null while session is open.")
+@router.get("/aris3/pos/cash/session/current", response_model=PosCashSessionCurrentResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Get current open cash session", description="Returns the currently OPEN cash session for the cashier/store context. `closed_at` is null while session is open.", openapi_extra={
+    "responses": {
+        "200": {"content": {"application/json": {"example": {"session": {"id": "00000000-0000-0000-0000-000000000211", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "cashier_user_id": "00000000-0000-0000-0000-000000000020", "status": "OPEN", "business_date": "2026-01-15", "timezone": "America/Mexico_City", "opening_amount": "100.00", "expected_cash": "150.00", "counted_cash": None, "difference": None, "opened_at": "2026-01-15T08:00:00Z", "closed_at": None, "created_at": "2026-01-15T08:00:00Z"}}}}},
+        "401": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["401"]}}},
+        "403": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["403"]}}},
+        "404": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["404_session"]}}},
+    }
+})
 def get_current_session(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
@@ -291,7 +305,16 @@ def get_current_session(
     return PosCashSessionCurrentResponse(session=_session_summary(session) if session else None)
 
 
-@router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash session action", description="Action request is discriminated by `action` (`OPEN`, `CASH_IN`, `CASH_OUT`, `CLOSE`) with action-specific required fields.")
+@router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash session action", description="Action request is discriminated by `action` (`OPEN`, `CASH_IN`, `CASH_OUT`, `CLOSE`) with action-specific required fields.", openapi_extra={
+    "responses": {
+        "200": {"content": {"application/json": {"example": {"id": "00000000-0000-0000-0000-000000000212", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "cashier_user_id": "00000000-0000-0000-0000-000000000020", "status": "OPEN", "business_date": "2026-01-15", "timezone": "America/Mexico_City", "opening_amount": "150.00", "expected_cash": "150.00", "counted_cash": None, "difference": None, "opened_at": "2026-01-15T08:00:00Z", "closed_at": None, "created_at": "2026-01-15T08:00:00Z"}}}},
+        "401": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["401"]}}},
+        "403": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["403"]}}},
+        "404": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["404_session"]}}},
+        "409": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["409"]}}},
+        "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "action=OPEN.business_date", "message": "business_date is required", "type": "value_error"}]}, "trace_id": "trace-cash-session-action-422"}}}},
+    }
+})
 def cash_session_action(
     request: Request,
     payload: PosCashSessionActionRequest,
@@ -583,7 +606,11 @@ def list_cash_movements(
     return PosCashMovementListResponse(page=page, page_size=page_size, rows=[_movement_response(row) for row in rows], total=total)
 
 
-@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone. Legacy scope fields remain optional/deprecated.")
+@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone. Legacy scope fields remain optional/deprecated.", openapi_extra={
+    "responses": {
+        "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "counted_cash", "message": "counted_cash is required when force_if_open_sessions is true", "type": "value_error"}]}, "trace_id": "trace-day-close-422"}}}}
+    }
+})
 def close_day(
     request: Request,
     payload: PosCashDayCloseActionRequest,
@@ -869,7 +896,11 @@ def list_day_close_summary(
     )
 
 
-@router.get("/aris3/pos/cash/reconciliation/breakdown", response_model=PosCashReconciliationBreakdownResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.get("/aris3/pos/cash/reconciliation/breakdown", response_model=PosCashReconciliationBreakdownResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
+    "responses": {
+        "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "business_date", "message": "business_date is required", "type": "value_error.missing"}]}, "trace_id": "trace-reconciliation-422"}}}}
+    }
+})
 def reconciliation_breakdown(
     store_id: str,
     business_date: date,

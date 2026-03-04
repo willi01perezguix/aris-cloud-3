@@ -91,6 +91,16 @@ class ErrorCatalog:
         "Validation error",
         status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
+    RESOURCE_NOT_FOUND = ErrorDefinition(
+        "RESOURCE_NOT_FOUND",
+        "Resource not found",
+        status.HTTP_404_NOT_FOUND,
+    )
+    BUSINESS_CONFLICT = ErrorDefinition(
+        "BUSINESS_CONFLICT",
+        "Business conflict",
+        status.HTTP_409_CONFLICT,
+    )
     INTERNAL_ERROR = ErrorDefinition(
         "INTERNAL_ERROR",
         "Internal server error",

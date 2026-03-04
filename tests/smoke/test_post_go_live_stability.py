@@ -188,7 +188,7 @@ def test_post_go_live_pos_checkout_with_cash_session_and_reports(client, db_sess
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "s6d8-checkout-no-cash"},
         json={"transaction_id": "txn-s6d8-checkout-no-cash", "action": "checkout", "payments": [{"method": "CASH", "amount": 25.0}]},
     )
-    assert checkout_without_cash.status_code == 422
+    assert checkout_without_cash.status_code == 409
 
     open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
     create_stock_item(db_session, tenant_id=str(tenant.id), sku="SKU-S6D8-POS", epc=None, location_code="LOC-1", pool="P1", status="PENDING")

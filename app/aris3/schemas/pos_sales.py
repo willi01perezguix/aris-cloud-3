@@ -5,10 +5,20 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
-class PosSaleLineSnapshot(BaseModel):
+class PosBaseModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_serializer("*", when_used="json")
+    def serialize_decimals(self, value):
+        if isinstance(value, Decimal):
+            return format(value.quantize(Decimal("0.01")), "f")
+        return value
+
+
+class PosSaleLineSnapshot(PosBaseModel):
     sku: str | None
     description: str | None
     var1_value: str | None
@@ -25,14 +35,14 @@ class PosSaleLineSnapshot(BaseModel):
     image_updated_at: datetime | None
 
 
-class PosSaleLineCreate(BaseModel):
+class PosSaleLineCreate(PosBaseModel):
     line_type: Literal["EPC", "SKU"]
     qty: int = 1
     unit_price: Decimal
     snapshot: PosSaleLineSnapshot
 
 
-class PosPaymentCreate(BaseModel):
+class PosPaymentCreate(PosBaseModel):
     method: Literal["CASH", "CARD", "TRANSFER"]
     amount: Decimal
     authorization_code: str | None = None
@@ -40,28 +50,28 @@ class PosPaymentCreate(BaseModel):
     voucher_number: str | None = None
 
 
-class PosSaleCreateRequest(BaseModel):
+class PosSaleCreateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
-    store_id: str
+    tenant_id: str | None = Field(default=None, deprecated=True)
+    store_id: str | None = None
     lines: list[PosSaleLineCreate]
 
 
-class PosSaleUpdateRequest(BaseModel):
+class PosSaleUpdateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None, deprecated=True)
     lines: list[PosSaleLineCreate] | None = None
 
 
-class PosReturnItem(BaseModel):
+class PosReturnItem(PosBaseModel):
     line_id: str
     qty: int = 1
     condition: str
 
 
-class PosSaleActionRequest(BaseModel):
+class PosSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None, deprecated=True)
     action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"]
     payments: list[PosPaymentCreate] | None = None
     refund_payments: list[PosPaymentCreate] | None = None
@@ -71,7 +81,7 @@ class PosSaleActionRequest(BaseModel):
     manager_override: bool | None = None
 
 
-class PosSaleHeaderResponse(BaseModel):
+class PosSaleHeaderResponse(PosBaseModel):
     id: str
     tenant_id: str
     store_id: str
@@ -90,7 +100,7 @@ class PosSaleHeaderResponse(BaseModel):
     updated_at: datetime | None
 
 
-class PosSaleLineResponse(BaseModel):
+class PosSaleLineResponse(PosBaseModel):
     id: str
     line_type: str
     qty: int
@@ -100,7 +110,7 @@ class PosSaleLineResponse(BaseModel):
     created_at: datetime
 
 
-class PosPaymentResponse(BaseModel):
+class PosPaymentResponse(PosBaseModel):
     id: str
     method: str
     amount: Decimal
@@ -110,18 +120,18 @@ class PosPaymentResponse(BaseModel):
     created_at: datetime
 
 
-class PosPaymentSummary(BaseModel):
+class PosPaymentSummary(PosBaseModel):
     method: str
     amount: Decimal
 
 
-class PosReturnTotals(BaseModel):
+class PosReturnTotals(PosBaseModel):
     subtotal: Decimal
     restocking_fee: Decimal
     total: Decimal
 
 
-class PosReturnEventSummary(BaseModel):
+class PosReturnEventSummary(PosBaseModel):
     id: str
     action: str
     refund_total: Decimal
@@ -130,7 +140,7 @@ class PosReturnEventSummary(BaseModel):
     created_at: datetime
 
 
-class PosSaleResponse(BaseModel):
+class PosSaleResponse(PosBaseModel):
     header: PosSaleHeaderResponse
     lines: list[PosSaleLineResponse]
     payments: list[PosPaymentResponse]
@@ -141,5 +151,5 @@ class PosSaleResponse(BaseModel):
     return_events: list[PosReturnEventSummary]
 
 
-class PosSaleListResponse(BaseModel):
+class PosSaleListResponse(PosBaseModel):
     rows: list[PosSaleResponse]

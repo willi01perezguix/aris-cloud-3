@@ -76,6 +76,19 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
     return token_data.tenant_id
 
 
+def _resolve_store_id(token_data, requested_store_id: str | None) -> str:
+    broad_roles = {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}
+    if token_data.store_id and token_data.role.upper() not in broad_roles:
+        if requested_store_id and requested_store_id != token_data.store_id:
+            raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+        return token_data.store_id
+    if requested_store_id:
+        return requested_store_id
+    if token_data.store_id:
+        return token_data.store_id
+    raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
+
+
 def _session_summary(session: PosCashSession) -> PosCashSessionSummary:
     return PosCashSessionSummary(
         id=_normalize_uuid(session.id),
@@ -247,10 +260,7 @@ def get_current_session(
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    if not store_id:
-        store_id = token_data.store_id
-    if not store_id:
-        raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
+    store_id = _resolve_store_id(token_data, store_id)
     enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
     if not cashier_user_id:
         cashier_user_id = token_data.sub
@@ -276,7 +286,8 @@ def cash_session_action(
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
-    store = enforce_store_scope(token_data, payload.store_id, db, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, payload.store_id)
+    store = enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -309,25 +320,25 @@ def cash_session_action(
         _ensure_not_closed(
             db,
             tenant_id=scoped_tenant_id,
-            store_id=payload.store_id,
+            store_id=resolved_store_id,
             business_date=payload.business_date,
         )
         existing = _open_session_query(
             db,
             tenant_id=scoped_tenant_id,
-            store_id=payload.store_id,
+            store_id=resolved_store_id,
             cashier_user_id=cashier_user_id,
             for_update=True,
         )
         if existing:
             raise AppError(
-                ErrorCatalog.VALIDATION_ERROR,
+                ErrorCatalog.BUSINESS_CONFLICT,
                 details={"message": "open cash session already exists"},
             )
 
         session = PosCashSession(
             tenant_id=scoped_tenant_id,
-            store_id=payload.store_id,
+            store_id=resolved_store_id,
             cashier_user_id=current_user.id,
             status="OPEN",
             business_date=payload.business_date,
@@ -342,7 +353,7 @@ def cash_session_action(
         db.add(
             PosCashMovement(
                 tenant_id=scoped_tenant_id,
-                store_id=payload.store_id,
+                store_id=resolved_store_id,
                 cash_session_id=session.id,
                 cashier_user_id=current_user.id,
                 actor_user_id=current_user.id,
@@ -390,19 +401,19 @@ def cash_session_action(
     session = _open_session_query(
         db,
         tenant_id=scoped_tenant_id,
-        store_id=payload.store_id,
+        store_id=resolved_store_id,
         cashier_user_id=cashier_user_id,
         for_update=True,
     )
     if not session:
         raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
+            ErrorCatalog.BUSINESS_CONFLICT,
             details={"message": "open cash session required"},
         )
     _ensure_not_closed(
         db,
         tenant_id=scoped_tenant_id,
-        store_id=payload.store_id,
+        store_id=resolved_store_id,
         business_date=session.business_date,
     )
     if session.status != "OPEN":
@@ -459,7 +470,7 @@ def cash_session_action(
     db.add(
         PosCashMovement(
             tenant_id=scoped_tenant_id,
-            store_id=payload.store_id,
+            store_id=resolved_store_id,
             cash_session_id=session.id,
             cashier_user_id=session.cashier_user_id,
             actor_user_id=current_user.id,
@@ -527,10 +538,8 @@ def list_cash_movements(
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
-        store_id = token_data.store_id
-    if store_id:
-        enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+    store_id = _resolve_store_id(token_data, store_id)
+    enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
 
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
@@ -570,7 +579,8 @@ def close_day(
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
-    store = enforce_store_scope(token_data, payload.store_id, db, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, payload.store_id)
+    store = enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -594,7 +604,7 @@ def close_day(
         db.execute(
             select(PosCashDayClose).where(
                 PosCashDayClose.tenant_id == scoped_tenant_id,
-                PosCashDayClose.store_id == payload.store_id,
+                PosCashDayClose.store_id == resolved_store_id,
                 PosCashDayClose.business_date == payload.business_date,
             )
         )
@@ -611,7 +621,7 @@ def close_day(
         db.execute(
             select(PosCashSession).where(
                 PosCashSession.tenant_id == scoped_tenant_id,
-                PosCashSession.store_id == payload.store_id,
+                PosCashSession.store_id == resolved_store_id,
                 PosCashSession.business_date == payload.business_date,
                 PosCashSession.status == "OPEN",
             )
@@ -642,7 +652,7 @@ def close_day(
     rollup = _reconciliation_rollup(
         db,
         tenant_id=scoped_tenant_id,
-        store_id=payload.store_id,
+        store_id=resolved_store_id,
         business_date=payload.business_date,
     )
     counted_cash = Decimal(str(payload.counted_cash)) if payload.counted_cash is not None else None
@@ -652,7 +662,7 @@ def close_day(
     now = datetime.utcnow()
     close_record = PosCashDayClose(
         tenant_id=scoped_tenant_id,
-        store_id=payload.store_id,
+        store_id=resolved_store_id,
         business_date=payload.business_date,
         timezone=payload.timezone,
         status="CLOSED",
@@ -675,7 +685,7 @@ def close_day(
     db.add(
         PosCashMovement(
             tenant_id=scoped_tenant_id,
-            store_id=payload.store_id,
+            store_id=resolved_store_id,
             cash_session_id=None,
             cashier_user_id=current_user.id,
             actor_user_id=current_user.id,
@@ -785,10 +795,8 @@ def list_day_close_summary(
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
-        store_id = token_data.store_id
-    if store_id:
-        enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+    store_id = _resolve_store_id(token_data, store_id)
+    enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
 
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
@@ -856,8 +864,7 @@ def reconciliation_breakdown(
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
-        store_id = token_data.store_id
+    store_id = _resolve_store_id(token_data, store_id)
     enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
 
     rollup = _reconciliation_rollup(

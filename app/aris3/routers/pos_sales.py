@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 
 from app.aris3.core.context import build_request_context
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
@@ -79,6 +79,113 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
     if tenant_id and tenant_id != token_data.tenant_id:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     return token_data.tenant_id
+
+
+def _resolve_store_id(token_data, requested_store_id: str | None) -> str:
+    locked_store = token_data.store_id
+    broad_roles = {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}
+    if locked_store and token_data.role.upper() not in broad_roles:
+        if requested_store_id and requested_store_id != locked_store:
+            raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+        return locked_store
+    if requested_store_id:
+        return requested_store_id
+    if locked_store:
+        return locked_store
+    raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
+
+
+def _authoritative_price(stock: StockItem, fallback: Decimal) -> Decimal:
+    if stock.sale_price is not None:
+        return Decimal(str(stock.sale_price)).quantize(Decimal("0.01"))
+    return fallback.quantize(Decimal("0.01"))
+
+
+def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, store_id: str) -> PosSaleLineCreate:
+    _validate_sale_snapshot(line)
+    snapshot = line.snapshot
+    if line.line_type == "EPC":
+        stock = (
+            db.execute(
+                select(StockItem).where(
+                    StockItem.tenant_id == tenant_id,
+                    StockItem.epc == snapshot.epc,
+                    StockItem.location_code == snapshot.location_code,
+                    StockItem.pool == snapshot.pool,
+                    StockItem.status == "RFID",
+                    StockItem.location_is_vendible.is_(True),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if not stock:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not available for sale", "epc": snapshot.epc})
+        expected_price = _authoritative_price(stock, line.unit_price)
+        if line.unit_price.quantize(Decimal("0.01")) != expected_price:
+            raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(line.unit_price)})
+        rebuilt_snapshot = PosSaleLineSnapshot(
+            sku=stock.sku,
+            description=stock.description,
+            var1_value=stock.var1_value,
+            var2_value=stock.var2_value,
+            epc=stock.epc,
+            location_code=stock.location_code,
+            pool=stock.pool,
+            status=stock.status,
+            location_is_vendible=bool(stock.location_is_vendible),
+            image_asset_id=stock.image_asset_id,
+            image_url=stock.image_url,
+            image_thumb_url=stock.image_thumb_url,
+            image_source=stock.image_source,
+            image_updated_at=stock.image_updated_at,
+        )
+        return PosSaleLineCreate(line_type=line.line_type, qty=1, unit_price=expected_price, snapshot=rebuilt_snapshot)
+
+    count = db.execute(select(func.count()).select_from(StockItem).where(
+        StockItem.tenant_id == tenant_id,
+        StockItem.sku == snapshot.sku,
+        StockItem.location_code == snapshot.location_code,
+        StockItem.pool == snapshot.pool,
+        StockItem.status == "PENDING",
+        StockItem.location_is_vendible.is_(True),
+    )).scalar_one()
+    if int(count or 0) < line.qty:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "insufficient stock for sku", "sku": snapshot.sku})
+    stock = (
+        db.execute(select(StockItem).where(
+            StockItem.tenant_id == tenant_id,
+            StockItem.sku == snapshot.sku,
+            StockItem.location_code == snapshot.location_code,
+            StockItem.pool == snapshot.pool,
+            StockItem.status == "PENDING",
+            StockItem.location_is_vendible.is_(True),
+        ).order_by(StockItem.created_at))
+        .scalars()
+        .first()
+    )
+    if not stock:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sku not available for sale", "sku": snapshot.sku})
+    expected_price = _authoritative_price(stock, line.unit_price)
+    if line.unit_price.quantize(Decimal("0.01")) != expected_price:
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(line.unit_price), "sku": snapshot.sku})
+    rebuilt_snapshot = PosSaleLineSnapshot(
+        sku=stock.sku,
+        description=stock.description,
+        var1_value=stock.var1_value,
+        var2_value=stock.var2_value,
+        epc=None,
+        location_code=stock.location_code,
+        pool=stock.pool,
+        status=stock.status,
+        location_is_vendible=bool(stock.location_is_vendible),
+        image_asset_id=stock.image_asset_id,
+        image_url=stock.image_url,
+        image_thumb_url=stock.image_thumb_url,
+        image_source=stock.image_source,
+        image_updated_at=stock.image_updated_at,
+    )
+    return PosSaleLineCreate(line_type=line.line_type, qty=line.qty, unit_price=expected_price, snapshot=rebuilt_snapshot)
 
 
 def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
@@ -420,7 +527,7 @@ def _require_open_cash_session(db, *, tenant_id: str, store_id: str, cashier_use
     )
     if session is None:
         raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
+            ErrorCatalog.BUSINESS_CONFLICT,
             details={"message": "open cash session required for CASH payments"},
         )
     return session
@@ -530,7 +637,8 @@ def create_sale(
     _require_transaction_id(payload.transaction_id)
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
-    enforce_store_scope(token_data, payload.store_id, db, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, payload.store_id)
+    enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -552,13 +660,12 @@ def create_sale(
 
     if not payload.lines:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "lines must not be empty"})
-    for line in payload.lines:
-        _validate_sale_snapshot(line)
+    resolved_lines = [_build_sale_line_from_stock(db, tenant_id=scoped_tenant_id, line=line, store_id=resolved_store_id) for line in payload.lines]
 
-    totals = _sale_totals(payload.lines)
+    totals = _sale_totals(resolved_lines)
     sale = PosSale(
         tenant_id=scoped_tenant_id,
-        store_id=payload.store_id,
+        store_id=resolved_store_id,
         status="DRAFT",
         total_due=float(totals["total_due"]),
         paid_total=float(totals["paid_total"]),
@@ -571,7 +678,7 @@ def create_sale(
     db.flush()
 
     lines = []
-    for line in payload.lines:
+    for line in resolved_lines:
         snapshot = line.snapshot
         lines.append(
             PosSaleLine(
@@ -660,22 +767,21 @@ def update_sale(
 
     sale = PosSaleRepository(db).get_by_id(sale_id)
     if sale is None:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale not found"})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
     if str(sale.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
     if sale.status != "DRAFT":
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be DRAFT to update"})
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "sale must be DRAFT to update"})
 
     before = {"total_due": str(sale.total_due), "lines": len(PosSaleRepository(db).get_lines(sale_id))}
     if payload.lines is not None:
         if not payload.lines:
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "lines must not be empty"})
-        for line in payload.lines:
-            _validate_sale_snapshot(line)
+        resolved_lines = [_build_sale_line_from_stock(db, tenant_id=scoped_tenant_id, line=line, store_id=str(sale.store_id)) for line in payload.lines]
         db.execute(delete(PosSaleLine).where(PosSaleLine.sale_id == sale.id))
         lines = []
-        for line in payload.lines:
+        for line in resolved_lines:
             snapshot = line.snapshot
             lines.append(
                 PosSaleLine(
@@ -701,7 +807,7 @@ def update_sale(
                     image_updated_at=snapshot.image_updated_at,
                 )
             )
-        totals = _sale_totals(payload.lines)
+        totals = _sale_totals(resolved_lines)
         sale.total_due = float(totals["total_due"])
         sale.paid_total = float(totals["paid_total"])
         sale.balance_due = float(totals["balance_due"])
@@ -743,7 +849,7 @@ def get_sale(
 ):
     sale = PosSaleRepository(db).get_by_id(sale_id)
     if sale is None:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale not found"})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
     scoped_tenant_id = _resolve_tenant_id(token_data, str(sale.tenant_id))
     if str(sale.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
@@ -787,7 +893,7 @@ def sale_action(
     repo = PosSaleRepository(db)
     sale = repo.get_by_id(sale_id)
     if sale is None:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale not found"})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
     if str(sale.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
@@ -1539,7 +1645,7 @@ def sale_action(
     if payload.action != "checkout":
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "unsupported action"})
     if sale.status != "DRAFT":
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be DRAFT to checkout"})
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "sale must be DRAFT to checkout"})
 
     lines = repo.get_lines(sale_id)
     if not lines:

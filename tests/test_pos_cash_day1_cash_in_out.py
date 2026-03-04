@@ -35,7 +35,7 @@ def test_cash_in_out_success_and_negative_blocked(client, db_session):
         },
     )
     assert cash_in.status_code == 200
-    assert cash_in.json()["expected_cash"] == "70.0"
+    assert cash_in.json()["expected_cash"] == "70.00"
 
     cash_out = client.post(
         "/aris3/pos/cash/session/actions",
@@ -48,7 +48,7 @@ def test_cash_in_out_success_and_negative_blocked(client, db_session):
         },
     )
     assert cash_out.status_code == 200
-    assert cash_out.json()["expected_cash"] == "40.0"
+    assert cash_out.json()["expected_cash"] == "40.00"
 
     denied = client.post(
         "/aris3/pos/cash/session/actions",

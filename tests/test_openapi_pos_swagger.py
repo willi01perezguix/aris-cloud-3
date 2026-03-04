@@ -97,3 +97,20 @@ def test_current_session_contract_is_200_with_nullable_session_payload():
     current_schema = app.openapi()["components"]["schemas"]["PosCashSessionCurrentResponse"]
     assert "session" in current_schema["properties"]
     assert any(item.get("type") == "null" for item in current_schema["properties"]["session"]["anyOf"])
+
+
+def test_pos_sales_list_filters_and_receipt_are_documented():
+    paths = app.openapi()["paths"]
+    params = {param["name"]: param for param in paths["/aris3/pos/sales"]["get"].get("parameters", [])}
+    for name in ["receipt_number", "status", "from_date", "to_date", "q", "page", "page_size", "sku", "epc"]:
+        assert name in params
+
+    components = app.openapi()["components"]["schemas"]
+    header = components["PosSaleHeaderResponse"]["properties"]
+    assert "receipt_number" in header
+
+
+def test_pos_returns_examples_are_present_in_openapi():
+    op = app.openapi()["paths"]["/aris3/pos/sales/{sale_id}/actions"]["post"]
+    examples = op["requestBody"]["content"]["application/json"]["examples"]
+    assert {"refund_only", "exchange_only", "refund_and_exchange"}.issubset(set(examples.keys()))

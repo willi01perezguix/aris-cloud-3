@@ -95,13 +95,17 @@ class PosSaleActionRequest(PosBaseModel):
     transaction_id: str | None
     tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"] = Field(
-        description="Acciones permitidas: checkout, cancel, REFUND_ITEMS, EXCHANGE_ITEMS"
+        description=(
+            "Acciones permitidas: checkout, cancel, REFUND_ITEMS (refund only), "
+            "EXCHANGE_ITEMS (exchange-only o exchange+refund)."
+        ),
+        examples=["checkout", "REFUND_ITEMS", "EXCHANGE_ITEMS"],
     )
     payments: list[PosPaymentCreate] | None = None
-    refund_payments: list[PosPaymentCreate] | None = None
-    return_items: list[PosReturnItem] | None = None
-    exchange_lines: list[PosSaleLineCreate] | None = None
-    receipt_number: str | None = None
+    refund_payments: list[PosPaymentCreate] | None = Field(default=None, description="Reembolsos para devoluciones o cambios con saldo a favor del cliente")
+    return_items: list[PosReturnItem] | None = Field(default=None, description="Líneas originales a devolver")
+    exchange_lines: list[PosSaleLineCreate] | None = Field(default=None, description="Nuevas líneas para cambio")
+    receipt_number: str | None = Field(default=None, description="Número de recibo/ticket para checkout y devoluciones")
     manager_override: bool | None = None
 
 
@@ -114,6 +118,7 @@ class PosSaleHeaderResponse(PosBaseModel):
     paid_total: POSMoney = money_field("0.00", "125.50")
     balance_due: POSMoney = money_field("0.00")
     change_due: POSMoney = money_field("0.00", "25.00")
+    receipt_number: str | None = None
     created_by_user_id: str | None
     updated_by_user_id: str | None
     checked_out_by_user_id: str | None
@@ -130,6 +135,8 @@ class PosSaleLineResponse(PosBaseModel):
     qty: int
     unit_price: POSMoney = money_field("25.00", "125.50")
     line_total: POSMoney = money_field("25.00", "125.50")
+    returned_qty: int = 0
+    returnable_qty: int = 0
     snapshot: PosSaleLineSnapshot
     created_at: datetime
 
@@ -176,4 +183,7 @@ class PosSaleResponse(PosBaseModel):
 
 
 class PosSaleListResponse(PosBaseModel):
+    page: int
+    page_size: int
+    total: int
     rows: list[PosSaleResponse]

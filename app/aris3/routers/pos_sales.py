@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
 
@@ -77,6 +77,14 @@ def _require_transaction_id(transaction_id: str | None) -> None:
 
 def _normalize_uuid(value: str | UUID) -> str:
     return str(value)
+
+
+def _parse_filter_date(value: date | None, *, end_of_day: bool = False) -> datetime | None:
+    if value is None:
+        return None
+    if end_of_day:
+        return datetime.combine(value, time.max)
+    return datetime.combine(value, time.min)
 
 
 def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
@@ -543,7 +551,7 @@ def _require_open_cash_session(db, *, tenant_id: str, store_id: str, cashier_use
     return session
 
 
-def _sale_line_response(line: PosSaleLine) -> PosSaleLineResponse:
+def _sale_line_response(line: PosSaleLine, *, returned_qty: int = 0) -> PosSaleLineResponse:
     snapshot = PosSaleLineSnapshot(
         sku=line.sku,
         description=line.description,
@@ -566,6 +574,8 @@ def _sale_line_response(line: PosSaleLine) -> PosSaleLineResponse:
         qty=line.qty,
         unit_price=Decimal(str(line.unit_price)),
         line_total=Decimal(str(line.line_total)),
+        returned_qty=returned_qty,
+        returnable_qty=max(int(line.qty) - returned_qty, 0),
         snapshot=snapshot,
         created_at=line.created_at,
     )
@@ -588,6 +598,7 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
     payments = repo.get_payments(_normalize_uuid(sale.id))
     return_events = repo.get_return_events(_normalize_uuid(sale.id))
     refunded_totals, exchanged_totals, net_adjustment, return_summaries = _return_event_summaries(return_events)
+    refunded_quantities = _refunded_quantities(return_events)
     header = PosSaleHeaderResponse(
         id=_normalize_uuid(sale.id),
         tenant_id=_normalize_uuid(sale.tenant_id),
@@ -597,6 +608,7 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
         paid_total=Decimal(str(sale.paid_total)),
         balance_due=Decimal(str(sale.balance_due)),
         change_due=Decimal(str(sale.change_due)),
+        receipt_number=sale.receipt_number,
         created_by_user_id=_normalize_uuid(sale.created_by_user_id) if sale.created_by_user_id else None,
         updated_by_user_id=_normalize_uuid(sale.updated_by_user_id) if sale.updated_by_user_id else None,
         checked_out_by_user_id=_normalize_uuid(sale.checked_out_by_user_id) if sale.checked_out_by_user_id else None,
@@ -608,7 +620,7 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
     )
     return PosSaleResponse(
         header=header,
-        lines=[_sale_line_response(line) for line in lines],
+        lines=[_sale_line_response(line, returned_qty=refunded_quantities.get(_normalize_uuid(line.id), 0)) for line in lines],
         payments=[_payment_response(payment) for payment in payments],
         payment_summary=_payment_summary(payments),
         refunded_totals=refunded_totals,
@@ -620,6 +632,20 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
 
 @router.get("/aris3/pos/sales", response_model=PosSaleListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def list_sales(
+    receipt_number: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    q: str | None = Query(default=None),
+    sku: str | None = Query(default=None),
+    epc: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    tenant_id: str | None = Query(
+        default=None,
+        deprecated=True,
+        description="Deprecated: tenant/store scope is resolved from JWT/context.",
+    ),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_SALE_VIEW")),
@@ -630,9 +656,24 @@ def list_sales(
     if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
         store_id = token_data.store_id
     repo = PosSaleRepository(db)
-    rows = repo.list_sales(PosSaleQueryFilters(tenant_id=scoped_tenant_id, store_id=store_id))
+    _ = tenant_id
+    rows, total = repo.list_sales(
+        PosSaleQueryFilters(
+            tenant_id=scoped_tenant_id,
+            store_id=store_id,
+            receipt_number=receipt_number,
+            status=status,
+            from_date=_parse_filter_date(from_date),
+            to_date=_parse_filter_date(to_date, end_of_day=True),
+            q=q,
+            sku=sku,
+            epc=epc,
+            page=page,
+            page_size=page_size,
+        )
+    )
     responses = [_sale_response(repo, sale) for sale in rows]
-    return PosSaleListResponse(rows=responses)
+    return PosSaleListResponse(page=page, page_size=page_size, total=total, rows=responses)
 
 
 @router.post(
@@ -873,7 +914,96 @@ def get_sale(
     return _sale_response(repo, sale)
 
 
-@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.post(
+    "/aris3/pos/sales/{sale_id}/actions",
+    response_model=PosSaleResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "refund_only": {
+                            "summary": "Refund only",
+                            "value": {
+                                "transaction_id": "txn-refund-only",
+                                "action": "REFUND_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "line-id", "qty": 1, "condition": "GOOD"}],
+                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
+                            },
+                        },
+                        "exchange_only": {
+                            "summary": "Exchange only",
+                            "value": {
+                                "transaction_id": "txn-exchange-only",
+                                "action": "EXCHANGE_ITEMS",
+                                "receipt_number": "RCPT-1002",
+                                "return_items": [{"line_id": "line-id", "qty": 1, "condition": "NEW"}],
+                                "exchange_lines": [
+                                    {
+                                        "line_type": "SKU",
+                                        "qty": 1,
+                                        "unit_price": "25.00",
+                                        "snapshot": {
+                                            "sku": "SKU-NEW",
+                                            "description": "Replacement",
+                                            "var1_value": "V1",
+                                            "var2_value": "V2",
+                                            "epc": None,
+                                            "location_code": "LOC-1",
+                                            "pool": "P1",
+                                            "status": "PENDING",
+                                            "location_is_vendible": True,
+                                            "image_asset_id": None,
+                                            "image_url": None,
+                                            "image_thumb_url": None,
+                                            "image_source": None,
+                                            "image_updated_at": None,
+                                        },
+                                    }
+                                ],
+                            },
+                        },
+                        "refund_and_exchange": {
+                            "summary": "Exchange with extra refund",
+                            "value": {
+                                "transaction_id": "txn-refund-exchange",
+                                "action": "EXCHANGE_ITEMS",
+                                "receipt_number": "RCPT-1003",
+                                "return_items": [{"line_id": "line-id", "qty": 1, "condition": "GOOD"}],
+                                "exchange_lines": [
+                                    {
+                                        "line_type": "SKU",
+                                        "qty": 1,
+                                        "unit_price": "15.00",
+                                        "snapshot": {
+                                            "sku": "SKU-CHEAPER",
+                                            "description": "Replacement",
+                                            "var1_value": "V1",
+                                            "var2_value": "V2",
+                                            "epc": None,
+                                            "location_code": "LOC-1",
+                                            "pool": "P1",
+                                            "status": "PENDING",
+                                            "location_is_vendible": True,
+                                            "image_asset_id": None,
+                                            "image_url": None,
+                                            "image_thumb_url": None,
+                                            "image_source": None,
+                                            "image_updated_at": None,
+                                        },
+                                    }
+                                ],
+                                "refund_payments": [{"method": "TRANSFER", "amount": "10.00"}],
+                            },
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 def sale_action(
     sale_id: str,
     request: Request,
@@ -1742,6 +1872,7 @@ def sale_action(
     sale.change_due = float(totals["change_due"])
     sale.checked_out_by_user_id = current_user.id
     sale.checked_out_at = now
+    sale.receipt_number = payload.receipt_number or sale.receipt_number
     sale.updated_by_user_id = current_user.id
     sale.updated_at = now
 

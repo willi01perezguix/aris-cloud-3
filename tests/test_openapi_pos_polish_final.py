@@ -14,6 +14,18 @@ def test_pos_line_inputs_are_discriminated_for_sales_and_returns():
     assert exchange_lines["discriminator"]["propertyName"] == "line_type"
 
 
+def test_pos_action_endpoints_expose_discriminators_in_openapi():
+    paths = app.openapi()["paths"]
+
+    sales_actions = paths["/aris3/pos/sales/{sale_id}/actions"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    returns_actions = paths["/aris3/pos/returns/{return_id}/actions"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    cash_actions = paths["/aris3/pos/cash/session/actions"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+
+    assert sales_actions["discriminator"]["propertyName"] == "action"
+    assert returns_actions["discriminator"]["propertyName"] == "action"
+    assert cash_actions["discriminator"]["propertyName"] == "action"
+
+
 def test_pos_patch_sale_documents_draft_only_full_line_replacement():
     operation = app.openapi()["paths"]["/aris3/pos/sales/{sale_id}"]["patch"]
     description = operation.get("description") or ""

@@ -75,6 +75,15 @@ POS_LIST_ERROR_RESPONSES = {
 }
 
 
+POS_ERROR_EXAMPLES = {
+    "401": {"code": "UNAUTHORIZED", "message": "Authentication required", "details": {"message": "Missing or invalid bearer token"}, "trace_id": "trace-auth-401"},
+    "403": {"code": "FORBIDDEN", "message": "You do not have access to this store", "details": {"store_id": "00000000-0000-0000-0000-000000000099", "required_permission": "POS_SALE_MANAGE"}, "trace_id": "trace-authz-403"},
+    "404_sale": {"code": "NOT_FOUND", "message": "sale not found", "details": {"sale_id": "00000000-0000-0000-0000-000000009999"}, "trace_id": "trace-sale-404"},
+    "409_draft_required": {"code": "BUSINESS_CONFLICT", "message": "sale must be DRAFT to update", "details": {"sale_id": "00000000-0000-0000-0000-000000000111", "status": "CHECKED_OUT"}, "trace_id": "trace-sale-409"},
+    "409_idempotency": {"code": "BUSINESS_CONFLICT", "message": "Idempotency conflict: transaction_id already used with different payload", "details": {"transaction_id": "txn-checkout-1001"}, "trace_id": "trace-sale-idempotency-409"},
+}
+
+
 def _require_transaction_id(transaction_id: str | None) -> None:
     if not transaction_id:
         raise AppError(
@@ -677,7 +686,19 @@ def _sale_summary_row(repo: PosSaleRepository, sale: PosSale) -> SaleSummaryRow:
     )
 
 
-@router.get("/aris3/pos/sales", response_model=PosSaleListResponse, responses=POS_LIST_ERROR_RESPONSES)
+@router.get(
+    "/aris3/pos/sales",
+    response_model=PosSaleListResponse,
+    responses=POS_LIST_ERROR_RESPONSES,
+    openapi_extra={
+        "responses": {
+            "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
+            "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
+            "409": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["409_idempotency"]}}},
+            "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "checked_out_from", "message": "checked_out_from must be <= checked_out_to", "type": "value_error"}]}, "trace_id": "trace-sales-list-422"}}}},
+        }
+    },
+)
 def list_sales(
     receipt_number: str | None = Query(default=None),
     status: str | None = Query(default=None),
@@ -753,41 +774,13 @@ def list_sales(
             }
         },
         "responses": {
-            "201": {
-                "content": {
-                    "application/json": {
-                        "example": {
-                            "header": {
-                                "id": "00000000-0000-0000-0000-000000000111",
-                                "tenant_id": "00000000-0000-0000-0000-000000000010",
-                                "store_id": "00000000-0000-0000-0000-000000000001",
-                                "status": "DRAFT",
-                                "total_due": "50.00",
-                                "paid_total": "0.00",
-                                "balance_due": "50.00",
-                                "change_due": "0.00",
-                                "receipt_number": None,
-                                "created_by_user_id": "00000000-0000-0000-0000-000000000020",
-                                "updated_by_user_id": "00000000-0000-0000-0000-000000000020",
-                                "checked_out_by_user_id": None,
-                                "canceled_by_user_id": None,
-                                "checked_out_at": None,
-                                "canceled_at": None,
-                                "created_at": "2026-01-15T10:00:00Z",
-                                "updated_at": "2026-01-15T10:00:00Z"
-                            },
-                            "lines": [],
-                            "payments": [],
-                            "payment_summary": [],
-                            "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"},
-                            "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"},
-                            "net_adjustment": "0.00",
-                            "return_events": []
-                        }
-                    }
-                }
-            }
-        }
+            "201": {"content": {"application/json": {"example": {"header": {"id": "00000000-0000-0000-0000-000000000111", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "status": "DRAFT", "total_due": "50.00", "paid_total": "0.00", "balance_due": "50.00", "change_due": "0.00", "receipt_number": None, "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": None, "canceled_by_user_id": None, "checked_out_at": None, "canceled_at": None, "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T10:00:00Z"}, "lines": [{"id": "00000000-0000-0000-0000-000000001001", "line_type": "SKU", "qty": 2, "unit_price": "25.00", "line_total": "50.00", "returned_qty": 0, "returnable_qty": 2, "snapshot": {"sku": "SKU-123", "epc": None}, "created_at": "2026-01-15T10:00:00Z"}], "payments": [], "payment_summary": [], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}},
+            "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
+            "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
+            "404": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["404_sale"]}}},
+            "409": {"content": {"application/json": {"examples": {"draft_state_conflict": {"value": POS_ERROR_EXAMPLES["409_draft_required"]}, "idempotency_conflict": {"value": POS_ERROR_EXAMPLES["409_idempotency"]}}}}},
+            "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "lines[0].sku", "message": "sku is required for SKU lines", "type": "value_error", "loc": ["body", "lines", 0, "sku"]}]}, "trace_id": "trace-sale-create-422"}}}},
+        },
     },
 )
 def create_sale(
@@ -902,7 +895,17 @@ def create_sale(
     response_model=PosSaleResponse,
     responses=POS_STANDARD_ERROR_RESPONSES,
     summary="Replace draft sale lines",
-    description="Allowed only when the sale is in DRAFT status. This PATCH performs a full replacement of draft lines (`lines` array), preserving identifier and draft lifecycle.",
+    description="Allowed only when the sale is in DRAFT status. This PATCH performs a full replacement of draft lines (`lines` array), preserving identifier and draft lifecycle; this is not an arbitrary partial patch.",
+    openapi_extra={
+        "responses": {
+            "200": {"content": {"application/json": {"example": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "DRAFT", "checked_out_at": None, "canceled_at": None, "total_due": "25.00", "paid_total": "0.00", "balance_due": "25.00", "change_due": "0.00", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T10:15:00Z", "receipt_number": None, "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": None, "canceled_by_user_id": None}, "lines": [{"id": "00000000-0000-0000-0000-000000001002", "line_type": "SKU", "sku": "SKU-456", "qty": 1, "unit_price": "25.00", "line_total": "25.00", "returned_qty": 0, "returnable_qty": 1, "snapshot": {"sku": "SKU-456"}, "created_at": "2026-01-15T10:15:00Z"}], "payments": [], "payment_summary": [], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}},
+            "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
+            "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
+            "404": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["404_sale"]}}},
+            "409": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["409_draft_required"]}}},
+            "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "lines", "message": "lines must not be empty", "type": "value_error"}]}, "trace_id": "trace-sale-patch-422"}}}},
+        }
+    },
 )
 def update_sale(
     sale_id: str,
@@ -1009,7 +1012,21 @@ def update_sale(
     return response
 
 
-@router.get("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.get(
+    "/aris3/pos/sales/{sale_id}",
+    response_model=PosSaleResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    openapi_extra={
+        "responses": {
+            "200": {"content": {"application/json": {"example": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "CHECKED_OUT", "checked_out_at": "2026-01-15T11:00:00Z", "canceled_at": None, "total_due": "50.00", "paid_total": "50.00", "balance_due": "0.00", "change_due": "0.00", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:00:00Z", "receipt_number": "RCPT-1001", "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": "00000000-0000-0000-0000-000000000020", "canceled_by_user_id": None}, "lines": [], "payments": [{"id": "00000000-0000-0000-0000-000000008001", "method": "CASH", "amount": "50.00", "authorization_code": None, "bank_name": None, "voucher_number": None, "created_at": "2026-01-15T11:00:00Z"}], "payment_summary": [{"method": "CASH", "amount": "50.00"}], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}},
+            "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
+            "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
+            "404": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["404_sale"]}}},
+            "409": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["409_idempotency"]}}},
+            "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "sale_id", "message": "sale_id must be a valid UUID", "type": "type_error.uuid"}]}, "trace_id": "trace-sale-get-422"}}}},
+        }
+    },
+)
 def get_sale(
     sale_id: str,
     token_data=Depends(get_current_token_data),
@@ -1054,7 +1071,15 @@ def get_sale(
                     }
                 }
             }
-        }
+        },
+        "responses": {
+            "200": {"content": {"application/json": {"examples": {"checkout": {"value": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "CHECKED_OUT", "checked_out_at": "2026-01-15T11:00:00Z", "canceled_at": None, "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "total_due": "50.00", "paid_total": "50.00", "balance_due": "0.00", "change_due": "0.00", "receipt_number": "RCPT-1001", "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": "00000000-0000-0000-0000-000000000020", "canceled_by_user_id": None, "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:00:00Z"}, "lines": [], "payments": [{"id": "00000000-0000-0000-0000-000000008001", "method": "CASH", "amount": "50.00", "authorization_code": None, "bank_name": None, "voucher_number": None, "created_at": "2026-01-15T11:00:00Z"}], "payment_summary": [{"method": "CASH", "amount": "50.00"}], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}, "cancel": {"value": {"header": {"id": "00000000-0000-0000-0000-000000000112", "status": "CANCELED", "checked_out_at": None, "canceled_at": "2026-01-15T11:05:00Z", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "total_due": "25.00", "paid_total": "0.00", "balance_due": "25.00", "change_due": "0.00", "receipt_number": None, "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": None, "canceled_by_user_id": "00000000-0000-0000-0000-000000000020", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:05:00Z"}, "lines": [], "payments": [], "payment_summary": [], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}}}},
+            "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
+            "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
+            "404": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["404_sale"]}}},
+            "409": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["409_draft_required"]}}},
+            "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "payments", "message": "payments are required for CHECKOUT action", "type": "value_error"}]}, "trace_id": "trace-sale-action-422"}}}},
+        },
     },
 )
 def sale_action(

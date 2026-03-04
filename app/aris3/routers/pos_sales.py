@@ -1039,7 +1039,9 @@ def sale_action(
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
     enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
 
-    if payload.action == "cancel":
+    action = str(payload.action).upper()
+
+    if action == "CANCEL":
         if sale.status != "DRAFT":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be DRAFT to cancel"})
         sale.status = "CANCELED"
@@ -1068,7 +1070,7 @@ def sale_action(
         )
         return response
 
-    if payload.action == "REFUND_ITEMS":
+    if action == "REFUND_ITEMS":
         _require_action_permission(request, token_data, db, "POS_SALE_REFUND")
         if sale.status != "PAID":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be PAID to refund"})
@@ -1353,7 +1355,7 @@ def sale_action(
         )
         return response
 
-    if payload.action == "EXCHANGE_ITEMS":
+    if action == "EXCHANGE_ITEMS":
         _require_action_permission(request, token_data, db, "POS_SALE_EXCHANGE")
         if sale.status != "PAID":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be PAID to exchange"})
@@ -1783,7 +1785,7 @@ def sale_action(
         )
         return response
 
-    if payload.action != "checkout":
+    if action != "CHECKOUT":
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "unsupported action"})
     if sale.status != "DRAFT":
         raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "sale must be DRAFT to checkout"})

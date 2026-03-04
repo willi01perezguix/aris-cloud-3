@@ -537,10 +537,10 @@ def list_cash_movements(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
     movement_type: str | None = None,
-    from_ts: datetime | None = None,
-    to_ts: datetime | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    occurred_from: datetime | None = None,
+    occurred_to: datetime | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     tenant_id: Annotated[str | None, Query(deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context and this value is only validated for compatibility.")] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
@@ -551,8 +551,7 @@ def list_cash_movements(
     store_id = _resolve_store_id(token_data, store_id)
     enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
 
-    limit = max(1, min(limit, 500))
-    offset = max(0, offset)
+    offset = (page - 1) * page_size
 
     query = select(PosCashMovement).where(PosCashMovement.tenant_id == scoped_tenant_id)
     count_query = select(func.count()).select_from(PosCashMovement).where(PosCashMovement.tenant_id == scoped_tenant_id)
@@ -565,16 +564,16 @@ def list_cash_movements(
     if movement_type:
         query = query.where(PosCashMovement.action == movement_type)
         count_query = count_query.where(PosCashMovement.action == movement_type)
-    if from_ts:
-        query = query.where(PosCashMovement.created_at >= from_ts)
-        count_query = count_query.where(PosCashMovement.created_at >= from_ts)
-    if to_ts:
-        query = query.where(PosCashMovement.created_at <= to_ts)
-        count_query = count_query.where(PosCashMovement.created_at <= to_ts)
+    if occurred_from:
+        query = query.where(PosCashMovement.occurred_at >= occurred_from)
+        count_query = count_query.where(PosCashMovement.occurred_at >= occurred_from)
+    if occurred_to:
+        query = query.where(PosCashMovement.occurred_at <= occurred_to)
+        count_query = count_query.where(PosCashMovement.occurred_at <= occurred_to)
 
     total = db.execute(count_query).scalar_one()
-    rows = db.execute(query.order_by(PosCashMovement.created_at.desc()).limit(limit).offset(offset)).scalars().all()
-    return PosCashMovementListResponse(rows=[_movement_response(row) for row in rows], total=total)
+    rows = db.execute(query.order_by(PosCashMovement.created_at.desc()).limit(page_size).offset(offset)).scalars().all()
+    return PosCashMovementListResponse(page=page, page_size=page_size, rows=[_movement_response(row) for row in rows], total=total)
 
 
 @router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -794,10 +793,10 @@ def close_day(
 @router.get("/aris3/pos/cash/day-close/summary", response_model=PosCashDayCloseSummaryListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def list_day_close_summary(
     store_id: str | None = None,
-    from_date: date | None = None,
-    to_date: date | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    business_date_from: date | None = None,
+    business_date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     tenant_id: Annotated[str | None, Query(deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context and this value is only validated for compatibility.")] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
@@ -808,8 +807,7 @@ def list_day_close_summary(
     store_id = _resolve_store_id(token_data, store_id)
     enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
 
-    limit = max(1, min(limit, 500))
-    offset = max(0, offset)
+    offset = (page - 1) * page_size
 
     query = select(PosCashDayClose).where(PosCashDayClose.tenant_id == scoped_tenant_id)
     count_query = select(func.count()).select_from(PosCashDayClose).where(
@@ -818,16 +816,16 @@ def list_day_close_summary(
     if store_id:
         query = query.where(PosCashDayClose.store_id == store_id)
         count_query = count_query.where(PosCashDayClose.store_id == store_id)
-    if from_date:
-        query = query.where(PosCashDayClose.business_date >= from_date)
-        count_query = count_query.where(PosCashDayClose.business_date >= from_date)
-    if to_date:
-        query = query.where(PosCashDayClose.business_date <= to_date)
-        count_query = count_query.where(PosCashDayClose.business_date <= to_date)
+    if business_date_from:
+        query = query.where(PosCashDayClose.business_date >= business_date_from)
+        count_query = count_query.where(PosCashDayClose.business_date >= business_date_from)
+    if business_date_to:
+        query = query.where(PosCashDayClose.business_date <= business_date_to)
+        count_query = count_query.where(PosCashDayClose.business_date <= business_date_to)
 
     total = db.execute(count_query).scalar_one()
     rows = (
-        db.execute(query.order_by(PosCashDayClose.business_date.desc()).limit(limit).offset(offset))
+        db.execute(query.order_by(PosCashDayClose.business_date.desc()).limit(page_size).offset(offset))
         .scalars()
         .all()
     )
@@ -858,6 +856,8 @@ def list_day_close_summary(
             )
             for row in rows
         ],
+        page=page,
+        page_size=page_size,
         total=total,
     )
 

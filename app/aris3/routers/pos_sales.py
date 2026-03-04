@@ -681,8 +681,8 @@ def _sale_summary_row(repo: PosSaleRepository, sale: PosSale) -> SaleSummaryRow:
 def list_sales(
     receipt_number: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    checked_out_from: date | None = Query(default=None),
-    checked_out_to: date | None = Query(default=None),
+    checked_out_from: date | None = Query(default=None, description="Inclusive calendar date (store business date) to start filtering sales by checkout date."),
+    checked_out_to: date | None = Query(default=None, description="Inclusive calendar date (store business date) to end filtering sales by checkout date."),
     from_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_from"),
     to_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_to"),
     q: str | None = Query(default=None),
@@ -730,6 +730,65 @@ def list_sales(
     response_model=PosSaleResponse,
     status_code=201,
     responses=POS_STANDARD_ERROR_RESPONSES,
+    summary="Create draft sale",
+    description="Creates a sale in DRAFT status using canonical line selectors (`line_type` + `sku`/`epc`). Legacy fields remain optional/deprecated for transitional compatibility.",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "canonical": {
+                            "summary": "Canonical draft sale request",
+                            "value": {
+                                "transaction_id": "txn-sale-create-1001",
+                                "store_id": "00000000-0000-0000-0000-000000000001",
+                                "lines": [
+                                    {"line_type": "SKU", "sku": "SKU-123", "qty": 2},
+                                    {"line_type": "EPC", "epc": "EPC-0001", "qty": 1}
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "responses": {
+            "201": {
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "header": {
+                                "id": "00000000-0000-0000-0000-000000000111",
+                                "tenant_id": "00000000-0000-0000-0000-000000000010",
+                                "store_id": "00000000-0000-0000-0000-000000000001",
+                                "status": "DRAFT",
+                                "total_due": "50.00",
+                                "paid_total": "0.00",
+                                "balance_due": "50.00",
+                                "change_due": "0.00",
+                                "receipt_number": None,
+                                "created_by_user_id": "00000000-0000-0000-0000-000000000020",
+                                "updated_by_user_id": "00000000-0000-0000-0000-000000000020",
+                                "checked_out_by_user_id": None,
+                                "canceled_by_user_id": None,
+                                "checked_out_at": None,
+                                "canceled_at": None,
+                                "created_at": "2026-01-15T10:00:00Z",
+                                "updated_at": "2026-01-15T10:00:00Z"
+                            },
+                            "lines": [],
+                            "payments": [],
+                            "payment_summary": [],
+                            "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"},
+                            "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"},
+                            "net_adjustment": "0.00",
+                            "return_events": []
+                        }
+                    }
+                }
+            }
+        }
+    },
 )
 def create_sale(
     request: Request,
@@ -838,7 +897,13 @@ def create_sale(
     return response
 
 
-@router.patch("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.patch(
+    "/aris3/pos/sales/{sale_id}",
+    response_model=PosSaleResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    summary="Replace draft sale lines",
+    description="Allowed only when the sale is in DRAFT status. This PATCH performs a full replacement of draft lines (`lines` array), preserving identifier and draft lifecycle.",
+)
 def update_sale(
     sale_id: str,
     request: Request,
@@ -963,7 +1028,10 @@ def get_sale(
     return _sale_response(repo, sale)
 
 
-@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
+@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES,
+    summary="Execute sale action",
+    description="Canonical actions are `CHECKOUT` and `CANCEL`. Legacy post-sale actions (`REFUND_ITEMS`, `EXCHANGE_ITEMS`) remain available for compatibility and existing runtimes.",
+    openapi_extra={
         "requestBody": {
             "content": {
                 "application/json": {

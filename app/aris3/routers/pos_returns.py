@@ -85,12 +85,25 @@ def get_eligibility(sale_id: str | None = None, receipt_number: str | None = Non
     )
 
 
-@router.post('/aris3/pos/returns/quote', response_model=ReturnQuoteResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.post(
+    '/aris3/pos/returns/quote',
+    response_model=ReturnQuoteResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    summary='Quote return draft',
+    description='Previews refund/exchange totals using canonical line selectors (`line_type` + `sku`/`epc`) for exchange lines. Legacy compatibility fields are optional/deprecated.',
+)
 def quote_return(request: ReturnQuoteRequest):
     return compute_quote(request)
 
 
-@router.post('/aris3/pos/returns', response_model=ReturnDetail, status_code=201, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.post(
+    '/aris3/pos/returns',
+    response_model=ReturnDetail,
+    status_code=201,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    summary='Create draft return',
+    description='Creates a return in DRAFT status. Completion is done later via return actions.',
+)
 def create_return(request: ReturnQuoteRequest):
     quote = compute_quote(request)
     now = datetime.utcnow()
@@ -113,7 +126,13 @@ def create_return(request: ReturnQuoteRequest):
     )
 
 
-@router.post('/aris3/pos/returns/{return_id}/actions', response_model=ReturnDetail, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.post(
+    '/aris3/pos/returns/{return_id}/actions',
+    response_model=ReturnDetail,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    summary='Execute return action',
+    description='Action request is discriminated by `action` with action-specific required fields.',
+)
 def action_return(return_id: str, request: ReturnActionRequest):
     now = datetime.utcnow()
     status = 'COMPLETED' if request.action == 'COMPLETE' else 'VOIDED'

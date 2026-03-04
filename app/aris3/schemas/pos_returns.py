@@ -18,7 +18,7 @@ class ReturnItem(PosBaseModel):
 
 class ReturnQuoteRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = Field(default=None)
     store_id: str
     sale_id: str
     items: list[ReturnItem]
@@ -76,7 +76,7 @@ class ReturnEligibilityResponse(PosBaseModel):
 
 class ReturnCompleteAction(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = None
     action: Literal['COMPLETE']
     settlement_payments: list[dict] | None = None
     reason: str | None = None
@@ -84,7 +84,7 @@ class ReturnCompleteAction(PosBaseModel):
 
 class ReturnVoidAction(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = None
     action: Literal['VOID']
     reason: str
 

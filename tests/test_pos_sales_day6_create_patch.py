@@ -182,3 +182,42 @@ def test_pos_sale_patch_denied_after_checkout(client, db_session):
         json=patch_payload,
     )
     assert patch_response.status_code == 409
+
+
+def test_pos_sale_create_accepts_legacy_selector_without_snapshot(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-legacy-create")
+    token = login(client, user.username, "Pass1234!")
+
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-LEGACY-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+
+    payload = {
+        "transaction_id": "txn-sale-legacy-create",
+        "store_id": str(store.id),
+        "lines": [
+            {
+                "line_type": "SKU",
+                "qty": 1,
+                "sku": "SKU-LEGACY-1",
+                "unit_price": 25.0,
+                "status": "PENDING",
+            }
+        ],
+    }
+    response = client.post(
+        "/aris3/pos/sales",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "pos-sale-legacy-create-1"},
+        json=payload,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["header"]["status"] == "DRAFT"
+    assert response.json()["lines"][0]["snapshot"]["sku"] == "SKU-LEGACY-1"

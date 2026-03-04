@@ -10,7 +10,7 @@ from app.aris3.schemas.pos_common import Money, PaginatedResponse, PosBaseModel
 
 class PosCashSessionOpenAction(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = None
     store_id: str | None = None
     action: Literal['OPEN']
     opening_amount: Money
@@ -20,7 +20,7 @@ class PosCashSessionOpenAction(PosBaseModel):
 
 class PosCashInOutAction(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = None
     store_id: str | None = None
     action: Literal['CASH_IN', 'CASH_OUT']
     amount: Money
@@ -29,7 +29,7 @@ class PosCashInOutAction(PosBaseModel):
 
 class PosCashCloseAction(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = None
     store_id: str | None = None
     action: Literal['CLOSE']
     counted_cash: Money
@@ -89,7 +89,7 @@ class PosCashMovementListResponse(PaginatedResponse):
 
 class PosCashDayCloseActionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
+    tenant_id: str | None = Field(default=None)
     store_id: str
     action: Literal['CLOSE_DAY'] = 'CLOSE_DAY'
     business_date: date

@@ -32,6 +32,7 @@ from app.aris3.db.models import (
 from app.aris3.db.session import get_db
 from app.aris3.repos.pos_sales import PosSaleQueryFilters, PosSaleRepository
 from app.aris3.repos.settings import ReturnPolicySettingsRepository
+from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorResponse
 from app.aris3.schemas.pos_sales import (
     PosPaymentCreate,
     PosPaymentResponse,
@@ -55,6 +56,15 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+
+
+POS_STANDARD_ERROR_RESPONSES = {
+    401: {"description": "Unauthorized", "model": ApiErrorResponse},
+    403: {"description": "Forbidden", "model": ApiErrorResponse},
+    404: {"description": "Resource not found", "model": ApiErrorResponse},
+    409: {"description": "Business conflict", "model": ApiErrorResponse},
+    422: {"description": "Validation error", "model": ApiValidationErrorResponse},
+}
 
 
 def _require_transaction_id(transaction_id: str | None) -> None:
@@ -608,7 +618,7 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
     )
 
 
-@router.get("/aris3/pos/sales", response_model=PosSaleListResponse)
+@router.get("/aris3/pos/sales", response_model=PosSaleListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def list_sales(
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
@@ -625,7 +635,12 @@ def list_sales(
     return PosSaleListResponse(rows=responses)
 
 
-@router.post("/aris3/pos/sales", response_model=PosSaleResponse, status_code=201)
+@router.post(
+    "/aris3/pos/sales",
+    response_model=PosSaleResponse,
+    status_code=201,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+)
 def create_sale(
     request: Request,
     payload: PosSaleCreateRequest,
@@ -733,7 +748,7 @@ def create_sale(
     return response
 
 
-@router.patch("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse)
+@router.patch("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def update_sale(
     sale_id: str,
     request: Request,
@@ -839,7 +854,7 @@ def update_sale(
     return response
 
 
-@router.get("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse)
+@router.get("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def get_sale(
     sale_id: str,
     token_data=Depends(get_current_token_data),
@@ -858,7 +873,7 @@ def get_sale(
     return _sale_response(repo, sale)
 
 
-@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse)
+@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def sale_action(
     sale_id: str,
     request: Request,

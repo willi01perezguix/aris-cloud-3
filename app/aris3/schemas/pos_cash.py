@@ -4,7 +4,29 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema, field_serializer
+
+
+POSMoney = Annotated[
+    Decimal,
+    PlainSerializer(lambda value: format(value.quantize(Decimal("0.01")), "f"), return_type=str, when_used="json"),
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "number"},
+                {"type": "string", "pattern": r"^-?\d{1,10}(?:\.\d{1,2})?$"},
+            ]
+        },
+        mode="validation",
+    ),
+    WithJsonSchema({"type": "string", "pattern": r"^-?\d{1,10}(?:\.\d{2})?$"}, mode="serialization"),
+]
+
+_MONEY_FIELD_DESCRIPTION = "Acepta number o string decimal; se serializa como string con dos decimales"
+
+
+def money_field(*examples: str) -> Field:
+    return Field(description=_MONEY_FIELD_DESCRIPTION, examples=list(examples) or ["0.00", "25.00", "125.50", "-10.00"])
 
 
 class PosBaseModel(BaseModel):
@@ -17,16 +39,16 @@ class PosBaseModel(BaseModel):
         return value
 
 
-
-
 class PosCashSessionActionRequest(PosBaseModel):
     transaction_id: str | None
     tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     store_id: str | None = None
-    action: Literal["OPEN", "CASH_IN", "CASH_OUT", "CLOSE"]
-    opening_amount: Decimal | None = None
-    amount: Decimal | None = None
-    counted_cash: Decimal | None = None
+    action: Literal["OPEN", "CASH_IN", "CASH_OUT", "CLOSE"] = Field(
+        description="Acciones permitidas: OPEN, CASH_IN, CASH_OUT, CLOSE"
+    )
+    opening_amount: POSMoney | None = money_field("0.00", "25.00")
+    amount: POSMoney | None = money_field("25.00", "125.50")
+    counted_cash: POSMoney | None = money_field("0.00", "125.50")
     business_date: date | None = None
     timezone: str | None = None
     reason: str | None = None
@@ -40,10 +62,10 @@ class PosCashSessionSummary(PosBaseModel):
     status: str
     business_date: date
     timezone: str
-    opening_amount: Decimal
-    expected_cash: Decimal
-    counted_cash: Decimal | None
-    difference: Decimal | None
+    opening_amount: POSMoney = money_field("0.00", "25.00")
+    expected_cash: POSMoney = money_field("0.00", "125.50")
+    counted_cash: POSMoney | None = money_field("0.00", "125.50")
+    difference: POSMoney | None = money_field("-10.00", "0.00", "25.00")
     opened_at: datetime
     closed_at: datetime | None
     created_at: datetime
@@ -64,9 +86,9 @@ class PosCashMovementResponse(PosBaseModel):
     business_date: date
     timezone: str
     movement_type: str
-    amount: Decimal
-    expected_balance_before: Decimal | None
-    expected_balance_after: Decimal | None
+    amount: POSMoney = money_field("25.00", "125.50", "-10.00")
+    expected_balance_before: POSMoney | None = money_field("0.00", "125.50")
+    expected_balance_after: POSMoney | None = money_field("0.00", "125.50")
     transaction_id: str | None
     reason: str | None
     trace_id: str | None
@@ -88,7 +110,7 @@ class PosCashDayCloseActionRequest(PosBaseModel):
     timezone: str
     force_if_open_sessions: bool | None = None
     reason: str | None = None
-    counted_cash: Decimal | None = None
+    counted_cash: POSMoney | None = money_field("0.00", "125.50")
 
 
 class PosCashDayCloseResponse(PosBaseModel):
@@ -100,14 +122,14 @@ class PosCashDayCloseResponse(PosBaseModel):
     status: str
     force_close: bool
     reason: str | None
-    expected_cash: Decimal
-    counted_cash: Decimal | None
-    difference_amount: Decimal | None
+    expected_cash: POSMoney = money_field("0.00", "125.50")
+    counted_cash: POSMoney | None = money_field("0.00", "125.50")
+    difference_amount: POSMoney | None = money_field("-10.00", "0.00", "25.00")
     difference_type: str | None
-    net_cash_sales: Decimal
-    cash_refunds: Decimal
-    net_cash_movement: Decimal
-    day_close_difference: Decimal | None
+    net_cash_sales: POSMoney = money_field("0.00", "125.50")
+    cash_refunds: POSMoney = money_field("0.00", "25.00")
+    net_cash_movement: POSMoney = money_field("-10.00", "0.00", "25.00")
+    day_close_difference: POSMoney | None = money_field("-10.00", "0.00", "25.00")
     closed_by_user_id: str
     closed_at: datetime
     created_at: datetime
@@ -122,14 +144,14 @@ class PosCashDayCloseSummaryResponse(PosBaseModel):
     status: str
     force_close: bool
     reason: str | None
-    expected_cash: Decimal
-    counted_cash: Decimal | None
-    difference_amount: Decimal | None
+    expected_cash: POSMoney = money_field("0.00", "125.50")
+    counted_cash: POSMoney | None = money_field("0.00", "125.50")
+    difference_amount: POSMoney | None = money_field("-10.00", "0.00", "25.00")
     difference_type: str | None
-    net_cash_sales: Decimal
-    cash_refunds: Decimal
-    net_cash_movement: Decimal
-    day_close_difference: Decimal | None
+    net_cash_sales: POSMoney = money_field("0.00", "125.50")
+    cash_refunds: POSMoney = money_field("0.00", "25.00")
+    net_cash_movement: POSMoney = money_field("-10.00", "0.00", "25.00")
+    day_close_difference: POSMoney | None = money_field("-10.00", "0.00", "25.00")
     closed_by_user_id: str
     closed_at: datetime
     created_at: datetime
@@ -142,19 +164,19 @@ class PosCashDayCloseSummaryListResponse(PosBaseModel):
 
 class PosCashReconciliationBreakdownRow(PosBaseModel):
     movement_type: str
-    total_amount: Decimal
+    total_amount: POSMoney = money_field("-10.00", "0.00", "125.50")
     movement_count: int
 
 
 class PosCashReconciliationBreakdownResponse(PosBaseModel):
     business_date: date
     timezone: str
-    expected_cash: Decimal
-    opening_amount: Decimal
-    cash_in: Decimal
-    cash_out: Decimal
-    net_cash_movement: Decimal
-    net_cash_sales: Decimal
-    cash_refunds: Decimal
-    day_close_difference: Decimal | None
+    expected_cash: POSMoney = money_field("0.00", "125.50")
+    opening_amount: POSMoney = money_field("0.00", "25.00")
+    cash_in: POSMoney = money_field("0.00", "125.50")
+    cash_out: POSMoney = money_field("0.00", "125.50")
+    net_cash_movement: POSMoney = money_field("-10.00", "0.00", "25.00")
+    net_cash_sales: POSMoney = money_field("0.00", "125.50")
+    cash_refunds: POSMoney = money_field("0.00", "25.00")
+    day_close_difference: POSMoney | None = money_field("-10.00", "0.00", "25.00")
     movements: list[PosCashReconciliationBreakdownRow]

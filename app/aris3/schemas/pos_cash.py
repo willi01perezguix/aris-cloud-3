@@ -23,10 +23,12 @@ class PosCashSessionActionRequest(PosBaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None, deprecated=True)
     store_id: str | None = None
-    action: Literal["OPEN", "CASH_IN", "CASH_OUT", "CLOSE"]
-    opening_amount: Decimal | None = None
-    amount: Decimal | None = None
-    counted_cash: Decimal | None = None
+    action: Literal["OPEN", "CASH_IN", "CASH_OUT", "CLOSE"] = Field(
+        description="Allowed cash session actions: OPEN, CASH_IN, CASH_OUT, CLOSE"
+    )
+    opening_amount: Decimal | None = Field(default=None, examples=["125.50"])
+    amount: Decimal | None = Field(default=None, examples=["25.00"])
+    counted_cash: Decimal | None = Field(default=None, examples=["125.50"])
     business_date: date | None = None
     timezone: str | None = None
     reason: str | None = None
@@ -40,10 +42,10 @@ class PosCashSessionSummary(PosBaseModel):
     status: str
     business_date: date
     timezone: str
-    opening_amount: Decimal
-    expected_cash: Decimal
-    counted_cash: Decimal | None
-    difference: Decimal | None
+    opening_amount: Decimal = Field(examples=["125.50"])
+    expected_cash: Decimal = Field(examples=["125.50"])
+    counted_cash: Decimal | None = Field(examples=["125.50"])
+    difference: Decimal | None = Field(examples=["0.00"])
     opened_at: datetime
     closed_at: datetime | None
     created_at: datetime
@@ -64,9 +66,9 @@ class PosCashMovementResponse(PosBaseModel):
     business_date: date
     timezone: str
     movement_type: str
-    amount: Decimal
-    expected_balance_before: Decimal | None
-    expected_balance_after: Decimal | None
+    amount: Decimal = Field(examples=["25.00"])
+    expected_balance_before: Decimal | None = Field(examples=["100.00"])
+    expected_balance_after: Decimal | None = Field(examples=["125.00"])
     transaction_id: str | None
     reason: str | None
     trace_id: str | None
@@ -88,7 +90,7 @@ class PosCashDayCloseActionRequest(PosBaseModel):
     timezone: str
     force_if_open_sessions: bool | None = None
     reason: str | None = None
-    counted_cash: Decimal | None = None
+    counted_cash: Decimal | None = Field(default=None, examples=["125.50"])
 
 
 class PosCashDayCloseResponse(PosBaseModel):
@@ -100,14 +102,14 @@ class PosCashDayCloseResponse(PosBaseModel):
     status: str
     force_close: bool
     reason: str | None
-    expected_cash: Decimal
-    counted_cash: Decimal | None
-    difference_amount: Decimal | None
+    expected_cash: Decimal = Field(examples=["125.50"])
+    counted_cash: Decimal | None = Field(examples=["125.50"])
+    difference_amount: Decimal | None = Field(examples=["0.00"])
     difference_type: str | None
-    net_cash_sales: Decimal
-    cash_refunds: Decimal
-    net_cash_movement: Decimal
-    day_close_difference: Decimal | None
+    net_cash_sales: Decimal = Field(examples=["250.00"])
+    cash_refunds: Decimal = Field(examples=["25.00"])
+    net_cash_movement: Decimal = Field(examples=["100.00"])
+    day_close_difference: Decimal | None = Field(examples=["0.00"])
     closed_by_user_id: str
     closed_at: datetime
     created_at: datetime
@@ -122,14 +124,14 @@ class PosCashDayCloseSummaryResponse(PosBaseModel):
     status: str
     force_close: bool
     reason: str | None
-    expected_cash: Decimal
-    counted_cash: Decimal | None
-    difference_amount: Decimal | None
+    expected_cash: Decimal = Field(examples=["125.50"])
+    counted_cash: Decimal | None = Field(examples=["125.50"])
+    difference_amount: Decimal | None = Field(examples=["0.00"])
     difference_type: str | None
-    net_cash_sales: Decimal
-    cash_refunds: Decimal
-    net_cash_movement: Decimal
-    day_close_difference: Decimal | None
+    net_cash_sales: Decimal = Field(examples=["250.00"])
+    cash_refunds: Decimal = Field(examples=["25.00"])
+    net_cash_movement: Decimal = Field(examples=["100.00"])
+    day_close_difference: Decimal | None = Field(examples=["0.00"])
     closed_by_user_id: str
     closed_at: datetime
     created_at: datetime
@@ -142,19 +144,19 @@ class PosCashDayCloseSummaryListResponse(PosBaseModel):
 
 class PosCashReconciliationBreakdownRow(PosBaseModel):
     movement_type: str
-    total_amount: Decimal
+    total_amount: Decimal = Field(examples=["25.00"])
     movement_count: int
 
 
 class PosCashReconciliationBreakdownResponse(PosBaseModel):
     business_date: date
     timezone: str
-    expected_cash: Decimal
-    opening_amount: Decimal
-    cash_in: Decimal
-    cash_out: Decimal
-    net_cash_movement: Decimal
-    net_cash_sales: Decimal
-    cash_refunds: Decimal
-    day_close_difference: Decimal | None
+    expected_cash: Decimal = Field(examples=["125.50"])
+    opening_amount: Decimal = Field(examples=["100.00"])
+    cash_in: Decimal = Field(examples=["50.00"])
+    cash_out: Decimal = Field(examples=["24.50"])
+    net_cash_movement: Decimal = Field(examples=["25.50"])
+    net_cash_sales: Decimal = Field(examples=["250.00"])
+    cash_refunds: Decimal = Field(examples=["25.00"])
+    day_close_difference: Decimal | None = Field(examples=["0.00"])
     movements: list[PosCashReconciliationBreakdownRow]

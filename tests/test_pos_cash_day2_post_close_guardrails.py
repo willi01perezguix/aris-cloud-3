@@ -94,3 +94,45 @@ def test_post_close_guardrails_block_mutations(client, db_session):
     )
     assert checkout.status_code == 422
     assert checkout.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+
+
+def test_cash_checkout_without_open_session_returns_409(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, manager = create_tenant_user(
+        db_session, suffix="pos-cash-no-open-session", role="MANAGER"
+    )
+    token = login(client, manager.username, "Pass1234!")
+
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-NO-OPEN",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+
+    create_sale = client.post(
+        "/aris3/pos/sales",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "no-open-sale-create"},
+        json=sale_payload(
+            str(store.id),
+            [sale_line(line_type="SKU", qty=1, unit_price=10.0, sku="SKU-NO-OPEN", epc=None, status="PENDING")],
+            transaction_id="txn-no-open-sale-create",
+        ),
+    )
+    assert create_sale.status_code == 201
+    sale_id = create_sale.json()["header"]["id"]
+
+    checkout = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "no-open-sale-checkout"},
+        json={
+            "transaction_id": "txn-no-open-sale-checkout",
+            "action": "checkout",
+            "payments": [{"method": "CASH", "amount": 10.0}],
+        },
+    )
+    assert checkout.status_code == 409
+    assert checkout.json()["code"] == ErrorCatalog.BUSINESS_CONFLICT.code

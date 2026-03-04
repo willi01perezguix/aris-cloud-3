@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +14,7 @@ from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope, enforce_tenant_scope, is_superadmin
 from app.aris3.db.models import PosCashDayClose, PosCashMovement, PosCashSession
 from app.aris3.db.session import get_db
+from app.aris3.schemas.errors import ApiErrorResponse
 from app.aris3.schemas.pos_cash import (
     PosCashDayCloseActionRequest,
     PosCashDayCloseResponse,
@@ -32,6 +33,49 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+
+
+POS_STANDARD_ERROR_RESPONSES = {
+    401: {
+        "description": "Unauthorized",
+        "model": ApiErrorResponse,
+        "content": {"application/json": {"example": {"code": "INVALID_TOKEN", "message": "Invalid token"}}},
+    },
+    403: {
+        "description": "Forbidden (e.g., store scope mismatch)",
+        "model": ApiErrorResponse,
+        "content": {"application/json": {"example": {"code": "STORE_SCOPE_MISMATCH", "message": "Store scope mismatch"}}},
+    },
+    404: {
+        "description": "Resource not found (e.g., sale not found)",
+        "model": ApiErrorResponse,
+        "content": {"application/json": {"example": {"code": "RESOURCE_NOT_FOUND", "message": "Resource not found", "details": {"message": "sale not found"}}}},
+    },
+    409: {
+        "description": "Business conflict (e.g., duplicate session open or cash checkout without open cash session)",
+        "model": ApiErrorResponse,
+        "content": {
+            "application/json": {
+                "examples": {
+                    "duplicate_session_open": {
+                        "value": {
+                            "code": "BUSINESS_CONFLICT",
+                            "message": "Business conflict",
+                            "details": {"message": "open cash session already exists"},
+                        }
+                    },
+                    "cash_checkout_requires_open_session": {
+                        "value": {
+                            "code": "BUSINESS_CONFLICT",
+                            "message": "Business conflict",
+                            "details": {"message": "open cash session required for CASH payments"},
+                        }
+                    },
+                }
+            }
+        },
+    },
+}
 
 MOVEMENT_TYPE_MAP = {
     "OPEN": "OPENING",
@@ -249,11 +293,17 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
         )
 
 
-@router.get("/aris3/pos/cash/session/current", response_model=PosCashSessionCurrentResponse)
+@router.get(
+    "/aris3/pos/cash/session/current",
+    response_model=PosCashSessionCurrentResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+    summary="Get current open cash session",
+    description="Returns 200 with {\"session\": null} when there is no open session for the scoped cashier/store.",
+)
 def get_current_session(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
-    tenant_id: str | None = None,
+    tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated. Tenant scope is resolved from auth context for non-superadmin users."),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -274,7 +324,11 @@ def get_current_session(
     return PosCashSessionCurrentResponse(session=_session_summary(session) if session else None)
 
 
-@router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary)
+@router.post(
+    "/aris3/pos/cash/session/actions",
+    response_model=PosCashSessionSummary,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+)
 def cash_session_action(
     request: Request,
     payload: PosCashSessionActionRequest,
@@ -522,7 +576,11 @@ def cash_session_action(
     return response
 
 
-@router.get("/aris3/pos/cash/movements", response_model=PosCashMovementListResponse)
+@router.get(
+    "/aris3/pos/cash/movements",
+    response_model=PosCashMovementListResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+)
 def list_cash_movements(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
@@ -531,7 +589,7 @@ def list_cash_movements(
     to_ts: datetime | None = None,
     limit: int = 100,
     offset: int = 0,
-    tenant_id: str | None = None,
+    tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated. Tenant scope is resolved from auth context for non-superadmin users."),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -567,7 +625,11 @@ def list_cash_movements(
     return PosCashMovementListResponse(rows=[_movement_response(row) for row in rows], total=total)
 
 
-@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse)
+@router.post(
+    "/aris3/pos/cash/day-close/actions",
+    response_model=PosCashDayCloseResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+)
 def close_day(
     request: Request,
     payload: PosCashDayCloseActionRequest,
@@ -781,14 +843,18 @@ def close_day(
     return response
 
 
-@router.get("/aris3/pos/cash/day-close/summary", response_model=PosCashDayCloseSummaryListResponse)
+@router.get(
+    "/aris3/pos/cash/day-close/summary",
+    response_model=PosCashDayCloseSummaryListResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+)
 def list_day_close_summary(
     store_id: str | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
     limit: int = 100,
     offset: int = 0,
-    tenant_id: str | None = None,
+    tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated. Tenant scope is resolved from auth context for non-superadmin users."),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -852,12 +918,16 @@ def list_day_close_summary(
     )
 
 
-@router.get("/aris3/pos/cash/reconciliation/breakdown", response_model=PosCashReconciliationBreakdownResponse)
+@router.get(
+    "/aris3/pos/cash/reconciliation/breakdown",
+    response_model=PosCashReconciliationBreakdownResponse,
+    responses=POS_STANDARD_ERROR_RESPONSES,
+)
 def reconciliation_breakdown(
     store_id: str,
     business_date: date,
     timezone: str = "UTC",
-    tenant_id: str | None = None,
+    tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated. Tenant scope is resolved from auth context for non-superadmin users."),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),

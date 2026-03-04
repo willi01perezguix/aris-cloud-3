@@ -32,6 +32,7 @@ from app.aris3.db.models import (
 from app.aris3.db.session import get_db
 from app.aris3.repos.pos_sales import PosSaleQueryFilters, PosSaleRepository
 from app.aris3.repos.settings import ReturnPolicySettingsRepository
+from app.aris3.schemas.errors import ApiErrorResponse
 from app.aris3.schemas.pos_sales import (
     PosPaymentCreate,
     PosPaymentResponse,
@@ -55,6 +56,49 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+
+
+POS_SALES_STANDARD_ERROR_RESPONSES = {
+    401: {
+        "description": "Unauthorized",
+        "model": ApiErrorResponse,
+        "content": {"application/json": {"example": {"code": "INVALID_TOKEN", "message": "Invalid token"}}},
+    },
+    403: {
+        "description": "Forbidden (e.g., store scope mismatch)",
+        "model": ApiErrorResponse,
+        "content": {"application/json": {"example": {"code": "STORE_SCOPE_MISMATCH", "message": "Store scope mismatch"}}},
+    },
+    404: {
+        "description": "Resource not found (e.g., sale not found)",
+        "model": ApiErrorResponse,
+        "content": {"application/json": {"example": {"code": "RESOURCE_NOT_FOUND", "message": "Resource not found", "details": {"message": "sale not found"}}}},
+    },
+    409: {
+        "description": "Business conflict (e.g., duplicate session open or cash checkout without open cash session)",
+        "model": ApiErrorResponse,
+        "content": {
+            "application/json": {
+                "examples": {
+                    "duplicate_session_open": {
+                        "value": {
+                            "code": "BUSINESS_CONFLICT",
+                            "message": "Business conflict",
+                            "details": {"message": "open cash session already exists"},
+                        }
+                    },
+                    "cash_checkout_requires_open_session": {
+                        "value": {
+                            "code": "BUSINESS_CONFLICT",
+                            "message": "Business conflict",
+                            "details": {"message": "open cash session required for CASH payments"},
+                        }
+                    },
+                }
+            }
+        },
+    },
+}
 
 
 def _require_transaction_id(transaction_id: str | None) -> None:
@@ -608,7 +652,11 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
     )
 
 
-@router.get("/aris3/pos/sales", response_model=PosSaleListResponse)
+@router.get(
+    "/aris3/pos/sales",
+    response_model=PosSaleListResponse,
+    responses=POS_SALES_STANDARD_ERROR_RESPONSES,
+)
 def list_sales(
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
@@ -625,7 +673,12 @@ def list_sales(
     return PosSaleListResponse(rows=responses)
 
 
-@router.post("/aris3/pos/sales", response_model=PosSaleResponse, status_code=201)
+@router.post(
+    "/aris3/pos/sales",
+    response_model=PosSaleResponse,
+    status_code=201,
+    responses=POS_SALES_STANDARD_ERROR_RESPONSES,
+)
 def create_sale(
     request: Request,
     payload: PosSaleCreateRequest,
@@ -839,7 +892,11 @@ def update_sale(
     return response
 
 
-@router.get("/aris3/pos/sales/{sale_id}", response_model=PosSaleResponse)
+@router.get(
+    "/aris3/pos/sales/{sale_id}",
+    response_model=PosSaleResponse,
+    responses=POS_SALES_STANDARD_ERROR_RESPONSES,
+)
 def get_sale(
     sale_id: str,
     token_data=Depends(get_current_token_data),
@@ -858,7 +915,11 @@ def get_sale(
     return _sale_response(repo, sale)
 
 
-@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse)
+@router.post(
+    "/aris3/pos/sales/{sale_id}/actions",
+    response_model=PosSaleResponse,
+    responses=POS_SALES_STANDARD_ERROR_RESPONSES,
+)
 def sale_action(
     sale_id: str,
     request: Request,

@@ -38,13 +38,13 @@ class PosSaleLineSnapshot(PosBaseModel):
 class PosSaleLineCreate(PosBaseModel):
     line_type: Literal["EPC", "SKU"]
     qty: int = 1
-    unit_price: Decimal
+    unit_price: Decimal = Field(examples=["25.00"])
     snapshot: PosSaleLineSnapshot
 
 
 class PosPaymentCreate(PosBaseModel):
     method: Literal["CASH", "CARD", "TRANSFER"]
-    amount: Decimal
+    amount: Decimal = Field(examples=["25.00"])
     authorization_code: str | None = None
     bank_name: str | None = None
     voucher_number: str | None = None
@@ -72,7 +72,9 @@ class PosReturnItem(PosBaseModel):
 class PosSaleActionRequest(PosBaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None, deprecated=True)
-    action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"]
+    action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"] = Field(
+        description="Allowed sale actions: checkout, cancel, REFUND_ITEMS, EXCHANGE_ITEMS"
+    )
     payments: list[PosPaymentCreate] | None = None
     refund_payments: list[PosPaymentCreate] | None = None
     return_items: list[PosReturnItem] | None = None
@@ -86,10 +88,10 @@ class PosSaleHeaderResponse(PosBaseModel):
     tenant_id: str
     store_id: str
     status: str
-    total_due: Decimal
-    paid_total: Decimal
-    balance_due: Decimal
-    change_due: Decimal
+    total_due: Decimal = Field(examples=["25.00"])
+    paid_total: Decimal = Field(examples=["25.00"])
+    balance_due: Decimal = Field(examples=["0.00"])
+    change_due: Decimal = Field(examples=["0.00"])
     created_by_user_id: str | None
     updated_by_user_id: str | None
     checked_out_by_user_id: str | None
@@ -104,8 +106,8 @@ class PosSaleLineResponse(PosBaseModel):
     id: str
     line_type: str
     qty: int
-    unit_price: Decimal
-    line_total: Decimal
+    unit_price: Decimal = Field(examples=["25.00"])
+    line_total: Decimal = Field(examples=["25.00"])
     snapshot: PosSaleLineSnapshot
     created_at: datetime
 
@@ -113,7 +115,7 @@ class PosSaleLineResponse(PosBaseModel):
 class PosPaymentResponse(PosBaseModel):
     id: str
     method: str
-    amount: Decimal
+    amount: Decimal = Field(examples=["25.00"])
     authorization_code: str | None
     bank_name: str | None
     voucher_number: str | None
@@ -122,7 +124,7 @@ class PosPaymentResponse(PosBaseModel):
 
 class PosPaymentSummary(PosBaseModel):
     method: str
-    amount: Decimal
+    amount: Decimal = Field(examples=["25.00"])
 
 
 class PosReturnTotals(PosBaseModel):

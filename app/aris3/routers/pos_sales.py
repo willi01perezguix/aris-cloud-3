@@ -914,11 +914,7 @@ def get_sale(
     return _sale_response(repo, sale)
 
 
-@router.post(
-    "/aris3/pos/sales/{sale_id}/actions",
-    response_model=PosSaleResponse,
-    responses=POS_STANDARD_ERROR_RESPONSES,
-    openapi_extra={
+@router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
         "requestBody": {
             "content": {
                 "application/json": {

@@ -62,14 +62,35 @@ class PosSaleLineCreate(PosBaseModel):
     qty: int = 1
     sku: str | None = Field(default=None, description="Canonical selector for SKU lines")
     epc: str | None = Field(default=None, description="Canonical selector for EPC lines")
-    unit_price: POSMoney | None = Field(default=None, description=_MONEY_FIELD_DESCRIPTION, examples=["25.00", "125.50"])
-    status: str | None = Field(default=None)
-    location_code: str | None = Field(default=None)
-    pool: str | None = Field(default=None)
+    unit_price: POSMoney | None = Field(
+        default=None,
+        deprecated=True,
+        description="Legacy compatibility: unit_price is accepted transiently; authoritative pricing is resolved from stock/catalog.",
+        examples=["25.00", "125.50"],
+    )
+    status: str | None = Field(default=None, deprecated=True, description="Legacy compatibility field.")
+    location_code: str | None = Field(default=None, deprecated=True, description="Legacy compatibility field.")
+    pool: str | None = Field(default=None, deprecated=True, description="Legacy compatibility field.")
     snapshot: PosSaleLineSnapshot | None = Field(
         default=None,
+        deprecated=True,
         description="Legacy snapshot input (compatibilidad transitoria); backend reconstruye snapshot autoritativo desde stock.",
     )
+
+
+class SaleLineBySkuInput(PosSaleLineCreate):
+    line_type: Literal["SKU"] = "SKU"
+    sku: str | None = Field(default=None, description="Canonical SKU selector (preferred). Legacy compatibility allows providing SKU only inside snapshot.")
+    epc: str | None = Field(default=None, deprecated=True, description="Legacy compatibility: ignored for SKU lines.")
+
+
+class SaleLineByEpcInput(PosSaleLineCreate):
+    line_type: Literal["EPC"] = "EPC"
+    epc: str | None = Field(default=None, description="Canonical EPC selector (preferred). Legacy compatibility allows providing EPC only inside snapshot.")
+    sku: str | None = Field(default=None, deprecated=True, description="Legacy compatibility: ignored for EPC lines.")
+
+
+SaleLineSelector = Annotated[SaleLineBySkuInput | SaleLineByEpcInput, Field(discriminator="line_type")]
 
 
 class PosPaymentCreate(PosBaseModel):
@@ -82,15 +103,40 @@ class PosPaymentCreate(PosBaseModel):
 
 class PosSaleCreateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
+    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
-    lines: list[PosSaleLineCreate]
+    lines: list[SaleLineSelector]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "transaction_id": "txn-sale-create-1001",
+                "store_id": "00000000-0000-0000-0000-000000000001",
+                "lines": [
+                    {"line_type": "SKU", "sku": "SKU-123", "qty": 2},
+                    {"line_type": "EPC", "epc": "EPC-0001", "qty": 1},
+                ],
+            }
+        }
+    )
 
 
 class PosSaleUpdateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
-    lines: list[PosSaleLineCreate] | None = None
+    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
+    lines: list[SaleLineSelector] | None = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "transaction_id": "txn-sale-update-1002",
+                "lines": [
+                    {"line_type": "SKU", "sku": "SKU-123", "qty": 1},
+                    {"line_type": "EPC", "epc": "EPC-0002", "qty": 1},
+                ],
+            }
+        }
+    )
 
 
 class PosReturnItem(PosBaseModel):
@@ -101,7 +147,7 @@ class PosReturnItem(PosBaseModel):
 
 class CheckoutSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
+    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     action: Literal["CHECKOUT", "checkout"] = Field(examples=["CHECKOUT"])
     payments: list[PosPaymentCreate]
     receipt_number: str | None = None
@@ -109,13 +155,13 @@ class CheckoutSaleActionRequest(PosBaseModel):
 
 class CancelSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
+    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     action: Literal["CANCEL", "cancel"] = Field(examples=["CANCEL"])
 
 
 class RefundItemsSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None)
+    tenant_id: str | None = Field(default=None, deprecated=True)
     action: Literal["REFUND_ITEMS"]
     refund_payments: list[PosPaymentCreate] | None = None
     return_items: list[PosReturnItem] | None = None
@@ -125,7 +171,7 @@ class RefundItemsSaleActionRequest(PosBaseModel):
 
 class ExchangeItemsSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None)
+    tenant_id: str | None = Field(default=None, deprecated=True)
     action: Literal["EXCHANGE_ITEMS"]
     refund_payments: list[PosPaymentCreate] | None = None
     return_items: list[PosReturnItem] | None = None
@@ -240,4 +286,3 @@ class SaleListResponse(PosBaseModel):
 
 PosSaleResponse = SaleDetail
 PosSaleListResponse = SaleListResponse
-SaleLineSelector = PosSaleLineCreate

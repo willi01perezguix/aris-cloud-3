@@ -266,7 +266,7 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
         )
 
 
-@router.get("/aris3/pos/cash/session/current", response_model=PosCashSessionCurrentResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.get("/aris3/pos/cash/session/current", response_model=PosCashSessionCurrentResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Get current open cash session", description="Returns the currently OPEN cash session for the cashier/store context. `closed_at` is null while session is open.")
 def get_current_session(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
@@ -291,7 +291,7 @@ def get_current_session(
     return PosCashSessionCurrentResponse(session=_session_summary(session) if session else None)
 
 
-@router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash session action", description="Action request is discriminated by `action` (`OPEN`, `CASH_IN`, `CASH_OUT`, `CLOSE`) with action-specific required fields.")
 def cash_session_action(
     request: Request,
     payload: PosCashSessionActionRequest,
@@ -583,7 +583,7 @@ def list_cash_movements(
     return PosCashMovementListResponse(page=page, page_size=page_size, rows=[_movement_response(row) for row in rows], total=total)
 
 
-@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone. Legacy scope fields remain optional/deprecated.")
 def close_day(
     request: Request,
     payload: PosCashDayCloseActionRequest,

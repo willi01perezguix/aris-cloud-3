@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
@@ -52,14 +52,14 @@ class PosPaymentCreate(PosBaseModel):
 
 class PosSaleCreateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
+    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     store_id: str | None = None
     lines: list[PosSaleLineCreate]
 
 
 class PosSaleUpdateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
+    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     lines: list[PosSaleLineCreate] | None = None
 
 
@@ -71,7 +71,7 @@ class PosReturnItem(PosBaseModel):
 
 class PosSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
+    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     action: Literal["checkout", "cancel", "REFUND_ITEMS", "EXCHANGE_ITEMS"]
     payments: list[PosPaymentCreate] | None = None
     refund_payments: list[PosPaymentCreate] | None = None

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -21,7 +21,7 @@ class PosBaseModel(BaseModel):
 
 class PosCashSessionActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
+    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     store_id: str | None = None
     action: Literal["OPEN", "CASH_IN", "CASH_OUT", "CLOSE"]
     opening_amount: Decimal | None = None
@@ -81,7 +81,7 @@ class PosCashMovementListResponse(PosBaseModel):
 
 class PosCashDayCloseActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
+    tenant_id: Annotated[str | None, Field(deprecated=True)] = None
     store_id: str
     action: Literal["CLOSE_DAY"] = "CLOSE_DAY"
     business_date: date

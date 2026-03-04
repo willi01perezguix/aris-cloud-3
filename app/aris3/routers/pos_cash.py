@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -253,7 +254,7 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
 def get_current_session(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
-    tenant_id: str | None = None,
+    tenant_id: Annotated[str | None, Query(deprecated=True)] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -531,7 +532,7 @@ def list_cash_movements(
     to_ts: datetime | None = None,
     limit: int = 100,
     offset: int = 0,
-    tenant_id: str | None = None,
+    tenant_id: Annotated[str | None, Query(deprecated=True)] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -788,7 +789,7 @@ def list_day_close_summary(
     to_date: date | None = None,
     limit: int = 100,
     offset: int = 0,
-    tenant_id: str | None = None,
+    tenant_id: Annotated[str | None, Query(deprecated=True)] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -857,7 +858,7 @@ def reconciliation_breakdown(
     store_id: str,
     business_date: date,
     timezone: str = "UTC",
-    tenant_id: str | None = None,
+    tenant_id: Annotated[str | None, Query(deprecated=True)] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),

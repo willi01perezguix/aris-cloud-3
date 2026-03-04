@@ -49,6 +49,7 @@ from app.aris3.schemas.pos_sales import (
     PosSaleListResponse,
     PosSaleResponse,
     PosSaleUpdateRequest,
+    SaleSummaryRow,
 )
 from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
@@ -62,6 +63,13 @@ POS_STANDARD_ERROR_RESPONSES = {
     401: {"description": "Unauthorized", "model": ApiErrorResponse},
     403: {"description": "Forbidden", "model": ApiErrorResponse},
     404: {"description": "Resource not found", "model": ApiErrorResponse},
+    409: {"description": "Business conflict", "model": ApiErrorResponse},
+    422: {"description": "Validation error", "model": ApiValidationErrorResponse},
+}
+
+POS_LIST_ERROR_RESPONSES = {
+    401: {"description": "Unauthorized", "model": ApiErrorResponse},
+    403: {"description": "Forbidden", "model": ApiErrorResponse},
     409: {"description": "Business conflict", "model": ApiErrorResponse},
     422: {"description": "Validation error", "model": ApiValidationErrorResponse},
 }
@@ -649,12 +657,34 @@ def _sale_response(repo: PosSaleRepository, sale: PosSale) -> PosSaleResponse:
     )
 
 
-@router.get("/aris3/pos/sales", response_model=PosSaleListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def _sale_summary_row(repo: PosSaleRepository, sale: PosSale) -> SaleSummaryRow:
+    lines = repo.get_lines(str(sale.id))
+    payments = repo.get_payments(str(sale.id))
+    return SaleSummaryRow(
+        id=_normalize_uuid(sale.id),
+        receipt_number=sale.receipt_number,
+        store_id=_normalize_uuid(sale.store_id),
+        status=sale.status,
+        business_date=getattr(sale, "business_date", None),
+        timezone=getattr(sale, "timezone", None),
+        total_due=Decimal(str(sale.total_due)),
+        paid_total=Decimal(str(sale.paid_total)),
+        balance_due=Decimal(str(sale.balance_due)),
+        item_count=sum(int(line.qty or 0) for line in lines),
+        payment_summary=_payment_summary(payments),
+        checked_out_at=sale.checked_out_at,
+        created_at=sale.created_at,
+    )
+
+
+@router.get("/aris3/pos/sales", response_model=PosSaleListResponse, responses=POS_LIST_ERROR_RESPONSES)
 def list_sales(
     receipt_number: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    from_date: date | None = Query(default=None),
-    to_date: date | None = Query(default=None),
+    checked_out_from: date | None = Query(default=None),
+    checked_out_to: date | None = Query(default=None),
+    from_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_from"),
+    to_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_to"),
     q: str | None = Query(default=None),
     sku: str | None = Query(default=None),
     epc: str | None = Query(default=None),
@@ -682,8 +712,8 @@ def list_sales(
             store_id=store_id,
             receipt_number=receipt_number,
             status=status,
-            from_date=_parse_filter_date(from_date),
-            to_date=_parse_filter_date(to_date, end_of_day=True),
+            from_date=_parse_filter_date(checked_out_from or from_date),
+            to_date=_parse_filter_date(checked_out_to or to_date, end_of_day=True),
             q=q,
             sku=sku,
             epc=epc,
@@ -691,7 +721,7 @@ def list_sales(
             page_size=page_size,
         )
     )
-    responses = [_sale_response(repo, sale) for sale in rows]
+    responses = [_sale_summary_row(repo, sale) for sale in rows]
     return PosSaleListResponse(page=page, page_size=page_size, total=total, rows=responses)
 
 
@@ -938,79 +968,19 @@ def get_sale(
             "content": {
                 "application/json": {
                     "examples": {
-                        "refund_only": {
-                            "summary": "Refund only",
+                        "checkout": {
+                            "summary": "Checkout sale",
                             "value": {
-                                "transaction_id": "txn-refund-only",
-                                "action": "REFUND_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "line-id", "qty": 1, "condition": "GOOD"}],
-                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
+                                "transaction_id": "txn-checkout-1001",
+                                "action": "CHECKOUT",
+                                "payments": [{"method": "CASH", "amount": "25.00"}],
                             },
                         },
-                        "exchange_only": {
-                            "summary": "Exchange only",
+                        "cancel": {
+                            "summary": "Cancel draft sale",
                             "value": {
-                                "transaction_id": "txn-exchange-only",
-                                "action": "EXCHANGE_ITEMS",
-                                "receipt_number": "RCPT-1002",
-                                "return_items": [{"line_id": "line-id", "qty": 1, "condition": "NEW"}],
-                                "exchange_lines": [
-                                    {
-                                        "line_type": "SKU",
-                                        "qty": 1,
-                                        "unit_price": "25.00",
-                                        "snapshot": {
-                                            "sku": "SKU-NEW",
-                                            "description": "Replacement",
-                                            "var1_value": "V1",
-                                            "var2_value": "V2",
-                                            "epc": None,
-                                            "location_code": "LOC-1",
-                                            "pool": "P1",
-                                            "status": "PENDING",
-                                            "location_is_vendible": True,
-                                            "image_asset_id": None,
-                                            "image_url": None,
-                                            "image_thumb_url": None,
-                                            "image_source": None,
-                                            "image_updated_at": None,
-                                        },
-                                    }
-                                ],
-                            },
-                        },
-                        "refund_and_exchange": {
-                            "summary": "Exchange with extra refund",
-                            "value": {
-                                "transaction_id": "txn-refund-exchange",
-                                "action": "EXCHANGE_ITEMS",
-                                "receipt_number": "RCPT-1003",
-                                "return_items": [{"line_id": "line-id", "qty": 1, "condition": "GOOD"}],
-                                "exchange_lines": [
-                                    {
-                                        "line_type": "SKU",
-                                        "qty": 1,
-                                        "unit_price": "15.00",
-                                        "snapshot": {
-                                            "sku": "SKU-CHEAPER",
-                                            "description": "Replacement",
-                                            "var1_value": "V1",
-                                            "var2_value": "V2",
-                                            "epc": None,
-                                            "location_code": "LOC-1",
-                                            "pool": "P1",
-                                            "status": "PENDING",
-                                            "location_is_vendible": True,
-                                            "image_asset_id": None,
-                                            "image_url": None,
-                                            "image_thumb_url": None,
-                                            "image_source": None,
-                                            "image_updated_at": None,
-                                        },
-                                    }
-                                ],
-                                "refund_payments": [{"method": "TRANSFER", "amount": "10.00"}],
+                                "transaction_id": "txn-cancel-1002",
+                                "action": "CANCEL",
                             },
                         },
                     }

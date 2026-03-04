@@ -60,20 +60,20 @@ def test_sales_list_filters_receipt_status_dates_and_scope(client, db_session):
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
-    assert body["rows"][0]["header"]["id"] == sale_a["header"]["id"]
-    assert body["rows"][0]["header"]["receipt_number"] == "RCPT-SEA-1"
+    assert body["rows"][0]["id"] == sale_a["header"]["id"]
+    assert body["rows"][0]["receipt_number"] == "RCPT-SEA-1"
 
     # date window must include current paid sale
     today = datetime.utcnow().date().isoformat()
     resp = client.get(
         "/aris3/pos/sales",
         headers={"Authorization": f"Bearer {token}"},
-        params={"from_date": today, "to_date": today, "q": "SKU-SEA", "page": 1, "page_size": 50},
+        params={"checked_out_from": today, "checked_out_to": today, "q": "SKU-SEA", "page": 1, "page_size": 50},
     )
     assert resp.status_code == 200
     rows = resp.json()["rows"]
     assert len(rows) == 2
-    assert all(row["header"]["tenant_id"] == str(tenant.id) for row in rows)
+    assert all(row["store_id"] == str(store.id) for row in rows)
 
 
 def test_sale_detail_exposes_receipt_and_returnable_quantities(client, db_session):

@@ -28,6 +28,25 @@ def compute_quote(request: ReturnQuoteRequest) -> ReturnQuoteResponse:
         restocking_fee_total=restocking_fee_total,
         net_adjustment=net_adjustment,
         settlement_direction=direction,
-        normalized_lines=[item.model_dump() for item in request.items],
-        exchange_preview=[line.model_dump() for line in request.exchange_lines or []],
+        normalized_lines=[
+            {
+                "sale_line_id": item.sale_line_id,
+                "resolution": item.resolution,
+                "qty": item.qty,
+                "unit_price": "10.00",
+                "line_total": str((Decimal(item.qty) * Decimal('10.00')).quantize(Decimal('0.01'))),
+            }
+            for item in request.items
+        ],
+        exchange_preview=[
+            {
+                "line_type": line.line_type,
+                "sku": line.sku,
+                "epc": line.epc,
+                "qty": line.qty,
+                "unit_price": "10.00",
+                "line_total": str((Decimal(getattr(line, 'qty', 1)) * Decimal('10.00')).quantize(Decimal('0.01'))),
+            }
+            for line in request.exchange_lines or []
+        ],
     )

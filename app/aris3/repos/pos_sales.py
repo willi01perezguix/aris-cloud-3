@@ -36,9 +36,9 @@ class PosSaleRepository:
         if filters.status:
             query = query.where(func.upper(PosSale.status) == filters.status.upper())
         if filters.from_date:
-            query = query.where(PosSale.created_at >= filters.from_date)
+            query = query.where(PosSale.checked_out_at >= filters.from_date)
         if filters.to_date:
-            query = query.where(PosSale.created_at <= filters.to_date)
+            query = query.where(PosSale.checked_out_at <= filters.to_date)
         if filters.sku or filters.epc:
             line_query = select(PosSaleLine.sale_id).where(PosSaleLine.tenant_id == filters.tenant_id)
             if filters.sku:

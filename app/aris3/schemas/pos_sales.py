@@ -15,12 +15,12 @@ POSMoney = Annotated[
         {
             "anyOf": [
                 {"type": "number"},
-                {"type": "string", "pattern": r"^-?\d+\.\d{1,2}$"},
+                {"type": "string", "pattern": r"^-?(0|[1-9]\\d*)\\.\\d{1,2}$"},
             ]
         },
         mode="validation",
     ),
-    WithJsonSchema({"type": "string", "pattern": r"^-?\d+\.\d{2}$"}, mode="serialization"),
+    WithJsonSchema({"type": "string", "pattern": r"^-?(0|[1-9]\\d*)\\.\\d{2}$", "example": "25.00"}, mode="serialization"),
 ]
 
 _MONEY_FIELD_DESCRIPTION = "Money serializado como string decimal de 2 decimales"
@@ -60,17 +60,15 @@ class PosSaleLineSnapshot(PosBaseModel):
 class PosSaleLineCreate(PosBaseModel):
     line_type: Literal["EPC", "SKU"]
     qty: int = 1
-    # canonical selector fields
     sku: str | None = Field(default=None, description="Canonical selector for SKU lines")
     epc: str | None = Field(default=None, description="Canonical selector for EPC lines")
-    # legacy compatibility fields (transitional)
     unit_price: POSMoney | None = Field(default=None, description=_MONEY_FIELD_DESCRIPTION, examples=["25.00", "125.50"])
     status: str | None = Field(default=None)
     location_code: str | None = Field(default=None)
     pool: str | None = Field(default=None)
     snapshot: PosSaleLineSnapshot | None = Field(
         default=None,
-        description="Legacy snapshot input; backend always rebuilds authoritative snapshot from stock",
+        description="Legacy snapshot input (compatibilidad transitoria); backend reconstruye snapshot autoritativo desde stock.",
     )
 
 
@@ -84,14 +82,14 @@ class PosPaymentCreate(PosBaseModel):
 
 class PosSaleCreateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None)
+    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
     lines: list[PosSaleLineCreate]
 
 
 class PosSaleUpdateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None)
+    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
     lines: list[PosSaleLineCreate] | None = None
 
 
@@ -101,19 +99,45 @@ class PosReturnItem(PosBaseModel):
     condition: str
 
 
-class PosSaleActionRequest(PosBaseModel):
+class CheckoutSaleActionRequest(PosBaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
+    action: Literal["CHECKOUT", "checkout"] = Field(examples=["CHECKOUT"])
+    payments: list[PosPaymentCreate]
+    receipt_number: str | None = None
+
+
+class CancelSaleActionRequest(PosBaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None, description="Deprecated: tenant scope is resolved from JWT/context.")
+    action: Literal["CANCEL", "cancel"] = Field(examples=["CANCEL"])
+
+
+class RefundItemsSaleActionRequest(PosBaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None)
-    action: Literal["checkout", "cancel", "CHECKOUT", "CANCEL", "REFUND_ITEMS", "EXCHANGE_ITEMS"] = Field(
-        description="Acciones permitidas: CHECKOUT, CANCEL, REFUND_ITEMS (deprecated), EXCHANGE_ITEMS (deprecated).",
-        examples=["CHECKOUT", "CANCEL"],
-    )
-    payments: list[PosPaymentCreate] | None = None
-    refund_payments: list[PosPaymentCreate] | None = Field(default=None, description="Reembolsos para devoluciones o cambios con saldo a favor del cliente")
-    return_items: list[PosReturnItem] | None = Field(default=None, description="Líneas originales a devolver")
-    exchange_lines: list[PosSaleLineCreate] | None = Field(default=None, description="Nuevas líneas para cambio")
-    receipt_number: str | None = Field(default=None, description="Número de recibo/ticket para checkout y devoluciones")
+    action: Literal["REFUND_ITEMS"]
+    refund_payments: list[PosPaymentCreate] | None = None
+    return_items: list[PosReturnItem] | None = None
+    receipt_number: str | None = None
     manager_override: bool | None = None
+
+
+class ExchangeItemsSaleActionRequest(PosBaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None)
+    action: Literal["EXCHANGE_ITEMS"]
+    refund_payments: list[PosPaymentCreate] | None = None
+    return_items: list[PosReturnItem] | None = None
+    exchange_lines: list[PosSaleLineCreate] | None = None
+    receipt_number: str | None = None
+    manager_override: bool | None = None
+
+
+PosSaleActionRequest = Annotated[
+    CheckoutSaleActionRequest | CancelSaleActionRequest | RefundItemsSaleActionRequest | ExchangeItemsSaleActionRequest,
+    Field(discriminator="action"),
+]
 
 
 class PosSaleHeaderResponse(PosBaseModel):
@@ -180,7 +204,23 @@ class PosReturnEventSummary(PosBaseModel):
     created_at: datetime
 
 
-class PosSaleResponse(PosBaseModel):
+class SaleSummaryRow(PosBaseModel):
+    id: str
+    receipt_number: str | None = None
+    store_id: str
+    status: str
+    business_date: date | None = None
+    timezone: str | None = None
+    total_due: POSMoney = money_field("0.00", "125.50")
+    paid_total: POSMoney = money_field("0.00", "125.50")
+    balance_due: POSMoney = money_field("0.00")
+    item_count: int = 0
+    payment_summary: list[PosPaymentSummary] = []
+    checked_out_at: datetime | None = None
+    created_at: datetime
+
+
+class SaleDetail(PosBaseModel):
     header: PosSaleHeaderResponse
     lines: list[PosSaleLineResponse]
     payments: list[PosPaymentResponse]
@@ -191,12 +231,13 @@ class PosSaleResponse(PosBaseModel):
     return_events: list[PosReturnEventSummary]
 
 
-class PosSaleListResponse(PosBaseModel):
-    page: int
-    page_size: int
-    total: int
-    rows: list[PosSaleResponse]
+class SaleListResponse(PosBaseModel):
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    rows: list[SaleSummaryRow]
 
-# shared alias for returns module
+
+PosSaleResponse = SaleDetail
+PosSaleListResponse = SaleListResponse
 SaleLineSelector = PosSaleLineCreate
-

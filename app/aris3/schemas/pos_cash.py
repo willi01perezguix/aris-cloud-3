@@ -8,9 +8,9 @@ from pydantic import Field
 from app.aris3.schemas.pos_common import Money, PaginatedResponse, PosBaseModel
 
 
-class PosCashSessionOpenAction(PosBaseModel):
+class OpenCashSessionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None)
     store_id: str | None = None
     action: Literal['OPEN']
     opening_amount: Money
@@ -18,25 +18,35 @@ class PosCashSessionOpenAction(PosBaseModel):
     timezone: str
 
 
-class PosCashInOutAction(PosBaseModel):
+class CashInRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None)
     store_id: str | None = None
-    action: Literal['CASH_IN', 'CASH_OUT']
+    action: Literal['CASH_IN']
     amount: Money
     reason: str
 
 
-class PosCashCloseAction(PosBaseModel):
+
+
+class CashOutRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None)
+    store_id: str | None = None
+    action: Literal['CASH_OUT']
+    amount: Money
+    reason: str
+
+class CloseCashSessionRequest(PosBaseModel):
+    transaction_id: str
+    tenant_id: str | None = Field(default=None)
     store_id: str | None = None
     action: Literal['CLOSE']
     counted_cash: Money
 
 
 PosCashSessionActionRequest = Annotated[
-    PosCashSessionOpenAction | PosCashInOutAction | PosCashCloseAction,
+    OpenCashSessionRequest | CashInRequest | CashOutRequest | CloseCashSessionRequest,
     Field(discriminator='action'),
 ]
 

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSche
 Money = Annotated[
     Decimal,
     PlainSerializer(lambda value: format(value.quantize(Decimal('0.01')), 'f'), return_type=str, when_used='json'),
-    WithJsonSchema({'type': 'string', 'pattern': r'^-?\d+\.\d{2}$'}),
+    WithJsonSchema({'type': 'string', 'pattern': r'^-?(0|[1-9]\d*)\.\d{2}$', 'example': '25.00'}),
 ]
 
 

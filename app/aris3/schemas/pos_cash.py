@@ -4,13 +4,25 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
-class PosCashSessionActionRequest(BaseModel):
+class PosBaseModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_serializer("*", when_used="json")
+    def serialize_decimals(self, value):
+        if isinstance(value, Decimal):
+            return format(value.quantize(Decimal("0.01")), "f")
+        return value
+
+
+
+
+class PosCashSessionActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
-    store_id: str
+    tenant_id: str | None = Field(default=None, deprecated=True)
+    store_id: str | None = None
     action: Literal["OPEN", "CASH_IN", "CASH_OUT", "CLOSE"]
     opening_amount: Decimal | None = None
     amount: Decimal | None = None
@@ -20,10 +32,10 @@ class PosCashSessionActionRequest(BaseModel):
     reason: str | None = None
 
 
-class PosCashSessionSummary(BaseModel):
+class PosCashSessionSummary(PosBaseModel):
     id: str
     tenant_id: str
-    store_id: str
+    store_id: str | None = None
     cashier_user_id: str
     status: str
     business_date: date
@@ -37,11 +49,11 @@ class PosCashSessionSummary(BaseModel):
     created_at: datetime
 
 
-class PosCashSessionCurrentResponse(BaseModel):
+class PosCashSessionCurrentResponse(PosBaseModel):
     session: PosCashSessionSummary | None
 
 
-class PosCashMovementResponse(BaseModel):
+class PosCashMovementResponse(PosBaseModel):
     id: str
     tenant_id: str
     store_id: str
@@ -62,14 +74,14 @@ class PosCashMovementResponse(BaseModel):
     created_at: datetime
 
 
-class PosCashMovementListResponse(BaseModel):
+class PosCashMovementListResponse(PosBaseModel):
     rows: list[PosCashMovementResponse]
     total: int
 
 
-class PosCashDayCloseActionRequest(BaseModel):
+class PosCashDayCloseActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = None
+    tenant_id: str | None = Field(default=None, deprecated=True)
     store_id: str
     action: Literal["CLOSE_DAY"] = "CLOSE_DAY"
     business_date: date
@@ -79,7 +91,7 @@ class PosCashDayCloseActionRequest(BaseModel):
     counted_cash: Decimal | None = None
 
 
-class PosCashDayCloseResponse(BaseModel):
+class PosCashDayCloseResponse(PosBaseModel):
     id: str
     tenant_id: str
     store_id: str
@@ -101,7 +113,7 @@ class PosCashDayCloseResponse(BaseModel):
     created_at: datetime
 
 
-class PosCashDayCloseSummaryResponse(BaseModel):
+class PosCashDayCloseSummaryResponse(PosBaseModel):
     id: str
     tenant_id: str
     store_id: str
@@ -123,18 +135,18 @@ class PosCashDayCloseSummaryResponse(BaseModel):
     created_at: datetime
 
 
-class PosCashDayCloseSummaryListResponse(BaseModel):
+class PosCashDayCloseSummaryListResponse(PosBaseModel):
     rows: list[PosCashDayCloseSummaryResponse]
     total: int
 
 
-class PosCashReconciliationBreakdownRow(BaseModel):
+class PosCashReconciliationBreakdownRow(PosBaseModel):
     movement_type: str
     total_amount: Decimal
     movement_count: int
 
 
-class PosCashReconciliationBreakdownResponse(BaseModel):
+class PosCashReconciliationBreakdownResponse(PosBaseModel):
     business_date: date
     timezone: str
     expected_cash: Decimal

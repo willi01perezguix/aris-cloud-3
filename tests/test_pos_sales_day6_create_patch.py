@@ -14,6 +14,33 @@ def test_pos_sale_create_and_patch(client, db_session):
     tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-create")
     token = login(client, user.username, "Pass1234!")
 
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-2",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
     payload = sale_payload(
         str(store.id),
         [
@@ -65,6 +92,33 @@ def test_pos_sale_patch_denied_after_checkout(client, db_session):
     tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-patch-deny")
     token = login(client, user.username, "Pass1234!")
 
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-2",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
     create_stock_item(
         db_session,
         tenant_id=str(tenant.id),
@@ -127,4 +181,4 @@ def test_pos_sale_patch_denied_after_checkout(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "pos-sale-patch-2"},
         json=patch_payload,
     )
-    assert patch_response.status_code == 422
+    assert patch_response.status_code == 409

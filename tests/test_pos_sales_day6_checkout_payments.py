@@ -55,6 +55,42 @@ def test_cash_checkout_success(client, db_session):
         pool="P1",
         status="PENDING",
     )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
     open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
 
     sale_id = _create_sale(client, token, str(store.id), "txn-cash")
@@ -176,6 +212,24 @@ def test_mixed_payment_and_change_rules(client, db_session):
     seed_defaults(db_session)
     tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-mixed")
     token = login(client, user.username, "Pass1234!")
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-1",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
     create_stock_item(
         db_session,
         tenant_id=str(tenant.id),

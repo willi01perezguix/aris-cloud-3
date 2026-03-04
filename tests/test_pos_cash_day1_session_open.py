@@ -27,5 +27,5 @@ def test_cash_session_open_success_and_duplicate_denied(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "cash-open-2"},
         json={**payload, "transaction_id": "txn-open-2"},
     )
-    assert duplicate.status_code == 422
-    assert duplicate.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == ErrorCatalog.BUSINESS_CONFLICT.code

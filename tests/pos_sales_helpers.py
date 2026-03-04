@@ -164,6 +164,7 @@ def create_paid_sale(
     checkout_txn: str = "txn-sale-checkout",
     idempotency_key: str = "sale-create",
     checkout_idempotency_key: str = "sale-checkout",
+    receipt_number: str | None = None,
 ):
     create_response = client.post(
         "/aris3/pos/sales",
@@ -177,6 +178,7 @@ def create_paid_sale(
         "transaction_id": checkout_txn,
         "action": "checkout",
         "payments": payments,
+        "receipt_number": receipt_number,
     }
     checkout_response = client.post(
         f"/aris3/pos/sales/{sale_id}/actions",

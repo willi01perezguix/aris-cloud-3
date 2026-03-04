@@ -378,6 +378,7 @@ class PosSale(Base):
     paid_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
     balance_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
     change_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    receipt_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     checked_out_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
@@ -389,6 +390,7 @@ class PosSale(Base):
 
     __table_args__ = (
         Index("ix_pos_sales_tenant_store_status_checked", "tenant_id", "store_id", "status", "checked_out_at"),
+        Index("ix_pos_sales_tenant_store_receipt", "tenant_id", "store_id", "receipt_number"),
     )
 
 

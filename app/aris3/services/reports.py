@@ -57,8 +57,15 @@ def resolve_timezone(timezone_name: str | None):
 
 def resolve_date_range(from_value: str | None, to_value: str | None, tz: ZoneInfo) -> ReportDateRange:
     now_local = datetime.now(tz)
-    start_local, _ = _parse_datetime_or_date(from_value, tz, default=now_local.replace(hour=0, minute=0, second=0, microsecond=0))
-    end_local, to_is_date = _parse_datetime_or_date(to_value, tz, default=now_local)
+    start_local, from_is_date = _parse_datetime_or_date(
+        from_value,
+        tz,
+        field_name="from",
+        default=now_local.replace(hour=0, minute=0, second=0, microsecond=0),
+    )
+    if from_is_date:
+        start_local = start_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local, to_is_date = _parse_datetime_or_date(to_value, tz, field_name="to", default=now_local)
     if to_is_date:
         end_local = end_local + timedelta(days=1) - timedelta(microseconds=1)
     if end_local < start_local:
@@ -95,7 +102,7 @@ def validate_date_range(date_range: ReportDateRange, *, max_days: int) -> None:
         )
 
 
-def _parse_datetime_or_date(value: str | None, tz: ZoneInfo, *, default: datetime) -> tuple[datetime, bool]:
+def _parse_datetime_or_date(value: str | None, tz: ZoneInfo, *, field_name: str, default: datetime) -> tuple[datetime, bool]:
     if not value:
         return default, False
     normalized = value.replace("Z", "+00:00")
@@ -103,14 +110,20 @@ def _parse_datetime_or_date(value: str | None, tz: ZoneInfo, *, default: datetim
         try:
             parsed = datetime.fromisoformat(normalized)
         except ValueError as exc:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"errors": [{"field": "from/to", "message": "invalid datetime", "type": "value_error.datetime"}]}) from exc
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"errors": [{"field": field_name, "message": "invalid datetime", "type": "value_error.datetime"}]},
+            ) from exc
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=tz), False
         return parsed.astimezone(tz), False
     try:
         parsed_date = date.fromisoformat(normalized)
     except ValueError as exc:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"errors": [{"field": "from/to", "message": "invalid date", "type": "value_error.date"}]}) from exc
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"errors": [{"field": field_name, "message": "invalid date", "type": "value_error.date"}]},
+        ) from exc
     return datetime.combine(parsed_date, time.min, tzinfo=tz), True
 
 

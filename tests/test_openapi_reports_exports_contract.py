@@ -13,12 +13,18 @@ def test_openapi_reports_exports_contract_is_explicit():
     source_type_schema = schemas["ExportSourceType"]
     assert source_type_schema["enum"] == ["reports_overview", "reports_daily", "reports_calendar"]
 
-    download_response = paths["/aris3/exports/{export_id}/download"]["get"]["responses"]["200"]
-    content = download_response["content"]
+    download_responses = paths["/aris3/exports/{export_id}/download"]["get"]["responses"]
+    content = download_responses["200"]["content"]
     assert "text/csv" in content
     assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in content
+    assert "application/octet-stream" in content
+    assert "headers" in download_responses["200"]
+    assert "422" in download_responses
 
-    assert "DailyRow" in schemas
-    assert "CalendarRow" in schemas
+    assert "ReportDailyRow" in schemas
+    assert "ReportCalendarRow" in schemas
     assert "ReportMeta" in schemas
     assert "ReportTotals" in schemas
+    assert "ReportFilters" in schemas
+    assert "ValidationErrorResponse" in schemas
+    assert "BusinessErrorResponse" in schemas

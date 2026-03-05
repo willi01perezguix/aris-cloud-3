@@ -17,6 +17,7 @@ from app.aris3.schemas.reports import (
     ReportCalendarResponse,
     ReportDailyResponse,
     ReportDailyRow,
+    ReportFilters,
     ReportMeta,
     ReportOverviewResponse,
     ReportTotals,
@@ -99,7 +100,7 @@ def _build_daily_rows(
     return rows
 
 
-def _build_meta(request: Request, store_id: str, timezone_name: str, date_range, filters: dict, query_ms: float) -> ReportMeta:
+def _build_meta(request: Request, store_id: str, timezone_name: str, date_range, filters: ReportFilters, query_ms: float) -> ReportMeta:
     trace_id = getattr(request.state, "trace_id", None)
     return ReportMeta(
         store_id=store_id,
@@ -112,8 +113,6 @@ def _build_meta(request: Request, store_id: str, timezone_name: str, date_range,
     )
 
 
-def _sanitize_filters(filters: dict) -> dict:
-    return {key: value for key, value in filters.items() if value not in (None, "", {}, [])}
 
 
 @router.get("/aris3/reports/overview", response_model=ReportOverviewResponse)
@@ -141,15 +140,17 @@ def report_overview(
     tz = resolve_timezone(timezone)
     date_range = resolve_date_range(from_value, to_value, tz)
     validate_date_range(date_range, max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS)
-    filters = {
-        "store_id": resolved_store_id,
-        "from": from_value,
-        "to": to_value,
-        "timezone": str(tz),
-        "cashier": cashier,
-        "channel": channel,
-        "payment_method": payment_method,
-    }
+    filters = ReportFilters(
+        store_id=resolved_store_id,
+        **{
+            "from": date_range.start_local.isoformat(),
+            "to": date_range.end_local.isoformat(),
+        },
+        timezone=str(tz),
+        cashier=cashier,
+        channel=channel,
+        payment_method=payment_method,
+    )
     start_time = time.perf_counter()
     sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
         db,
@@ -170,7 +171,7 @@ def report_overview(
     )
     totals = _totals_from_days(rows)
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, _sanitize_filters(filters), query_ms)
+    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
     logger.info(
         "reports_overview",
         extra={
@@ -210,15 +211,17 @@ def report_daily(
     tz = resolve_timezone(timezone)
     date_range = resolve_date_range(from_value, to_value, tz)
     validate_date_range(date_range, max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS)
-    filters = {
-        "store_id": resolved_store_id,
-        "from": from_value,
-        "to": to_value,
-        "timezone": str(tz),
-        "cashier": cashier,
-        "channel": channel,
-        "payment_method": payment_method,
-    }
+    filters = ReportFilters(
+        store_id=resolved_store_id,
+        **{
+            "from": date_range.start_local.isoformat(),
+            "to": date_range.end_local.isoformat(),
+        },
+        timezone=str(tz),
+        cashier=cashier,
+        channel=channel,
+        payment_method=payment_method,
+    )
     start_time = time.perf_counter()
     sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
         db,
@@ -239,7 +242,7 @@ def report_daily(
     )
     totals = _totals_from_days(rows)
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, _sanitize_filters(filters), query_ms)
+    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
     logger.info(
         "reports_daily",
         extra={
@@ -279,15 +282,17 @@ def report_calendar(
     tz = resolve_timezone(timezone)
     date_range = resolve_date_range(from_value, to_value, tz)
     validate_date_range(date_range, max_days=settings.REPORTS_MAX_DATE_RANGE_DAYS)
-    filters = {
-        "store_id": resolved_store_id,
-        "from": from_value,
-        "to": to_value,
-        "timezone": str(tz),
-        "cashier": cashier,
-        "channel": channel,
-        "payment_method": payment_method,
-    }
+    filters = ReportFilters(
+        store_id=resolved_store_id,
+        **{
+            "from": date_range.start_local.isoformat(),
+            "to": date_range.end_local.isoformat(),
+        },
+        timezone=str(tz),
+        cashier=cashier,
+        channel=channel,
+        payment_method=payment_method,
+    )
     start_time = time.perf_counter()
     sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
         db,
@@ -317,7 +322,7 @@ def report_calendar(
     ]
     totals = _totals_from_days(daily_rows)
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, _sanitize_filters(filters), query_ms)
+    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
     logger.info(
         "reports_calendar",
         extra={

@@ -110,7 +110,21 @@ def _render_export_bytes(dataset, format: str, *, title: str, filters: dict, gen
     raise _validation_error("format", "unsupported format")
 
 
-@router.post("/aris3/exports", response_model=ExportResponse, status_code=201)
+@router.post(
+    "/aris3/exports",
+    response_model=ExportResponse,
+    status_code=201,
+    responses={
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}
+                }
+            },
+        }
+    },
+)
 def create_export(
     request: Request,
     payload: ExportCreateRequest,
@@ -338,7 +352,20 @@ def create_export(
     return response
 
 
-@router.get("/aris3/exports", response_model=ExportListResponse)
+@router.get(
+    "/aris3/exports",
+    response_model=ExportListResponse,
+    responses={
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}
+                }
+            },
+        }
+    },
+)
 def list_exports(
     token_data=Depends(get_current_token_data),
     _permission=Depends(require_permission("REPORTS_VIEW")),
@@ -367,7 +394,28 @@ def list_exports(
     return ExportListResponse(rows=[_export_response(record) for record in rows])
 
 
-@router.get("/aris3/exports/{export_id}", response_model=ExportResponse)
+@router.get(
+    "/aris3/exports/{export_id}",
+    response_model=ExportResponse,
+    responses={
+        404: {
+            "description": "Export not found",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/NotFoundErrorResponse"}
+                }
+            },
+        },
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}
+                }
+            },
+        },
+    },
+)
 def get_export(
     export_id: UUID,
     token_data=Depends(get_current_token_data),
@@ -391,24 +439,92 @@ def get_export(
 
 @router.get(
     "/aris3/exports/{export_id}/download",
+    response_class=FileResponse,
     responses={
         200: {
             "description": "Binary export file",
             "headers": {
-                "Content-Type": {"schema": {"type": "string"}},
-                "Content-Disposition": {"schema": {"type": "string"}},
-                "Content-Length": {"schema": {"type": "integer"}},
+                "Content-Type": {
+                    "description": "MIME type of the generated export file.",
+                    "schema": {"type": "string"},
+                },
+                "Content-Disposition": {
+                    "description": "Attachment filename suggested by the server.",
+                    "schema": {"type": "string"},
+                },
+                "Content-Length": {
+                    "description": "Export file size in bytes.",
+                    "schema": {"type": "integer"},
+                },
             },
             "content": {
                 "text/csv": {"schema": {"type": "string", "format": "binary"}},
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {"schema": {"type": "string", "format": "binary"}},
-                "application/pdf": {"schema": {"type": "string", "format": "binary"}},
                 "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
             },
         },
-        404: {"description": "Export record or file not found"},
-        409: {"description": "Export exists but is not ready"},
-        422: {"description": "Validation error"},
+        404: {
+            "description": "Export record or file not found",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/NotFoundErrorResponse"},
+                    "examples": {
+                        "export_not_found": {
+                            "value": {
+                                "code": "RESOURCE_NOT_FOUND",
+                                "message": "Resource not found",
+                                "details": {"message": "export not found", "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001"},
+                                "trace_id": "trace-exports-download-404-record",
+                            }
+                        },
+                        "file_missing": {
+                            "value": {
+                                "code": "RESOURCE_NOT_FOUND",
+                                "message": "Resource not found",
+                                "details": {"message": "export file missing", "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001"},
+                                "trace_id": "trace-exports-download-404-file",
+                            }
+                        },
+                    },
+                }
+            },
+        },
+        409: {
+            "description": "Export exists but is not ready",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ConflictErrorResponse"},
+                    "example": {
+                        "code": "BUSINESS_CONFLICT",
+                        "message": "Business conflict",
+                        "details": {
+                            "message": "export is still processing and not ready for download",
+                            "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001",
+                            "status": "CREATED",
+                        },
+                        "trace_id": "trace-exports-download-409",
+                    },
+                }
+            },
+        },
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"},
+                    "example": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Validation error",
+                        "details": {
+                            "errors": [
+                                {"field": "export_id", "message": "Input should be a valid UUID", "type": "uuid_parsing"}
+                            ]
+                        },
+                        "trace_id": "trace-exports-download-422",
+                    },
+                }
+            },
+        },
     },
 )
 def download_export(

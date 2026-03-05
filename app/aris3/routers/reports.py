@@ -115,7 +115,20 @@ def _build_meta(request: Request, store_id: str, timezone_name: str, date_range,
 
 
 
-@router.get("/aris3/reports/overview", response_model=ReportOverviewResponse)
+@router.get(
+    "/aris3/reports/overview",
+    response_model=ReportOverviewResponse,
+    responses={
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}
+                }
+            },
+        }
+    },
+)
 def report_overview(
     request: Request,
     store_id: str | None = Query(None),
@@ -186,7 +199,20 @@ def report_overview(
     return ReportOverviewResponse(meta=meta, totals=totals)
 
 
-@router.get("/aris3/reports/daily", response_model=ReportDailyResponse)
+@router.get(
+    "/aris3/reports/daily",
+    response_model=ReportDailyResponse,
+    responses={
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}
+                }
+            },
+        }
+    },
+)
 def report_daily(
     request: Request,
     store_id: str | None = Query(None),
@@ -257,7 +283,20 @@ def report_daily(
     return ReportDailyResponse(meta=meta, totals=totals, rows=rows)
 
 
-@router.get("/aris3/reports/calendar", response_model=ReportCalendarResponse)
+@router.get(
+    "/aris3/reports/calendar",
+    response_model=ReportCalendarResponse,
+    responses={
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}
+                }
+            },
+        }
+    },
+)
 def report_calendar(
     request: Request,
     store_id: str | None = Query(None),

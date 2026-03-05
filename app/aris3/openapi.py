@@ -471,6 +471,16 @@ def _polish_admin_and_access_control_descriptions(path: str, method: str, operat
         operation["summary"] = summary_override
 
 
+def _polish_reports_exports_contract(path: str, method: str, operation: dict) -> None:
+    if method != "get":
+        return
+    if path == "/aris3/exports/{export_id}/download":
+        responses = operation.setdefault("responses", {})
+        response_200 = responses.get("200", {})
+        content = response_200.get("content", {})
+        content.pop("application/json", None)
+
+
 def _polish_status_schema_descriptions(schema: dict) -> None:
     components = schema.get("components", {}).get("schemas", {})
     for schema_name in (
@@ -507,6 +517,7 @@ def harden_openapi_schema(app: FastAPI):
             _apply_error_responses(path, method, operation)
             _polish_admin_store_create_parameters(path, method, operation)
             _polish_admin_and_access_control_descriptions(path, method, operation)
+            _polish_reports_exports_contract(path, method, operation)
 
     _polish_status_schema_descriptions(schema)
 

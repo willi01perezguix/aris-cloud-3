@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -14,7 +15,7 @@ from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope
 from app.aris3.db.models import ExportRecord
 from app.aris3.db.session import get_db
 from app.aris3.repos.exports import ExportRepository
-from app.aris3.schemas.exports import ExportCreateRequest, ExportListResponse, ExportResponse
+from app.aris3.schemas.exports import ExportCreateRequest, ExportFilters, ExportListResponse, ExportResponse
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.exports import (
     ExportStorage,
@@ -26,10 +27,34 @@ from app.aris3.services.exports import (
     sanitize_filename,
 )
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.reports import resolve_date_range, resolve_timezone
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _validation_error(field: str, message: str, error_type: str = "value_error") -> AppError:
+    return AppError(
+        ErrorCatalog.VALIDATION_ERROR,
+        details={"errors": [{"field": field, "message": message, "type": error_type}]},
+    )
+
+
+def _normalize_filters_snapshot(filters: ExportFilters, *, store_id: str) -> ExportFilters:
+    tz = resolve_timezone(filters.timezone)
+    date_range = resolve_date_range(filters.from_value, filters.to_value, tz)
+    return ExportFilters(
+        store_id=store_id,
+        **{
+            "from": date_range.start_local.isoformat(),
+            "to": date_range.end_local.isoformat(),
+        },
+        timezone=str(tz),
+        cashier=filters.cashier,
+        channel=filters.channel,
+        payment_method=filters.payment_method,
+    )
 
 
 def _resolve_store_id(token_data, store_id: str | None) -> str:
@@ -82,7 +107,7 @@ def _render_export_bytes(dataset, format: str, *, title: str, filters: dict, gen
         )
     if format == "pdf":
         return render_pdf(dataset, title=title, filters=filters, generated_at=generated_at), "application/pdf"
-    raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid format"})
+    raise _validation_error("format", "unsupported format")
 
 
 @router.post("/aris3/exports", response_model=ExportResponse, status_code=201)
@@ -95,7 +120,7 @@ def create_export(
     db=Depends(get_db),
 ):
     if not payload.transaction_id:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "transaction_id is required"})
+        raise _validation_error("transaction_id", "transaction_id is required", "value_error.missing")
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
@@ -124,8 +149,8 @@ def create_export(
     )
     storage = ExportStorage(settings.EXPORTS_STORAGE_PATH)
     repo = ExportRepository(db)
-    filters_snapshot = {k: v for k, v in payload.filters.snapshot().items() if v not in (None, "", {}, [])}
-    filters_snapshot["store_id"] = resolved_store_id
+    normalized_filters = _normalize_filters_snapshot(payload.filters, store_id=resolved_store_id)
+    filters_snapshot = normalized_filters.snapshot()
     export_record = ExportRecord(
         tenant_id=store.tenant_id,
         store_id=store.id,
@@ -176,7 +201,7 @@ def create_export(
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={
-                    "message": "export rows exceed limit",
+                    "errors": [{"field": "filters", "message": "export rows exceed limit", "type": "value_error.rows_limit"}],
                     "reason_code": "EXPORT_ROWS_LIMIT_EXCEEDED",
                     "max_rows": settings.EXPORTS_MAX_ROWS,
                 },
@@ -186,7 +211,7 @@ def create_export(
             dataset,
             payload.format,
             title=f"ARIS Report Export - {payload.source_type}",
-            filters=filters_snapshot,
+            filters=normalized_filters.snapshot(),
             generated_at=generated_at,
         )
         checksum = checksum_bytes(file_bytes)
@@ -317,7 +342,7 @@ def create_export(
 def list_exports(
     token_data=Depends(get_current_token_data),
     _permission=Depends(require_permission("REPORTS_VIEW")),
-    page_size: int | None = Query(None, ge=1),
+    page_size: int | None = Query(None, ge=1, description="Optional page size. Defaults to EXPORTS_LIST_MAX_PAGE_SIZE and results are ordered by created_at desc."),
     db=Depends(get_db),
 ):
     repo = ExportRepository(db)
@@ -326,7 +351,13 @@ def list_exports(
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
             details={
-                "message": "page_size exceeds limit",
+                "errors": [
+                    {
+                        "field": "page_size",
+                        "message": "page_size exceeds limit",
+                        "type": "value_error.page_size_limit",
+                    }
+                ],
                 "reason_code": "EXPORTS_PAGE_SIZE_LIMIT_EXCEEDED",
                 "max_page_size": settings.EXPORTS_LIST_MAX_PAGE_SIZE,
             },
@@ -338,15 +369,16 @@ def list_exports(
 
 @router.get("/aris3/exports/{export_id}", response_model=ExportResponse)
 def get_export(
-    export_id: str,
+    export_id: UUID,
     token_data=Depends(get_current_token_data),
     _permission=Depends(require_permission("REPORTS_VIEW")),
     db=Depends(get_db),
 ):
     repo = ExportRepository(db)
-    record = repo.get_by_id(export_id, token_data.tenant_id)
+    export_id_str = str(export_id)
+    record = repo.get_by_id(export_id_str, token_data.tenant_id)
     if not record:
-        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id_str})
     enforce_store_scope(
         token_data,
         str(record.store_id),
@@ -362,18 +394,25 @@ def get_export(
     responses={
         200: {
             "description": "Binary export file",
+            "headers": {
+                "Content-Type": {"schema": {"type": "string"}},
+                "Content-Disposition": {"schema": {"type": "string"}},
+                "Content-Length": {"schema": {"type": "integer"}},
+            },
             "content": {
                 "text/csv": {"schema": {"type": "string", "format": "binary"}},
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {"schema": {"type": "string", "format": "binary"}},
                 "application/pdf": {"schema": {"type": "string", "format": "binary"}},
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
             },
         },
         404: {"description": "Export record or file not found"},
         409: {"description": "Export exists but is not ready"},
+        422: {"description": "Validation error"},
     },
 )
 def download_export(
-    export_id: str,
+    export_id: UUID,
     request: Request,
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
@@ -381,9 +420,10 @@ def download_export(
     db=Depends(get_db),
 ):
     repo = ExportRepository(db)
-    record = repo.get_by_id(export_id, token_data.tenant_id)
+    export_id_str = str(export_id)
+    record = repo.get_by_id(export_id_str, token_data.tenant_id)
     if not record:
-        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id_str})
     enforce_store_scope(
         token_data,
         str(record.store_id),
@@ -392,9 +432,9 @@ def download_export(
         broader_store_roles=DEFAULT_BROAD_STORE_ROLES,
     )
     if record.status != "READY" or not record.file_path or not record.content_type:
-        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "export not ready", "export_id": export_id, "status": record.status})
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "export is still processing and not ready for download", "export_id": export_id_str, "status": record.status})
     if not os.path.exists(record.file_path):
-        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export file missing", "export_id": export_id})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export file missing", "export_id": export_id_str})
     response = FileResponse(
         path=record.file_path,
         media_type=record.content_type,

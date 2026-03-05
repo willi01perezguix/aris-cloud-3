@@ -244,6 +244,7 @@ ERROR_RESPONSE_SCHEMAS = {
             "message": {"type": "string", "example": "Resource conflict"},
         },
     },
+    "BusinessErrorResponse": {"$ref": "#/components/schemas/ConflictErrorResponse"},
     "ValidationErrorResponse": {"$ref": "#/components/schemas/ValidationError"},
 }
 

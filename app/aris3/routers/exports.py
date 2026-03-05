@@ -124,7 +124,7 @@ def create_export(
     )
     storage = ExportStorage(settings.EXPORTS_STORAGE_PATH)
     repo = ExportRepository(db)
-    filters_snapshot = payload.filters.snapshot()
+    filters_snapshot = {k: v for k, v in payload.filters.snapshot().items() if v not in (None, "", {}, [])}
     filters_snapshot["store_id"] = resolved_store_id
     export_record = ExportRecord(
         tenant_id=store.tenant_id,
@@ -346,7 +346,7 @@ def get_export(
     repo = ExportRepository(db)
     record = repo.get_by_id(export_id, token_data.tenant_id)
     if not record:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "export not found"})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id})
     enforce_store_scope(
         token_data,
         str(record.store_id),
@@ -357,7 +357,21 @@ def get_export(
     return _export_response(record)
 
 
-@router.get("/aris3/exports/{export_id}/download")
+@router.get(
+    "/aris3/exports/{export_id}/download",
+    responses={
+        200: {
+            "description": "Binary export file",
+            "content": {
+                "text/csv": {"schema": {"type": "string", "format": "binary"}},
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {"schema": {"type": "string", "format": "binary"}},
+                "application/pdf": {"schema": {"type": "string", "format": "binary"}},
+            },
+        },
+        404: {"description": "Export record or file not found"},
+        409: {"description": "Export exists but is not ready"},
+    },
+)
 def download_export(
     export_id: str,
     request: Request,
@@ -369,7 +383,7 @@ def download_export(
     repo = ExportRepository(db)
     record = repo.get_by_id(export_id, token_data.tenant_id)
     if not record:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "export not found"})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id})
     enforce_store_scope(
         token_data,
         str(record.store_id),
@@ -378,9 +392,9 @@ def download_export(
         broader_store_roles=DEFAULT_BROAD_STORE_ROLES,
     )
     if record.status != "READY" or not record.file_path or not record.content_type:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "export not ready"})
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "export not ready", "export_id": export_id, "status": record.status})
     if not os.path.exists(record.file_path):
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "export file missing"})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export file missing", "export_id": export_id})
     response = FileResponse(
         path=record.file_path,
         media_type=record.content_type,

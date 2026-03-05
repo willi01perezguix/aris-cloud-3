@@ -369,7 +369,14 @@ def create_export(
 def list_exports(
     token_data=Depends(get_current_token_data),
     _permission=Depends(require_permission("REPORTS_VIEW")),
-    page_size: int | None = Query(None, ge=1, description="Optional page size. Defaults to EXPORTS_LIST_MAX_PAGE_SIZE and results are ordered by created_at desc."),
+    page_size: int | None = Query(
+        None,
+        ge=1,
+        description=(
+            f"Optional page size. Default: {settings.EXPORTS_LIST_MAX_PAGE_SIZE}. "
+            f"Maximum allowed: {settings.EXPORTS_LIST_MAX_PAGE_SIZE}. Results are ordered by created_at desc."
+        ),
+    ),
     db=Depends(get_db),
 ):
     repo = ExportRepository(db)
@@ -402,7 +409,16 @@ def list_exports(
             "description": "Export not found",
             "content": {
                 "application/json": {
-                    "schema": {"$ref": "#/components/schemas/NotFoundErrorResponse"}
+                    "schema": {"$ref": "#/components/schemas/NotFoundErrorResponse"},
+                    "example": {
+                        "code": "RESOURCE_NOT_FOUND",
+                        "message": "Resource not found",
+                        "details": {
+                            "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001",
+                            "message": "export not found",
+                        },
+                        "trace_id": "trace-exports-404",
+                    },
                 }
             },
         },
@@ -464,27 +480,18 @@ def get_export(
             },
         },
         404: {
-            "description": "Export record or file not found",
+            "description": "Export not found",
             "content": {
                 "application/json": {
                     "schema": {"$ref": "#/components/schemas/NotFoundErrorResponse"},
-                    "examples": {
-                        "export_not_found": {
-                            "value": {
-                                "code": "RESOURCE_NOT_FOUND",
-                                "message": "Resource not found",
-                                "details": {"message": "export not found", "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001"},
-                                "trace_id": "trace-exports-download-404-record",
-                            }
+                    "example": {
+                        "code": "RESOURCE_NOT_FOUND",
+                        "message": "Resource not found",
+                        "details": {
+                            "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001",
+                            "message": "export not found",
                         },
-                        "file_missing": {
-                            "value": {
-                                "code": "RESOURCE_NOT_FOUND",
-                                "message": "Resource not found",
-                                "details": {"message": "export file missing", "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001"},
-                                "trace_id": "trace-exports-download-404-file",
-                            }
-                        },
+                        "trace_id": "trace-exports-404",
                     },
                 }
             },
@@ -498,7 +505,7 @@ def get_export(
                         "code": "BUSINESS_CONFLICT",
                         "message": "Business conflict",
                         "details": {
-                            "message": "export is still processing and not ready for download",
+                            "message": "export is not ready for download",
                             "export_id": "0f6f5b43-6c51-4e1f-a414-20c463db7001",
                             "status": "CREATED",
                         },
@@ -548,9 +555,12 @@ def download_export(
         broader_store_roles=DEFAULT_BROAD_STORE_ROLES,
     )
     if record.status != "READY" or not record.file_path or not record.content_type:
-        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "export is still processing and not ready for download", "export_id": export_id_str, "status": record.status})
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={"message": "export is not ready for download", "export_id": export_id_str, "status": record.status},
+        )
     if not os.path.exists(record.file_path):
-        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export file missing", "export_id": export_id_str})
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "export not found", "export_id": export_id_str})
     response = FileResponse(
         path=record.file_path,
         media_type=record.content_type,

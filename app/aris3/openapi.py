@@ -472,13 +472,37 @@ def _polish_admin_and_access_control_descriptions(path: str, method: str, operat
 
 
 def _polish_reports_exports_contract(path: str, method: str, operation: dict) -> None:
-    if method != "get":
-        return
-    if path == "/aris3/exports/{export_id}/download":
+    if path == "/aris3/exports/{export_id}/download" and method == "get":
         responses = operation.setdefault("responses", {})
         response_200 = responses.get("200", {})
         content = response_200.get("content", {})
         content.pop("application/json", None)
+        for media_type in (
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/octet-stream",
+        ):
+            content.setdefault(media_type, {}).setdefault("schema", {"type": "string", "format": "binary"})
+
+
+def _polish_exports_schema_descriptions(schema: dict) -> None:
+    components = schema.get("components", {}).get("schemas", {})
+    source_type_schema = components.get("ExportSourceType")
+    if source_type_schema:
+        source_type_schema["description"] = (
+            "Supported report sources for exports: reports_overview, reports_daily, reports_calendar."
+        )
+
+    format_schema = components.get("ExportFormat")
+    if format_schema:
+        format_schema["description"] = "Supported export file formats: csv, xlsx, pdf."
+
+    status_schema = components.get("ExportStatus")
+    if status_schema:
+        status_schema["description"] = (
+            "Export lifecycle states: CREATED (accepted/pending generation), "
+            "READY (generated and downloadable), FAILED (generation failed)."
+        )
 
 
 def _polish_status_schema_descriptions(schema: dict) -> None:
@@ -520,6 +544,7 @@ def harden_openapi_schema(app: FastAPI):
             _polish_reports_exports_contract(path, method, operation)
 
     _polish_status_schema_descriptions(schema)
+    _polish_exports_schema_descriptions(schema)
 
     app.openapi_schema = schema
     return app.openapi_schema

@@ -3,10 +3,22 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_serializer
 
 
-class ReportTotals(BaseModel):
+def normalize_money(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.01")), "f")
+
+
+class ReportModel(BaseModel):
+    @field_serializer("*", when_used="json")
+    def serialize_fields(self, value):
+        if isinstance(value, Decimal):
+            return normalize_money(value)
+        return value
+
+
+class ReportTotals(ReportModel):
     gross_sales: Decimal
     refunds_total: Decimal
     net_sales: Decimal
@@ -18,22 +30,22 @@ class ReportTotals(BaseModel):
     average_ticket: Decimal
 
 
-class ReportMeta(BaseModel):
+class ReportMeta(ReportModel):
     store_id: str
     timezone: str
-    from_datetime: datetime
-    to_datetime: datetime
+    from_datetime: datetime = Field(..., description="Inclusive start datetime")
+    to_datetime: datetime = Field(..., description="Inclusive end datetime")
     trace_id: str | None
     query_ms: float
     filters: dict
 
 
-class ReportOverviewResponse(BaseModel):
+class ReportOverviewResponse(ReportModel):
     meta: ReportMeta
     totals: ReportTotals
 
 
-class ReportDailyRow(BaseModel):
+class DailyRow(ReportModel):
     business_date: date
     gross_sales: Decimal
     refunds_total: Decimal
@@ -46,20 +58,24 @@ class ReportDailyRow(BaseModel):
     average_ticket: Decimal
 
 
-class ReportDailyResponse(BaseModel):
+class ReportDailyResponse(ReportModel):
     meta: ReportMeta
     totals: ReportTotals
-    rows: list[ReportDailyRow]
+    rows: list[DailyRow]
 
 
-class ReportCalendarDay(BaseModel):
+class CalendarRow(ReportModel):
     business_date: date
     net_sales: Decimal
     net_profit: Decimal
     orders_paid_count: int
 
 
-class ReportCalendarResponse(BaseModel):
+class ReportCalendarResponse(ReportModel):
     meta: ReportMeta
     totals: ReportTotals
-    rows: list[ReportCalendarDay]
+    rows: list[CalendarRow]
+
+
+ReportDailyRow = DailyRow
+ReportCalendarDay = CalendarRow

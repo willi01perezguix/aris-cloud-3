@@ -113,15 +113,15 @@ def _build_meta(request: Request, store_id: str, timezone_name: str, date_range,
 
 
 def _sanitize_filters(filters: dict) -> dict:
-    return {key: value for key, value in filters.items() if value is not None}
+    return {key: value for key, value in filters.items() if value not in (None, "", {}, [])}
 
 
 @router.get("/aris3/reports/overview", response_model=ReportOverviewResponse)
 def report_overview(
     request: Request,
     store_id: str | None = Query(None),
-    from_value: str | None = Query(None, alias="from"),
-    to_value: str | None = Query(None, alias="to"),
+    from_value: str | None = Query(None, alias="from", description="ISO 8601/date, inclusive start"),
+    to_value: str | None = Query(None, alias="to", description="ISO 8601/date, inclusive end"),
     timezone: str | None = Query(None),
     cashier: str | None = Query(None),
     channel: str | None = Query(None),
@@ -189,8 +189,8 @@ def report_overview(
 def report_daily(
     request: Request,
     store_id: str | None = Query(None),
-    from_value: str | None = Query(None, alias="from"),
-    to_value: str | None = Query(None, alias="to"),
+    from_value: str | None = Query(None, alias="from", description="ISO 8601/date, inclusive start"),
+    to_value: str | None = Query(None, alias="to", description="ISO 8601/date, inclusive end"),
     timezone: str | None = Query(None),
     cashier: str | None = Query(None),
     channel: str | None = Query(None),
@@ -258,8 +258,8 @@ def report_daily(
 def report_calendar(
     request: Request,
     store_id: str | None = Query(None),
-    from_value: str | None = Query(None, alias="from"),
-    to_value: str | None = Query(None, alias="to"),
+    from_value: str | None = Query(None, alias="from", description="ISO 8601/date, inclusive start"),
+    to_value: str | None = Query(None, alias="to", description="ISO 8601/date, inclusive end"),
     timezone: str | None = Query(None),
     cashier: str | None = Query(None),
     channel: str | None = Query(None),

@@ -52,7 +52,7 @@ def resolve_timezone(timezone_name: str | None):
     except ZoneInfoNotFoundError as exc:  # pragma: no cover - depends on system tzdata
         if tz_name == "UTC":
             return dt_timezone.utc
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid timezone"}) from exc
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"errors": [{"field": "timezone", "message": "invalid timezone", "type": "value_error.timezone"}]}) from exc
 
 
 def resolve_date_range(from_value: str | None, to_value: str | None, tz: ZoneInfo) -> ReportDateRange:
@@ -62,7 +62,7 @@ def resolve_date_range(from_value: str | None, to_value: str | None, tz: ZoneInf
     if to_is_date:
         end_local = end_local + timedelta(days=1) - timedelta(microseconds=1)
     if end_local < start_local:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "to must be after from"})
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"errors": [{"field": "to", "message": "to must be greater than or equal to from", "type": "value_error.date_range"}]})
     start_utc = start_local.astimezone(timezone.utc)
     end_utc = end_local.astimezone(timezone.utc)
     return ReportDateRange(
@@ -82,7 +82,13 @@ def validate_date_range(date_range: ReportDateRange, *, max_days: int) -> None:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
             details={
-                "message": "date range exceeds limit",
+                "errors": [
+                    {
+                        "field": "to",
+                        "message": "date range exceeds limit",
+                        "type": "value_error.date_range_limit",
+                    }
+                ],
                 "reason_code": "REPORT_DATE_RANGE_LIMIT_EXCEEDED",
                 "max_days": max_days,
             },
@@ -97,14 +103,14 @@ def _parse_datetime_or_date(value: str | None, tz: ZoneInfo, *, default: datetim
         try:
             parsed = datetime.fromisoformat(normalized)
         except ValueError as exc:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid datetime"}) from exc
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"errors": [{"field": "from/to", "message": "invalid datetime", "type": "value_error.datetime"}]}) from exc
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=tz), False
         return parsed.astimezone(tz), False
     try:
         parsed_date = date.fromisoformat(normalized)
     except ValueError as exc:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid date"}) from exc
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"errors": [{"field": "from/to", "message": "invalid date", "type": "value_error.date"}]}) from exc
     return datetime.combine(parsed_date, time.min, tzinfo=tz), True
 
 

@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 _HTTP_STATUS_CODES = {
     400: "BAD_REQUEST",
-    401: "UNAUTHORIZED",
-    403: "FORBIDDEN",
+    401: "INVALID_TOKEN",
+    403: "PERMISSION_DENIED",
     404: "NOT_FOUND",
     409: "CONFLICT",
 }
@@ -126,7 +126,7 @@ def _http_error_payload(request: Request, exc: HTTPException) -> dict:
     message = default_message
     details = None
 
-    if detail is not None and exc.status_code not in {401, 403, 409}:
+    if detail is not None:
         message = str(detail)
 
     if isinstance(detail, dict):
@@ -170,7 +170,11 @@ def setup_exception_handlers(app: FastAPI) -> None:
         code = exc.error.code
         message = exc.error.message
         details = exc.details
-        if exc.error.status_code == 404:
+        if exc.error.status_code == 401:
+            code = ErrorCatalog.INVALID_TOKEN.code
+        elif exc.error.status_code == 403:
+            code = ErrorCatalog.PERMISSION_DENIED.code
+        elif exc.error.status_code == 404:
             code = "NOT_FOUND"
         elif exc.error.status_code == 409:
             code = "CONFLICT"
@@ -197,7 +201,10 @@ def setup_exception_handlers(app: FastAPI) -> None:
             "trace_id": _trace_id(request),
         }
         _record_idempotency_failure(request, exc.error.status_code, payload)
-        return JSONResponse(status_code=exc.error.status_code, content=payload)
+        headers = {}
+        if exc.error.status_code == 401:
+            headers["WWW-Authenticate"] = "Bearer"
+        return JSONResponse(status_code=exc.error.status_code, content=payload, headers=headers)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):

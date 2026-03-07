@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 
+from fastapi import Header
 from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
@@ -113,5 +114,25 @@ class IdempotencyService:
 def extract_idempotency_key(headers, *, required: bool) -> str | None:
     key = headers.get(IDEMPOTENCY_HEADER) or headers.get(LEGACY_IDEMPOTENCY_HEADER)
     if not key and required:
-        raise AppError(ErrorCatalog.IDEMPOTENCY_KEY_REQUIRED)
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "errors": [
+                    {
+                        "field": IDEMPOTENCY_HEADER,
+                        "message": "Idempotency-Key header is required",
+                        "type": "missing",
+                    }
+                ]
+            },
+        )
     return key
+
+
+def require_idempotency_key_for_mutations(
+    idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_HEADER),
+    legacy_idempotency_key: str | None = Header(default=None, alias=LEGACY_IDEMPOTENCY_HEADER),
+) -> None:
+    # Header declaration exists mainly for OpenAPI docs; enforcement is contextual at router level.
+    _ = idempotency_key
+    _ = legacy_idempotency_key

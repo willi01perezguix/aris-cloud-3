@@ -286,6 +286,14 @@ ERROR_RESPONSES = {
 }
 
 
+PUBLIC_ENDPOINTS_WITHOUT_AUTH_ERRORS = {
+    "/health",
+    "/ready",
+    "/aris3/auth/login",
+    "/aris3/auth/token",
+}
+
+
 def _operation_id(method: str, path: str) -> str:
     normalized = path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
     return f"{method}_{normalized}"
@@ -388,14 +396,17 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         }
 
 
-def _apply_auth_error_references(operation: dict) -> None:
+def _apply_auth_error_references(path: str, operation: dict) -> None:
+    if path in PUBLIC_ENDPOINTS_WITHOUT_AUTH_ERRORS:
+        return
+
     security = operation.get("security") or []
     if not security:
         return
 
     responses = operation.setdefault("responses", {})
-    responses["401"] = {"$ref": "#/components/responses/UnauthorizedError"}
-    responses["403"] = {"$ref": "#/components/responses/ForbiddenError"}
+    responses.setdefault("401", {"$ref": "#/components/responses/UnauthorizedError"})
+    responses.setdefault("403", {"$ref": "#/components/responses/ForbiddenError"})
 
 
 def _polish_admin_store_create_parameters(path: str, method: str, operation: dict) -> None:
@@ -549,8 +560,13 @@ def harden_openapi_schema(app: FastAPI):
     schema = get_openapi(title=app.title, version="1.0.0", routes=app.routes)
     schema["tags"] = TAG_METADATA
     components = schema.setdefault("components", {})
-    components.setdefault("schemas", {}).update(deepcopy(ERROR_RESPONSE_SCHEMAS))
-    components.setdefault("responses", {}).update(deepcopy(ERROR_RESPONSES))
+    component_schemas = components.setdefault("schemas", {})
+    for name, schema_value in ERROR_RESPONSE_SCHEMAS.items():
+        component_schemas.setdefault(name, deepcopy(schema_value))
+
+    component_responses = components.setdefault("responses", {})
+    for name, response_value in ERROR_RESPONSES.items():
+        component_responses.setdefault(name, deepcopy(response_value))
 
     for path, path_item in schema.get("paths", {}).items():
         for method, operation in path_item.items():
@@ -562,7 +578,7 @@ def harden_openapi_schema(app: FastAPI):
             operation["operationId"] = _operation_id(method, path)
             _apply_access_control_descriptions(path, method, operation)
             _apply_error_responses(path, method, operation)
-            _apply_auth_error_references(operation)
+            _apply_auth_error_references(path, operation)
             _polish_admin_store_create_parameters(path, method, operation)
             _polish_admin_and_access_control_descriptions(path, method, operation)
             _polish_reports_exports_contract(path, method, operation)

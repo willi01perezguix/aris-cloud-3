@@ -294,6 +294,16 @@ ERROR_RESPONSES = {
 }
 
 
+
+
+IDEMPOTENCY_KEY_PARAMETER = {
+    "name": "Idempotency-Key",
+    "in": "header",
+    "required": True,
+    "description": "Idempotency key required for mutating admin operations.",
+    "schema": {"type": "string"},
+}
+
 PUBLIC_ENDPOINTS_WITHOUT_AUTH_ERRORS = {
     "/health",
     "/ready",
@@ -415,6 +425,16 @@ def _apply_auth_error_references(path: str, operation: dict) -> None:
     responses = operation.setdefault("responses", {})
     responses.setdefault("401", {"$ref": "#/components/responses/UnauthorizedError"})
     responses.setdefault("403", {"$ref": "#/components/responses/ForbiddenError"})
+
+
+def _apply_idempotency_header(path: str, method: str, operation: dict) -> None:
+    if not path.startswith("/aris3/admin/"):
+        return
+    if method not in {"post", "put", "patch", "delete"}:
+        return
+    parameters = operation.setdefault("parameters", [])
+    if not any((p.get("in") == "header" and p.get("name") == "Idempotency-Key") for p in parameters):
+        parameters.append(deepcopy(IDEMPOTENCY_KEY_PARAMETER))
 
 
 def _polish_admin_store_create_parameters(path: str, method: str, operation: dict) -> None:
@@ -587,6 +607,7 @@ def harden_openapi_schema(app: FastAPI):
             _apply_access_control_descriptions(path, method, operation)
             _apply_error_responses(path, method, operation)
             _apply_auth_error_references(path, operation)
+            _apply_idempotency_header(path, method, operation)
             _polish_admin_store_create_parameters(path, method, operation)
             _polish_admin_and_access_control_descriptions(path, method, operation)
             _polish_reports_exports_contract(path, method, operation)

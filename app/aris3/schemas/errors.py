@@ -37,9 +37,6 @@ class ApiValidationErrorItem(BaseModel):
     field: str | None = None
     message: str
     type: str
-    loc: list[str | int] | None = None
-    input: object | None = None
-    ctx: dict | None = None
 
 
 class ApiValidationErrorDetails(BaseModel):
@@ -60,7 +57,6 @@ class ApiValidationErrorResponse(ApiErrorResponse):
                             "field": "lines[0].sku",
                             "message": "sku is required for SKU lines",
                             "type": "value_error",
-                            "loc": ["body", "lines", 0, "sku"],
                         }
                     ]
                 },

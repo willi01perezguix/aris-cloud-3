@@ -155,7 +155,7 @@ _ACCESS_CONTROL_SUMMARY_OVERRIDES: dict[tuple[str, str], str] = {
 _ERROR_PROPS = {
     "code": {"type": "string"},
     "message": {"type": "string"},
-    "details": {"type": "object", "nullable": True, "additionalProperties": True},
+    "details": {"type": ["object", "null"], "additionalProperties": True},
     "trace_id": {"type": "string", "example": "trace-123"},
 }
 
@@ -249,8 +249,8 @@ ERROR_RESPONSE_SCHEMAS = {
 }
 
 ERROR_RESPONSES = {
-    "UnauthorizedError": {
-        "description": "Unauthorized",
+    "UnauthorizedError401": {
+        "description": "Unauthorized. Returned when the bearer token is missing, invalid, or expired.",
         "headers": {
             "WWW-Authenticate": {
                 "description": "Bearer authentication challenge header.",
@@ -269,8 +269,8 @@ ERROR_RESPONSES = {
             }
         },
     },
-    "ForbiddenError": {
-        "description": "Forbidden",
+    "ForbiddenError403": {
+        "description": "Forbidden. Returned when the token is valid but lacks required permissions.",
         "content": {
             "application/json": {
                 "schema": {"$ref": "#/components/schemas/ErrorResponse"},
@@ -405,8 +405,8 @@ def _apply_auth_error_references(path: str, operation: dict) -> None:
         return
 
     responses = operation.setdefault("responses", {})
-    responses.setdefault("401", {"$ref": "#/components/responses/UnauthorizedError"})
-    responses.setdefault("403", {"$ref": "#/components/responses/ForbiddenError"})
+    responses.setdefault("401", {"$ref": "#/components/responses/UnauthorizedError401"})
+    responses.setdefault("403", {"$ref": "#/components/responses/ForbiddenError403"})
 
 
 def _polish_admin_store_create_parameters(path: str, method: str, operation: dict) -> None:

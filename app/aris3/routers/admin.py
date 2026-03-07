@@ -147,7 +147,7 @@ def _tenant_item(tenant: Tenant) -> dict:
     return {
         "id": str(tenant.id),
         "name": tenant.name,
-        "status": tenant.status,
+        "status": _canonical_status(tenant.status),
         "created_at": tenant.created_at,
     }
 
@@ -160,13 +160,20 @@ def _user_item(user: User) -> dict:
         "username": user.username,
         "email": user.email,
         "role": user.role,
-        "status": user.status,
+        "status": _canonical_status(user.status),
         "is_active": user.is_active,
         "must_change_password": user.must_change_password,
         "created_at": user.created_at,
     }
 
 
+def _canonical_status(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    if normalized in {"ACTIVE", "SUSPENDED", "CANCELED"}:
+        return normalized
+    return value
 
 
 def _normalize_optional_str(value: str | None) -> str | None:
@@ -1258,7 +1265,7 @@ async def create_tenant(
             details={"message": "Tenant name already exists", "name": payload.name},
         )
 
-    tenant = repo.create(Tenant(name=payload.name, status="active"))
+    tenant = repo.create(Tenant(name=payload.name, status="ACTIVE"))
     response = TenantResponse(
         tenant=_tenant_item(tenant),
         trace_id=getattr(request.state, "trace_id", ""),
@@ -1296,7 +1303,7 @@ async def get_tenant(
     _require_superadmin(token_data)
     tenant = TenantRepository(db).get_by_id(tenant_id)
     if tenant is None:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+        raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
     return TenantResponse(
         tenant=_tenant_item(tenant),
         trace_id=getattr(request.state, "trace_id", ""),
@@ -1315,7 +1322,7 @@ async def update_tenant(
     _require_superadmin(token_data)
     tenant = TenantRepository(db).get_by_id(tenant_id)
     if tenant is None:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+        raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -1465,7 +1472,7 @@ async def tenant_actions(
     _require_superadmin(token_data)
     tenant = TenantRepository(db).get_by_id(tenant_id)
     if tenant is None:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+        raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
@@ -1494,11 +1501,11 @@ async def tenant_actions(
             )
         normalized = payload.status.upper()
         if normalized == "ACTIVE":
-            tenant.status = "active"
+            tenant.status = "ACTIVE"
         elif normalized == "SUSPENDED":
-            tenant.status = "suspended"
+            tenant.status = "SUSPENDED"
         else:
-            tenant.status = "canceled"
+            tenant.status = "CANCELED"
     else:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
@@ -1660,7 +1667,7 @@ async def create_store(
                 },
             )
         if TenantRepository(db).get_by_id(request_tenant_id) is None:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "Tenant not found"})
+            raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
         resolved_tenant_id = request_tenant_id
     else:
         if request_tenant_id and request_tenant_id != token_tenant_id:
@@ -2048,7 +2055,7 @@ async def create_user(
         email=payload.email,
         hashed_password=get_password_hash(payload.password),
         role=normalized_role,
-        status="active",
+        status="ACTIVE",
         must_change_password=True,
         is_active=True,
         created_at=datetime.utcnow(),
@@ -2251,7 +2258,7 @@ async def delete_user(
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "Cannot delete user with critical dependencies",
+                "message": "Resource conflict",
                 "details": {"dependencies": {"transfers": transfer_dependencies}},
             },
         )
@@ -2454,13 +2461,13 @@ async def user_actions(
             )
         normalized = payload.status.upper()
         if normalized == "ACTIVE":
-            user.status = "active"
+            user.status = "ACTIVE"
             user.is_active = True
         elif normalized == "SUSPENDED":
-            user.status = "suspended"
+            user.status = "SUSPENDED"
             user.is_active = False
         else:
-            user.status = "canceled"
+            user.status = "CANCELED"
             user.is_active = False
     elif action == "set_role":
         if payload.role is None:

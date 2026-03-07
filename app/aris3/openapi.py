@@ -213,9 +213,6 @@ ERROR_RESPONSE_SCHEMAS = {
                                 "field": {"type": "string", "nullable": True},
                                 "message": {"type": "string"},
                                 "type": {"type": "string"},
-                                "loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "nullable": True},
-                                "input": {"nullable": True},
-                                "ctx": {"type": "object", "nullable": True, "additionalProperties": True},
                             },
                         },
                     }

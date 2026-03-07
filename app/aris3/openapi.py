@@ -155,12 +155,19 @@ _ACCESS_CONTROL_SUMMARY_OVERRIDES: dict[tuple[str, str], str] = {
 _ERROR_PROPS = {
     "code": {"type": "string"},
     "message": {"type": "string"},
-    "details": {"type": ["object", "null"], "additionalProperties": True},
+    "details": {
+        "anyOf": [
+            {"type": "object", "additionalProperties": True},
+            {"type": "array", "items": {}},
+            {"type": "string"},
+            {"type": "null"},
+        ]
+    },
     "trace_id": {"type": "string", "example": "trace-123"},
 }
 
 ERROR_RESPONSE_SCHEMAS = {
-    "ErrorResponse": {
+    "ApiError": {
         "type": "object",
         "required": ["code", "message", "details", "trace_id"],
         "properties": {
@@ -169,6 +176,7 @@ ERROR_RESPONSE_SCHEMAS = {
             "message": {"type": "string", "example": "Resource not found"},
         },
     },
+    "ErrorResponse": {"$ref": "#/components/schemas/ApiError"},
     "NotFoundError": {
         "type": "object",
         "required": ["code", "message"],
@@ -249,17 +257,18 @@ ERROR_RESPONSE_SCHEMAS = {
 }
 
 ERROR_RESPONSES = {
-    "UnauthorizedError401": {
+    "UnauthorizedError": {
         "description": "Unauthorized. Returned when the bearer token is missing, invalid, or expired.",
         "headers": {
             "WWW-Authenticate": {
                 "description": "Bearer authentication challenge header.",
-                "schema": {"type": "string", "example": "Bearer"},
+                "schema": {"type": "string"},
+                "example": "Bearer",
             }
         },
         "content": {
             "application/json": {
-                "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                "schema": {"$ref": "#/components/schemas/ApiError"},
                 "example": {
                     "code": "INVALID_TOKEN",
                     "message": "Invalid token",
@@ -269,11 +278,11 @@ ERROR_RESPONSES = {
             }
         },
     },
-    "ForbiddenError403": {
+    "ForbiddenError": {
         "description": "Forbidden. Returned when the token is valid but lacks required permissions.",
         "content": {
             "application/json": {
-                "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                "schema": {"$ref": "#/components/schemas/ApiError"},
                 "example": {
                     "code": "PERMISSION_DENIED",
                     "message": "Permission denied",
@@ -283,6 +292,8 @@ ERROR_RESPONSES = {
             }
         },
     },
+    "UnauthorizedError401": {"$ref": "#/components/responses/UnauthorizedError"},
+    "ForbiddenError403": {"$ref": "#/components/responses/ForbiddenError"},
 }
 
 
@@ -405,8 +416,8 @@ def _apply_auth_error_references(path: str, operation: dict) -> None:
         return
 
     responses = operation.setdefault("responses", {})
-    responses.setdefault("401", {"$ref": "#/components/responses/UnauthorizedError401"})
-    responses.setdefault("403", {"$ref": "#/components/responses/ForbiddenError403"})
+    responses.setdefault("401", {"$ref": "#/components/responses/UnauthorizedError"})
+    responses.setdefault("403", {"$ref": "#/components/responses/ForbiddenError"})
 
 
 def _polish_admin_store_create_parameters(path: str, method: str, operation: dict) -> None:
@@ -562,11 +573,11 @@ def harden_openapi_schema(app: FastAPI):
     components = schema.setdefault("components", {})
     component_schemas = components.setdefault("schemas", {})
     for name, schema_value in ERROR_RESPONSE_SCHEMAS.items():
-        component_schemas.setdefault(name, deepcopy(schema_value))
+        component_schemas[name] = deepcopy(schema_value)
 
     component_responses = components.setdefault("responses", {})
     for name, response_value in ERROR_RESPONSES.items():
-        component_responses.setdefault(name, deepcopy(response_value))
+        component_responses[name] = deepcopy(response_value)
 
     for path, path_item in schema.get("paths", {}).items():
         for method, operation in path_item.items():

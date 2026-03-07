@@ -1,6 +1,7 @@
 import logging
 import secrets
 import string
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -189,6 +190,20 @@ def _validate_sort(sort_by: str | None, *, allowed: set[str], field_name: str = 
 
 def _pagination_meta(*, total: int, count: int, limit: int, offset: int) -> ListPaginationMeta:
     return ListPaginationMeta(total=total, count=count, limit=limit, offset=offset)
+
+
+def _log_admin_list_observability(*, endpoint: str, role: str | None, tenant_scope: str, limit: int, offset: int, total: int, count: int, started_at: float) -> None:
+    logger.info(
+        "admin.list endpoint=%s role=%s tenant_scope=%s limit=%s offset=%s total=%s count=%s query_ms=%.2f",
+        endpoint,
+        (role or "").upper() or None,
+        tenant_scope,
+        limit,
+        offset,
+        total,
+        count,
+        (time.perf_counter() - started_at) * 1000,
+    )
 
 def _validate_password(password: str) -> None:
     if len(password) < 8:
@@ -1165,7 +1180,7 @@ async def list_tenants(
     request: Request,
     status: str | None = Query(default=None, description="Optional tenant status filter (active/suspended/canceled)."),
     search: str | None = Query(default=None, description="Case-insensitive search by tenant name."),
-    limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
+    limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
     sort_by: str = Query(default="name", description="Sort field: name or created_at."),
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order: asc or desc."),
@@ -1174,6 +1189,7 @@ async def list_tenants(
     db=Depends(get_db),
 ):
     _require_superadmin(token_data)
+    started_at = time.perf_counter()
     normalized_status = _normalize_optional_str(status)
     if normalized_status and normalized_status.lower() not in {"active", "suspended", "canceled"}:
         raise AppError(
@@ -1189,6 +1205,16 @@ async def list_tenants(
         offset=offset,
         sort_by=resolved_sort_by,
         sort_order=sort_order,
+    )
+    _log_admin_list_observability(
+        endpoint="/aris3/admin/tenants",
+        role=token_data.role,
+        tenant_scope="GLOBAL",
+        limit=limit,
+        offset=offset,
+        total=total,
+        count=len(tenants),
+        started_at=started_at,
     )
     return TenantListResponse(
         tenants=[_tenant_item(tenant) for tenant in tenants],
@@ -1513,7 +1539,7 @@ async def list_stores(
     request: Request,
     tenant_id: str | None = Query(default=None, description="Optional tenant filter (superadmin only)."),
     search: str | None = Query(default=None, description="Case-insensitive search by store name."),
-    limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
+    limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
     sort_by: str = Query(default="name", description="Sort field: name or created_at."),
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order: asc or desc."),
@@ -1522,20 +1548,36 @@ async def list_stores(
     _permission=Depends(require_permission("STORE_VIEW")),
     db=Depends(get_db),
 ):
-    token_tenant_id = _tenant_id_or_error(token_data)
+    started_at = time.perf_counter()
     requested_tenant_id = _normalize_optional_str(tenant_id) or _normalize_optional_str(request.query_params.get("query_tenant_id"))
-    if requested_tenant_id and requested_tenant_id != token_tenant_id and not is_superadmin(token_data.role):
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    if is_superadmin(token_data.role):
+        token_tenant_id = None
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
     resolved_sort_by = _validate_sort(sort_by, allowed={"created_at", "name"}) or "name"
 
     stores, total = StoreRepository(db).list_by_tenant(
         token_tenant_id,
-        tenant_filter_id=requested_tenant_id,
+        tenant_filter_id=effective_tenant_id,
         search=_normalize_optional_str(search),
         limit=limit,
         offset=offset,
         sort_by=resolved_sort_by,
         sort_order=sort_order,
+    )
+    _log_admin_list_observability(
+        endpoint="/aris3/admin/stores",
+        role=token_data.role,
+        tenant_scope=effective_tenant_id or "GLOBAL",
+        limit=limit,
+        offset=offset,
+        total=total,
+        count=len(stores),
+        started_at=started_at,
     )
     return StoreListResponse(
         stores=[_store_item(store) for store in stores],
@@ -1866,7 +1908,7 @@ async def list_users(
     status: str | None = Query(default=None, description="Optional user status filter (active/suspended/canceled)."),
     is_active: bool | None = Query(default=None, description="Filter by active status (`true` or `false`)."),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
-    limit: int = Query(default=50, gt=0, le=200, description="Page size (max 200)."),
+    limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
     sort_by: str = Query(default="username", description="Sort field: username, email, or created_at."),
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order: asc or desc."),
@@ -1875,10 +1917,16 @@ async def list_users(
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    token_tenant_id = _tenant_id_or_error(token_data)
+    started_at = time.perf_counter()
     requested_tenant_id = _normalize_optional_str(tenant_id)
-    if requested_tenant_id and requested_tenant_id != token_tenant_id and not is_superadmin(token_data.role):
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+    if is_superadmin(token_data.role):
+        token_tenant_id = None
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
 
     store_scope_id = token_data.store_id if _is_store_bound_actor(token_data) else None
     requested_store_id = _normalize_optional_str(store_id)
@@ -1904,7 +1952,7 @@ async def list_users(
     users, total = UserRepository(db).list_by_tenant(
         token_tenant_id,
         store_scope_id=store_scope_id,
-        tenant_filter_id=requested_tenant_id,
+        tenant_filter_id=effective_tenant_id,
         store_id=requested_store_id,
         role=normalized_role,
         status=normalized_status,
@@ -1914,6 +1962,16 @@ async def list_users(
         offset=offset,
         sort_by=resolved_sort_by,
         sort_order=sort_order,
+    )
+    _log_admin_list_observability(
+        endpoint="/aris3/admin/users",
+        role=token_data.role,
+        tenant_scope=effective_tenant_id or "GLOBAL",
+        limit=limit,
+        offset=offset,
+        total=total,
+        count=len(users),
+        started_at=started_at,
     )
     return UserListResponse(
         users=[_user_item(user) for user in users],

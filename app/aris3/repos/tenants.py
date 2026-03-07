@@ -31,7 +31,10 @@ class TenantRepository:
             count_stmt = count_stmt.where(Tenant.name.ilike(pattern))
 
         sort_column = Tenant.name if sort_by == "name" else Tenant.created_at
-        stmt = stmt.order_by(sort_column.asc() if sort_order == "asc" else sort_column.desc())
+        if sort_order == "asc":
+            stmt = stmt.order_by(sort_column.asc(), Tenant.id.asc())
+        else:
+            stmt = stmt.order_by(sort_column.desc(), Tenant.id.desc())
 
         if offset:
             stmt = stmt.offset(offset)

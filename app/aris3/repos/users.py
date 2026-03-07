@@ -16,7 +16,7 @@ class UserRepository:
 
     def list_by_tenant(
         self,
-        tenant_id: str,
+        tenant_id: str | None,
         *,
         store_scope_id: str | None = None,
         tenant_filter_id: str | None = None,
@@ -31,8 +31,12 @@ class UserRepository:
         sort_order: str = "asc",
     ):
         effective_tenant_id = tenant_filter_id or tenant_id
-        stmt = select(User).where(User.tenant_id == effective_tenant_id)
-        count_stmt = select(func.count()).select_from(User).where(User.tenant_id == effective_tenant_id)
+        stmt = select(User)
+        count_stmt = select(func.count()).select_from(User)
+
+        if effective_tenant_id is not None:
+            stmt = stmt.where(User.tenant_id == effective_tenant_id)
+            count_stmt = count_stmt.where(User.tenant_id == effective_tenant_id)
 
         effective_store_id = store_scope_id or store_id
         if effective_store_id:
@@ -65,7 +69,10 @@ class UserRepository:
             "created_at": User.created_at,
         }
         sort_column = sort_mapping.get(sort_by, User.created_at)
-        stmt = stmt.order_by(sort_column.asc() if sort_order == "asc" else sort_column.desc())
+        if sort_order == "asc":
+            stmt = stmt.order_by(sort_column.asc(), User.id.asc())
+        else:
+            stmt = stmt.order_by(sort_column.desc(), User.id.desc())
 
         if offset:
             stmt = stmt.offset(offset)

@@ -71,29 +71,63 @@ def _json_safe(value):
     return value
 
 
+def _field_from_loc(loc: list) -> str | None:
+    if not loc:
+        return None
+    if loc[0] in {"body", "query", "path", "header", "cookie"}:
+        loc = loc[1:]
+    if not loc:
+        return None
+
+    parts: list[str] = []
+    for item in loc:
+        if isinstance(item, int):
+            if parts:
+                parts[-1] = f"{parts[-1]}[{item}]"
+            else:
+                parts.append(f"[{item}]")
+        else:
+            parts.append(str(item))
+    return ".".join(parts)
+
+
 def _validation_error_details(exc: RequestValidationError) -> dict:
     errors = []
     for error in exc.errors():
         loc = list(error.get("loc", []))
-        field = ".".join(str(item) for item in loc if item not in {"body", "query", "path", "header"}) or None
         errors.append(
             {
-                "field": field,
+                "field": _field_from_loc(loc),
                 "message": error.get("msg", "Invalid value"),
                 "type": error.get("type", "validation_error"),
-                "loc": loc,
-                "input": _json_safe(error.get("input")),
-                "ctx": _json_safe(error.get("ctx")),
             }
         )
     return {"errors": errors}
 
 
 def _http_error_payload(request: Request, exc: HTTPException) -> dict:
-    code = _http_error_code(exc.status_code)
+    if exc.status_code == 401:
+        code = ErrorCatalog.INVALID_TOKEN.code
+        default_message = ErrorCatalog.INVALID_TOKEN.message
+    elif exc.status_code == 403:
+        code = ErrorCatalog.PERMISSION_DENIED.code
+        default_message = ErrorCatalog.PERMISSION_DENIED.message
+    elif exc.status_code == 404:
+        code = "NOT_FOUND"
+        default_message = "Resource not found"
+    elif exc.status_code == 409:
+        code = "CONFLICT"
+        default_message = "Resource conflict"
+    else:
+        code = _http_error_code(exc.status_code)
+        default_message = "HTTP error"
+
     detail = exc.detail
-    message = str(detail) if detail is not None else "HTTP error"
+    message = default_message
     details = None
+
+    if detail is not None and exc.status_code not in {401, 403, 409}:
+        message = str(detail)
 
     if isinstance(detail, dict):
         if {"code", "message"}.issubset(detail.keys()):
@@ -102,7 +136,7 @@ def _http_error_payload(request: Request, exc: HTTPException) -> dict:
             payload.setdefault("details", None)
             return payload
 
-        message = str(detail.get("message", message))
+        message = str(detail.get("message", default_message))
         if "details" in detail:
             details = detail.get("details")
         else:
@@ -133,11 +167,33 @@ def error_response(code: str, message: str, details: object, trace_id: str, stat
 def setup_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError):
-        _set_error_context(request, exc.error.code, exc)
+        code = exc.error.code
+        message = exc.error.message
+        details = exc.details
+        if exc.error.status_code == 404:
+            code = "NOT_FOUND"
+        elif exc.error.status_code == 409:
+            code = "CONFLICT"
+            message = "Resource conflict"
+            details = None
+
+        if exc.error.status_code == ErrorCatalog.VALIDATION_ERROR.status_code and code == ErrorCatalog.VALIDATION_ERROR.code:
+            if not isinstance(details, dict) or "errors" not in details:
+                details = {
+                    "errors": [
+                        {
+                            "field": None,
+                            "message": (details or {}).get("message", message) if isinstance(details, dict) else message,
+                            "type": "validation_error",
+                        }
+                    ]
+                }
+
+        _set_error_context(request, code, exc)
         payload = {
-            "code": exc.error.code,
-            "message": exc.error.message,
-            "details": exc.details,
+            "code": code,
+            "message": message,
+            "details": details,
             "trace_id": _trace_id(request),
         }
         _record_idempotency_failure(request, exc.error.status_code, payload)
@@ -148,7 +204,10 @@ def setup_exception_handlers(app: FastAPI) -> None:
         payload = _http_error_payload(request, exc)
         _set_error_context(request, payload["code"], exc)
         _record_idempotency_failure(request, exc.status_code, payload)
-        return JSONResponse(status_code=exc.status_code, content=payload)
+        headers = getattr(exc, "headers", None) or {}
+        if exc.status_code == 401:
+            headers = {**headers, "WWW-Authenticate": "Bearer"}
+        return JSONResponse(status_code=exc.status_code, content=payload, headers=headers)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):

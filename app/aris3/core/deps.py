@@ -32,7 +32,7 @@ def get_current_user(token_data: TokenData = Depends(get_current_token_data), db
 
 
 def require_active_user(user=Depends(get_current_user)):
-    if not user.is_active or user.status != "active":
+    if not user.is_active or (user.status or "").upper() != "ACTIVE":
         raise AppError(ErrorCatalog.USER_INACTIVE)
     return user
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorResponse
 
@@ -76,11 +76,16 @@ class TenantActionRequest(BaseModel):
         description="Required when `action=set_status`.",
     )
 
+    @field_validator("status")
+    @classmethod
+    def normalize_status(cls, value: str | None) -> str | None:
+        return value.upper() if value else value
+
 
 class TenantItem(BaseModel):
     id: str
     name: str
-    status: AdminUserStatus = Field(..., description="Current tenant status.")
+    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] = Field(..., description="Current tenant status.")
     created_at: datetime
 
 
@@ -109,6 +114,7 @@ class UserCreateRequest(BaseModel):
     store_id: str = Field(..., min_length=1)
     tenant_id: str | None = Field(
         default=None,
+        deprecated=True,
         description="Deprecated: tenant scope is derived from store_id on the backend.",
     )
 
@@ -126,7 +132,7 @@ class UserItem(BaseModel):
     username: str
     email: str
     role: AdminUserRole = Field(..., description="Resolved user role as persisted in runtime.")
-    status: AdminUserStatus = Field(..., description="Runtime user status.")
+    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] = Field(..., description="Runtime user status.")
     is_active: bool
     must_change_password: bool
     created_at: datetime
@@ -167,6 +173,11 @@ class UserActionRequest(BaseModel):
         description="Required for all actions to correlate idempotency and audit events.",
     )
 
+
+    @field_validator("status")
+    @classmethod
+    def normalize_status(cls, value: str | None) -> str | None:
+        return value.upper() if value else value
 
 class SetUserStatusActionRequest(BaseModel):
     action: Literal["set_status"]

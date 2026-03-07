@@ -156,13 +156,13 @@ _ERROR_PROPS = {
     "code": {"type": "string"},
     "message": {"type": "string"},
     "details": {"type": "object", "nullable": True, "additionalProperties": True},
-    "trace_id": {"type": "string", "nullable": True, "example": "trace-123"},
+    "trace_id": {"type": "string", "example": "trace-123"},
 }
 
 ERROR_RESPONSE_SCHEMAS = {
     "ErrorResponse": {
         "type": "object",
-        "required": ["code", "message"],
+        "required": ["code", "message", "details", "trace_id"],
         "properties": {
             **_ERROR_PROPS,
             "code": {"type": "string", "example": "NOT_FOUND"},
@@ -248,6 +248,43 @@ ERROR_RESPONSE_SCHEMAS = {
     "ValidationErrorResponse": {"$ref": "#/components/schemas/ValidationError"},
 }
 
+ERROR_RESPONSES = {
+    "UnauthorizedError": {
+        "description": "Unauthorized",
+        "headers": {
+            "WWW-Authenticate": {
+                "description": "Bearer authentication challenge header.",
+                "schema": {"type": "string", "example": "Bearer"},
+            }
+        },
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                "example": {
+                    "code": "INVALID_TOKEN",
+                    "message": "Invalid token",
+                    "details": None,
+                    "trace_id": "trace-123",
+                },
+            }
+        },
+    },
+    "ForbiddenError": {
+        "description": "Forbidden",
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                "example": {
+                    "code": "PERMISSION_DENIED",
+                    "message": "Permission denied",
+                    "details": None,
+                    "trace_id": "trace-123",
+                },
+            }
+        },
+    },
+}
+
 
 def _operation_id(method: str, path: str) -> str:
     normalized = path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
@@ -321,32 +358,6 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         "content": {"application/json": {"schema": {"$ref": VALIDATION_ERROR_REF}}},
     }
 
-    if path.startswith("/aris3/admin/access-control"):
-        responses.setdefault(
-            "401",
-            {
-                "description": "Unauthorized",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/ErrorResponse"},
-                        "example": {"code": "INVALID_TOKEN", "message": "Invalid token", "details": None, "trace_id": "trace-123"},
-                    }
-                },
-            },
-        )
-        responses.setdefault(
-            "403",
-            {
-                "description": "Forbidden",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/ErrorResponse"},
-                        "example": {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": None, "trace_id": "trace-123"},
-                    }
-                },
-            },
-        )
-
     explicit_identifier_path = any(token in path for token in ("{tenant_id}", "{store_id}", "{user_id}"))
     should_include_404 = (method in {"get", "put", "patch", "delete"} and explicit_identifier_path) or (
         path in {"/aris3/admin/users", "/aris3/admin/stores"} and method == "post"
@@ -375,6 +386,16 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
                 "example": {"code": "CONFLICT", "message": "Resource conflict", "details": None, "trace_id": "trace-123"},
             }
         }
+
+
+def _apply_auth_error_references(operation: dict) -> None:
+    security = operation.get("security") or []
+    if not security:
+        return
+
+    responses = operation.setdefault("responses", {})
+    responses["401"] = {"$ref": "#/components/responses/UnauthorizedError"}
+    responses["403"] = {"$ref": "#/components/responses/ForbiddenError"}
 
 
 def _polish_admin_store_create_parameters(path: str, method: str, operation: dict) -> None:
@@ -527,7 +548,9 @@ def harden_openapi_schema(app: FastAPI):
 
     schema = get_openapi(title=app.title, version="1.0.0", routes=app.routes)
     schema["tags"] = TAG_METADATA
-    schema.setdefault("components", {}).setdefault("schemas", {}).update(deepcopy(ERROR_RESPONSE_SCHEMAS))
+    components = schema.setdefault("components", {})
+    components.setdefault("schemas", {}).update(deepcopy(ERROR_RESPONSE_SCHEMAS))
+    components.setdefault("responses", {}).update(deepcopy(ERROR_RESPONSES))
 
     for path, path_item in schema.get("paths", {}).items():
         for method, operation in path_item.items():
@@ -539,6 +562,7 @@ def harden_openapi_schema(app: FastAPI):
             operation["operationId"] = _operation_id(method, path)
             _apply_access_control_descriptions(path, method, operation)
             _apply_error_responses(path, method, operation)
+            _apply_auth_error_references(operation)
             _polish_admin_store_create_parameters(path, method, operation)
             _polish_admin_and_access_control_descriptions(path, method, operation)
             _polish_reports_exports_contract(path, method, operation)

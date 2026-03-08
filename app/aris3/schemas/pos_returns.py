@@ -18,7 +18,6 @@ class ReturnItem(PosBaseModel):
 
 class ReturnQuoteRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str
     sale_id: str
     items: list[ReturnItem]
@@ -134,7 +133,6 @@ class ReturnEligibilityResponse(PosBaseModel):
 
 class CompleteReturnActionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     action: Literal["COMPLETE"]
     settlement_payments: list[ReturnSettlementPayment] | None = None
     reason: str | None = None
@@ -142,7 +140,6 @@ class CompleteReturnActionRequest(PosBaseModel):
 
 class VoidReturnActionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     action: Literal["VOID"]
     reason: str
 

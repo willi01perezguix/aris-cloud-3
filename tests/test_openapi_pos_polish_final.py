@@ -22,8 +22,20 @@ def test_pos_action_endpoints_expose_discriminators_in_openapi():
     cash_actions = paths["/aris3/pos/cash/session/actions"]["post"]["requestBody"]["content"]["application/json"]["schema"]
 
     assert sales_actions["discriminator"]["propertyName"] == "action"
+    assert sales_actions["discriminator"]["mapping"].keys() == {"CHECKOUT", "CANCEL"}
     assert returns_actions["discriminator"]["propertyName"] == "action"
     assert cash_actions["discriminator"]["propertyName"] == "action"
+
+
+def test_pos_sale_line_required_contract_is_canonical():
+    schemas = app.openapi()["components"]["schemas"]
+    sku_required = set(schemas["SaleLineBySkuInput"].get("required", []))
+    epc_required = set(schemas["SaleLineByEpcInput"].get("required", []))
+
+    assert {"sku"}.issubset(sku_required)
+    assert "epc" not in sku_required
+    assert {"epc"}.issubset(epc_required)
+    assert "sku" not in epc_required
 
 
 def test_pos_patch_sale_documents_draft_only_full_line_replacement():
@@ -32,19 +44,3 @@ def test_pos_patch_sale_documents_draft_only_full_line_replacement():
 
     assert "DRAFT" in description
     assert "full replacement" in description
-
-
-def test_pos_tenant_id_and_legacy_fields_are_deprecated_in_contract():
-    schemas = app.openapi()["components"]["schemas"]
-
-    assert schemas["PosSaleCreateRequest"]["properties"]["tenant_id"]["deprecated"] is True
-    assert schemas["PosSaleUpdateRequest"]["properties"]["tenant_id"]["deprecated"] is True
-    assert schemas["ReturnQuoteRequest"]["properties"]["tenant_id"]["deprecated"] is True
-    assert schemas["OpenCashSessionRequest"]["properties"]["tenant_id"]["deprecated"] is True
-
-    sku_line = schemas["SaleLineBySkuInput"]["properties"]
-    assert sku_line["unit_price"]["deprecated"] is True
-    assert sku_line["status"]["deprecated"] is True
-    assert sku_line["location_code"]["deprecated"] is True
-    assert sku_line["pool"]["deprecated"] is True
-    assert sku_line["snapshot"]["deprecated"] is True

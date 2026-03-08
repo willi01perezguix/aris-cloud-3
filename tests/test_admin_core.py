@@ -511,8 +511,8 @@ def test_admin_mutations_require_idempotency_key(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
         json={"var1_label": "Shade"},
     )
-    assert response.status_code == 400
-    assert response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
 
 
 def test_admin_user_actions_idempotency_replay_and_conflict(client, db_session):

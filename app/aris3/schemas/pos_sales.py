@@ -103,7 +103,6 @@ class PosPaymentCreate(PosBaseModel):
 
 class PosSaleCreateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
     lines: list[SaleLineSelector]
 
@@ -123,7 +122,6 @@ class PosSaleCreateRequest(PosBaseModel):
 
 class PosSaleUpdateRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     lines: list[SaleLineSelector] | None = None
 
     model_config = ConfigDict(
@@ -147,41 +145,18 @@ class PosReturnItem(PosBaseModel):
 
 class CheckoutSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
-    action: Literal["CHECKOUT", "checkout"] = Field(examples=["CHECKOUT"])
+    action: Literal["CHECKOUT"] = Field(examples=["CHECKOUT"])
     payments: list[PosPaymentCreate]
     receipt_number: str | None = None
 
 
 class CancelSaleActionRequest(PosBaseModel):
     transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
-    action: Literal["CANCEL", "cancel"] = Field(examples=["CANCEL"])
-
-
-class RefundItemsSaleActionRequest(PosBaseModel):
-    transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
-    action: Literal["REFUND_ITEMS"]
-    refund_payments: list[PosPaymentCreate] | None = None
-    return_items: list[PosReturnItem] | None = None
-    receipt_number: str | None = None
-    manager_override: bool | None = None
-
-
-class ExchangeItemsSaleActionRequest(PosBaseModel):
-    transaction_id: str | None
-    tenant_id: str | None = Field(default=None, deprecated=True)
-    action: Literal["EXCHANGE_ITEMS"]
-    refund_payments: list[PosPaymentCreate] | None = None
-    return_items: list[PosReturnItem] | None = None
-    exchange_lines: list[PosSaleLineCreate] | None = None
-    receipt_number: str | None = None
-    manager_override: bool | None = None
+    action: Literal["CANCEL"] = Field(examples=["CANCEL"])
 
 
 PosSaleActionRequest = Annotated[
-    CheckoutSaleActionRequest | CancelSaleActionRequest | RefundItemsSaleActionRequest | ExchangeItemsSaleActionRequest,
+    CheckoutSaleActionRequest | CancelSaleActionRequest,
     Field(discriminator="action"),
 ]
 

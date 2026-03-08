@@ -136,22 +136,28 @@ def _authoritative_price(stock: StockItem, fallback: Decimal) -> Decimal:
     return fallback.quantize(Decimal("0.01"))
 
 
+def _legacy_unit_price(line: PosSaleLineCreate):
+    return line.__dict__.get("unit_price")
+
+
+def _legacy_snapshot(line: PosSaleLineCreate):
+    return line.__dict__.get("snapshot")
+
+
 def _line_fallback_price(line: PosSaleLineCreate) -> Decimal:
-    if line.unit_price is not None:
-        return Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
+    unit_price = _legacy_unit_price(line)
+    if unit_price is not None:
+        return Decimal(str(unit_price)).quantize(Decimal("0.01"))
     return Decimal("0.00")
 
 
 def _line_snapshot_or_default(line: PosSaleLineCreate) -> PosSaleLineSnapshot:
-    snapshot = line.snapshot
+    snapshot = _legacy_snapshot(line)
     if snapshot is not None:
         return snapshot
     return PosSaleLineSnapshot(
         sku=line.sku,
-        epc=line.epc,
-        location_code=line.location_code,
-        pool=line.pool,
-        status=line.status,
+        epc=line.__dict__.get("epc") if line.line_type == "EPC" else None,
         location_is_vendible=True,
     )
 
@@ -178,7 +184,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not available for sale", "epc": epc})
 
         expected_price = _authoritative_price(stock, fallback_price)
-        if line.unit_price is not None and fallback_price != expected_price and stock.sale_price is not None:
+        if _legacy_unit_price(line) is not None and fallback_price != expected_price and stock.sale_price is not None:
             raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price)})
 
         rebuilt_snapshot = PosSaleLineSnapshot(
@@ -221,7 +227,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
 
     expected_price = _authoritative_price(stock, fallback_price)
     # Transitional backward compatibility: accept legacy unit_price as fallback when catalog/stock has no sale_price.
-    if line.unit_price is not None and fallback_price != expected_price and stock.sale_price is not None:
+    if _legacy_unit_price(line) is not None and fallback_price != expected_price and stock.sale_price is not None:
         raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price), "sku": sku})
 
     rebuilt_snapshot = PosSaleLineSnapshot(
@@ -250,10 +256,10 @@ def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "qty must be at least 1", "qty": line.qty},
         )
-    if line.unit_price is not None and line.unit_price < 0:
+    if _legacy_unit_price(line) is not None and _legacy_unit_price(line) < 0:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "unit_price must be >= 0", "unit_price": str(line.unit_price)},
+            details={"message": "unit_price must be >= 0", "unit_price": str(_legacy_unit_price(line))},
         )
     if line.line_type == "EPC":
         if line.qty != 1:
@@ -278,7 +284,7 @@ def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
                 details={"message": "sku is required for SKU lines"},
             )
 def _line_total(line: PosSaleLineCreate) -> Decimal:
-    return (line.unit_price * Decimal(line.qty)).quantize(Decimal("0.01"))
+    return (Decimal(str(_legacy_unit_price(line) or 0)) * Decimal(line.qty)).quantize(Decimal("0.01"))
 
 
 def _sale_totals(lines: list[PosSaleLineCreate]) -> dict[str, Decimal]:
@@ -704,18 +710,11 @@ def list_sales(
     status: str | None = Query(default=None),
     checked_out_from: date | None = Query(default=None, description="Inclusive calendar date (store business date) to start filtering sales by checkout date."),
     checked_out_to: date | None = Query(default=None, description="Inclusive calendar date (store business date) to end filtering sales by checkout date."),
-    from_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_from"),
-    to_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_to"),
     q: str | None = Query(default=None),
     sku: str | None = Query(default=None),
     epc: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
-    tenant_id: str | None = Query(
-        default=None,
-        deprecated=True,
-        description="Deprecated: tenant/store scope is resolved from JWT/context.",
-    ),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_SALE_VIEW")),
@@ -726,15 +725,14 @@ def list_sales(
     if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
         store_id = token_data.store_id
     repo = PosSaleRepository(db)
-    _ = tenant_id
     rows, total = repo.list_sales(
         PosSaleQueryFilters(
             tenant_id=scoped_tenant_id,
             store_id=store_id,
             receipt_number=receipt_number,
             status=status,
-            from_date=_parse_filter_date(checked_out_from or from_date),
-            to_date=_parse_filter_date(checked_out_to or to_date, end_of_day=True),
+            from_date=_parse_filter_date(checked_out_from),
+            to_date=_parse_filter_date(checked_out_to, end_of_day=True),
             q=q,
             sku=sku,
             epc=epc,
@@ -792,7 +790,7 @@ def create_sale(
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
-    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
     resolved_store_id = _resolve_store_id(token_data, payload.store_id)
     enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
@@ -836,14 +834,14 @@ def create_sale(
 
     lines = []
     for line in resolved_lines:
-        snapshot = line.snapshot
+        snapshot = _legacy_snapshot(line)
         lines.append(
             PosSaleLine(
                 sale_id=sale.id,
                 tenant_id=scoped_tenant_id,
                 line_type=line.line_type,
                 qty=line.qty,
-                unit_price=float(line.unit_price),
+                unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
                 line_total=float(_line_total(line)),
                 sku=snapshot.sku,
                 description=snapshot.description,
@@ -917,7 +915,7 @@ def update_sale(
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
-    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -955,14 +953,14 @@ def update_sale(
         db.execute(delete(PosSaleLine).where(PosSaleLine.sale_id == sale.id))
         lines = []
         for line in resolved_lines:
-            snapshot = line.snapshot
+            snapshot = _legacy_snapshot(line)
             lines.append(
                 PosSaleLine(
                     sale_id=sale.id,
                     tenant_id=scoped_tenant_id,
                     line_type=line.line_type,
                     qty=line.qty,
-                    unit_price=float(line.unit_price),
+                    unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
                     line_total=float(_line_total(line)),
                     sku=snapshot.sku,
                     description=snapshot.description,
@@ -1047,7 +1045,7 @@ def get_sale(
 
 @router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES,
     summary="Execute sale action",
-    description="Canonical actions are `CHECKOUT` and `CANCEL`. Legacy post-sale actions (`REFUND_ITEMS`, `EXCHANGE_ITEMS`) remain available for compatibility and existing runtimes.",
+    description="Canonical actions are `CHECKOUT` and `CANCEL`.",
     openapi_extra={
         "requestBody": {
             "content": {
@@ -1092,7 +1090,7 @@ def sale_action(
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
-    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -1606,14 +1604,14 @@ def sale_action(
 
             new_lines = []
             for line in exchange_lines:
-                snapshot = line.snapshot
+                snapshot = _legacy_snapshot(line)
                 new_lines.append(
                     PosSaleLine(
                         sale_id=exchange_sale.id,
                         tenant_id=scoped_tenant_id,
                         line_type=line.line_type,
                         qty=line.qty,
-                        unit_price=float(line.unit_price),
+                        unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
                         line_total=float(_line_total(line)),
                         sku=snapshot.sku,
                         description=snapshot.description,

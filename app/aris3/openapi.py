@@ -311,6 +311,11 @@ PUBLIC_ENDPOINTS_WITHOUT_AUTH_ERRORS = {
     "/aris3/auth/token",
 }
 
+AUTH_ENDPOINTS_WITH_VALIDATION = {
+    "/aris3/auth/login",
+    "/aris3/auth/change-password",
+}
+
 
 def _operation_id(method: str, path: str) -> str:
     normalized = path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
@@ -375,6 +380,13 @@ def _not_found_description(path: str) -> str:
 
 
 def _apply_error_responses(path: str, method: str, operation: dict) -> None:
+    if path in AUTH_ENDPOINTS_WITH_VALIDATION and method in {"post", "patch"}:
+        responses = operation.setdefault("responses", {})
+        responses["422"] = {
+            "description": "Validation error",
+            "content": {"application/json": {"schema": {"$ref": VALIDATION_ERROR_REF}}},
+        }
+
     if not (path.startswith("/aris3/admin") or path.startswith("/aris3/access-control")):
         return
 
@@ -400,7 +412,12 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         responses["404"]["content"] = {
             "application/json": {
                 "schema": {"$ref": NOT_FOUND_ERROR_REF},
-                "example": {"code": "RESOURCE_NOT_FOUND", "message": not_found_message, "details": None, "trace_id": "trace-123"},
+                "example": {
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": not_found_message,
+                    "details": {"path": path, "reason": "resource does not exist"},
+                    "trace_id": "trace-123",
+                },
             }
         }
 
@@ -409,7 +426,12 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         responses["409"]["content"] = {
             "application/json": {
                 "schema": {"$ref": CONFLICT_ERROR_REF},
-                "example": {"code": "CONFLICT", "message": "Resource conflict", "details": None, "trace_id": "trace-123"},
+                "example": {
+                    "code": "CONFLICT",
+                    "message": "Resource conflict",
+                    "details": {"reason": "business validation conflict"},
+                    "trace_id": "trace-123",
+                },
             }
         }
 
@@ -596,6 +618,15 @@ def harden_openapi_schema(app: FastAPI):
     for name, response_value in ERROR_RESPONSES.items():
         component_responses[name] = deepcopy(response_value)
 
+    security_schemes = components.setdefault("securitySchemes", {})
+    if "OAuth2PasswordBearer" in security_schemes:
+        security_schemes["OAuth2PasswordBearer"] = {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Paste JWT bearer token obtained from `/aris3/auth/login` or `/aris3/auth/token`.",
+        }
+
     for path, path_item in schema.get("paths", {}).items():
         for method, operation in path_item.items():
             if method not in {"get", "post", "put", "patch", "delete"}:
@@ -614,6 +645,19 @@ def harden_openapi_schema(app: FastAPI):
 
     _polish_status_schema_descriptions(schema)
     _polish_exports_schema_descriptions(schema)
+
+    generated_schemas = schema.get("components", {}).get("schemas", {})
+    generated_schemas.pop("HTTPValidationError", None)
+
+    for path_item in schema.get("paths", {}).values():
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            response_422 = operation.get("responses", {}).get("422", {})
+            content = response_422.get("content", {}).get("application/json", {})
+            schema_ref = content.get("schema", {}).get("$ref")
+            if schema_ref == "#/components/schemas/HTTPValidationError":
+                content["schema"] = {"$ref": VALIDATION_ERROR_REF}
 
     app.openapi_schema = schema
     return app.openapi_schema

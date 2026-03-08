@@ -91,7 +91,7 @@ def test_not_found_response_schema(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 404
-    assert response.json()["code"] == "TENANT_NOT_FOUND"
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
     assert "trace_id" in response.json()
 
 

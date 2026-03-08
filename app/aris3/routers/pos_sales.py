@@ -136,22 +136,28 @@ def _authoritative_price(stock: StockItem, fallback: Decimal) -> Decimal:
     return fallback.quantize(Decimal("0.01"))
 
 
+def _legacy_unit_price(line: PosSaleLineCreate):
+    return line.__dict__.get("unit_price")
+
+
+def _legacy_snapshot(line: PosSaleLineCreate):
+    return line.__dict__.get("snapshot")
+
+
 def _line_fallback_price(line: PosSaleLineCreate) -> Decimal:
-    if line.unit_price is not None:
-        return Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
+    unit_price = _legacy_unit_price(line)
+    if unit_price is not None:
+        return Decimal(str(unit_price)).quantize(Decimal("0.01"))
     return Decimal("0.00")
 
 
 def _line_snapshot_or_default(line: PosSaleLineCreate) -> PosSaleLineSnapshot:
-    snapshot = line.snapshot
+    snapshot = _legacy_snapshot(line)
     if snapshot is not None:
         return snapshot
     return PosSaleLineSnapshot(
         sku=line.sku,
-        epc=line.epc,
-        location_code=line.location_code,
-        pool=line.pool,
-        status=line.status,
+        epc=line.__dict__.get("epc") if line.line_type == "EPC" else None,
         location_is_vendible=True,
     )
 
@@ -178,7 +184,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not available for sale", "epc": epc})
 
         expected_price = _authoritative_price(stock, fallback_price)
-        if line.unit_price is not None and fallback_price != expected_price and stock.sale_price is not None:
+        if _legacy_unit_price(line) is not None and fallback_price != expected_price and stock.sale_price is not None:
             raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price)})
 
         rebuilt_snapshot = PosSaleLineSnapshot(
@@ -221,7 +227,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
 
     expected_price = _authoritative_price(stock, fallback_price)
     # Transitional backward compatibility: accept legacy unit_price as fallback when catalog/stock has no sale_price.
-    if line.unit_price is not None and fallback_price != expected_price and stock.sale_price is not None:
+    if _legacy_unit_price(line) is not None and fallback_price != expected_price and stock.sale_price is not None:
         raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price), "sku": sku})
 
     rebuilt_snapshot = PosSaleLineSnapshot(
@@ -250,10 +256,10 @@ def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "qty must be at least 1", "qty": line.qty},
         )
-    if line.unit_price is not None and line.unit_price < 0:
+    if _legacy_unit_price(line) is not None and _legacy_unit_price(line) < 0:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "unit_price must be >= 0", "unit_price": str(line.unit_price)},
+            details={"message": "unit_price must be >= 0", "unit_price": str(_legacy_unit_price(line))},
         )
     if line.line_type == "EPC":
         if line.qty != 1:
@@ -278,7 +284,7 @@ def _validate_sale_snapshot(line: PosSaleLineCreate) -> None:
                 details={"message": "sku is required for SKU lines"},
             )
 def _line_total(line: PosSaleLineCreate) -> Decimal:
-    return (line.unit_price * Decimal(line.qty)).quantize(Decimal("0.01"))
+    return (Decimal(str(_legacy_unit_price(line) or 0)) * Decimal(line.qty)).quantize(Decimal("0.01"))
 
 
 def _sale_totals(lines: list[PosSaleLineCreate]) -> dict[str, Decimal]:
@@ -828,14 +834,14 @@ def create_sale(
 
     lines = []
     for line in resolved_lines:
-        snapshot = line.snapshot
+        snapshot = _legacy_snapshot(line)
         lines.append(
             PosSaleLine(
                 sale_id=sale.id,
                 tenant_id=scoped_tenant_id,
                 line_type=line.line_type,
                 qty=line.qty,
-                unit_price=float(line.unit_price),
+                unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
                 line_total=float(_line_total(line)),
                 sku=snapshot.sku,
                 description=snapshot.description,
@@ -947,14 +953,14 @@ def update_sale(
         db.execute(delete(PosSaleLine).where(PosSaleLine.sale_id == sale.id))
         lines = []
         for line in resolved_lines:
-            snapshot = line.snapshot
+            snapshot = _legacy_snapshot(line)
             lines.append(
                 PosSaleLine(
                     sale_id=sale.id,
                     tenant_id=scoped_tenant_id,
                     line_type=line.line_type,
                     qty=line.qty,
-                    unit_price=float(line.unit_price),
+                    unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
                     line_total=float(_line_total(line)),
                     sku=snapshot.sku,
                     description=snapshot.description,
@@ -1598,14 +1604,14 @@ def sale_action(
 
             new_lines = []
             for line in exchange_lines:
-                snapshot = line.snapshot
+                snapshot = _legacy_snapshot(line)
                 new_lines.append(
                     PosSaleLine(
                         sale_id=exchange_sale.id,
                         tenant_id=scoped_tenant_id,
                         line_type=line.line_type,
                         qty=line.qty,
-                        unit_price=float(line.unit_price),
+                        unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
                         line_total=float(_line_total(line)),
                         sku=snapshot.sku,
                         description=snapshot.description,

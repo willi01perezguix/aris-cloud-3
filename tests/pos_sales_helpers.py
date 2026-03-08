@@ -109,34 +109,23 @@ def sale_line(
     *,
     line_type: str,
     qty: int,
-    unit_price: float,
+    unit_price: float | None = None,
     sku: str | None,
     epc: str | None,
     location_code: str = "LOC-1",
     pool: str = "P1",
     status: str = "RFID",
 ):
-    return {
+    _ = (unit_price, location_code, pool, status)
+    payload = {
         "line_type": line_type,
         "qty": qty,
-        "unit_price": unit_price,
-        "snapshot": {
-            "sku": sku,
-            "description": "Item",
-            "var1_value": "V1",
-            "var2_value": "V2",
-            "epc": epc,
-            "location_code": location_code,
-            "pool": pool,
-            "status": status,
-            "location_is_vendible": True,
-            "image_asset_id": str(uuid.uuid4()),
-            "image_url": "https://example.com/img.png",
-            "image_thumb_url": "https://example.com/thumb.png",
-            "image_source": "catalog",
-            "image_updated_at": datetime.utcnow().isoformat(),
-        },
     }
+    if line_type.upper() == "SKU":
+        payload["sku"] = sku
+    else:
+        payload["epc"] = epc
+    return payload
 
 
 def sale_payload(store_id: str, lines: list[dict], *, transaction_id: str = "txn-1"):
@@ -176,7 +165,7 @@ def create_paid_sale(
 
     checkout_payload = {
         "transaction_id": checkout_txn,
-        "action": "checkout",
+        "action": "CHECKOUT",
         "payments": payments,
         "receipt_number": receipt_number,
     }

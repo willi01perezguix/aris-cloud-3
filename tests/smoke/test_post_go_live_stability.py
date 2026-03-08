@@ -177,7 +177,7 @@ def test_post_go_live_pos_checkout_with_cash_session_and_reports(client, db_sess
         json={
             "transaction_id": "txn-s6d8-sale-create",
             "store_id": str(store.id),
-            "lines": [sale_line(line_type="SKU", qty=1, unit_price=25.0, sku="SKU-S6D8-POS", epc=None, status="PENDING")],
+            "lines": [sale_line(line_type="SKU", qty=1, sku="SKU-S6D8-POS", epc=None)],
         },
     )
     assert sale.status_code == 201
@@ -186,7 +186,7 @@ def test_post_go_live_pos_checkout_with_cash_session_and_reports(client, db_sess
     checkout_without_cash = client.post(
         f"/aris3/pos/sales/{sale_id}/actions",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "s6d8-checkout-no-cash"},
-        json={"transaction_id": "txn-s6d8-checkout-no-cash", "action": "checkout", "payments": [{"method": "CASH", "amount": 25.0}]},
+        json={"transaction_id": "txn-s6d8-checkout-no-cash", "action": "CHECKOUT", "payments": [{"method": "CASH", "amount": 25.0}]},
     )
     assert checkout_without_cash.status_code == 409
 
@@ -199,7 +199,7 @@ def test_post_go_live_pos_checkout_with_cash_session_and_reports(client, db_sess
         json={
             "transaction_id": "txn-s6d8-sale-create-2",
             "store_id": str(store.id),
-            "lines": [sale_line(line_type="SKU", qty=1, unit_price=25.0, sku="SKU-S6D8-POS", epc=None, status="PENDING")],
+            "lines": [sale_line(line_type="SKU", qty=1, sku="SKU-S6D8-POS", epc=None)],
         },
     )
     assert sale2.status_code == 201
@@ -208,7 +208,7 @@ def test_post_go_live_pos_checkout_with_cash_session_and_reports(client, db_sess
     checkout_with_cash = client.post(
         f"/aris3/pos/sales/{sale2_id}/actions",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "s6d8-checkout-with-cash"},
-        json={"transaction_id": "txn-s6d8-checkout-with-cash", "action": "checkout", "payments": [{"method": "CASH", "amount": 25.0}]},
+        json={"transaction_id": "txn-s6d8-checkout-with-cash", "action": "CHECKOUT", "payments": [{"method": "CASH", "amount": 25.0}]},
     )
     assert checkout_with_cash.status_code == 200
 

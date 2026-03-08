@@ -167,8 +167,8 @@ class UserActionRequest(BaseModel):
         default=None,
         description="Optional only when `action=reset_password`. If omitted, server generates a temporary password.",
     )
-    transaction_id: str | None = Field(
-        None,
+    transaction_id: str = Field(
+        ...,
         min_length=1,
         max_length=255,
         description="Required for all actions to correlate idempotency and audit events.",

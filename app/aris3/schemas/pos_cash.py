@@ -10,7 +10,6 @@ from app.aris3.schemas.pos_common import Money, PaginatedResponse, PosBaseModel
 
 class OpenCashSessionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
     action: Literal['OPEN']
     opening_amount: Money
@@ -20,7 +19,6 @@ class OpenCashSessionRequest(PosBaseModel):
 
 class CashInRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
     action: Literal['CASH_IN']
     amount: Money
@@ -31,7 +29,6 @@ class CashInRequest(PosBaseModel):
 
 class CashOutRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
     action: Literal['CASH_OUT']
     amount: Money
@@ -39,7 +36,6 @@ class CashOutRequest(PosBaseModel):
 
 class CloseCashSessionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str | None = None
     action: Literal['CLOSE']
     counted_cash: Money
@@ -99,7 +95,6 @@ class PosCashMovementListResponse(PaginatedResponse):
 
 class PosCashDayCloseActionRequest(PosBaseModel):
     transaction_id: str
-    tenant_id: str | None = Field(default=None, deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context.")
     store_id: str
     action: Literal['CLOSE_DAY'] = 'CLOSE_DAY'
     business_date: date

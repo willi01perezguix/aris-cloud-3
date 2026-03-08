@@ -80,14 +80,14 @@ class PosSaleLineCreate(PosBaseModel):
 
 class SaleLineBySkuInput(PosSaleLineCreate):
     line_type: Literal["SKU"] = "SKU"
-    sku: str | None = Field(default=None, description="Canonical SKU selector (preferred). Legacy compatibility allows providing SKU only inside snapshot.")
-    epc: str | None = Field(default=None, deprecated=True, description="Legacy compatibility: ignored for SKU lines.")
+    sku: str = Field(..., min_length=1, description="Canonical SKU selector.")
+    epc: None = Field(default=None, description="Must be omitted for SKU lines.")
 
 
 class SaleLineByEpcInput(PosSaleLineCreate):
     line_type: Literal["EPC"] = "EPC"
-    epc: str | None = Field(default=None, description="Canonical EPC selector (preferred). Legacy compatibility allows providing EPC only inside snapshot.")
-    sku: str | None = Field(default=None, deprecated=True, description="Legacy compatibility: ignored for EPC lines.")
+    epc: str = Field(..., min_length=1, description="Canonical EPC selector.")
+    sku: None = Field(default=None, description="Must be omitted for EPC lines.")
 
 
 SaleLineSelector = Annotated[SaleLineBySkuInput | SaleLineByEpcInput, Field(discriminator="line_type")]

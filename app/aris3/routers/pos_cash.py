@@ -54,7 +54,7 @@ CASH_ERROR_EXAMPLES = {
     "401": {"code": "UNAUTHORIZED", "message": "Authentication required", "details": {"message": "Missing bearer token"}, "trace_id": "trace-cash-401"},
     "403": {"code": "FORBIDDEN", "message": "You do not have access to this store", "details": {"required_permission": "POS_CASH_MANAGE"}, "trace_id": "trace-cash-403"},
     "404_session": {"code": "NOT_FOUND", "message": "cash session not found", "details": {"cash_session_id": "00000000-0000-0000-0000-000000009999"}, "trace_id": "trace-cash-404"},
-    "409": {"code": "BUSINESS_CONFLICT", "message": "checkout blocked by pending cash balance", "details": {"balance_due": "5.00"}, "trace_id": "trace-cash-409"},
+    "409": {"code": "BUSINESS_CONFLICT", "message": "cash session already open", "details": {"store_id": "00000000-0000-0000-0000-000000000001"}, "trace_id": "trace-cash-409"},
 }
 
 MOVEMENT_TYPE_MAP = {
@@ -284,7 +284,7 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
 def get_current_session(
     store_id: str | None = None,
     cashier_user_id: str | None = None,
-    tenant_id: Annotated[str | None, Query(deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context and this value is only validated for compatibility.")] = None,
+    tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -571,7 +571,7 @@ def list_cash_movements(
     occurred_to: datetime | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    tenant_id: Annotated[str | None, Query(deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context and this value is only validated for compatibility.")] = None,
+    tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -606,7 +606,7 @@ def list_cash_movements(
     return PosCashMovementListResponse(page=page, page_size=page_size, rows=[_movement_response(row) for row in rows], total=total)
 
 
-@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone. Legacy scope fields remain optional/deprecated.", openapi_extra={
+@router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone.", openapi_extra={
     "responses": {
         "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "counted_cash", "message": "counted_cash is required when force_if_open_sessions is true", "type": "value_error"}]}, "trace_id": "trace-day-close-422"}}}}
     }
@@ -831,7 +831,7 @@ def list_day_close_summary(
     business_date_to: date | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    tenant_id: Annotated[str | None, Query(deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context and this value is only validated for compatibility.")] = None,
+    tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
@@ -905,7 +905,7 @@ def reconciliation_breakdown(
     store_id: str,
     business_date: date,
     timezone: str = "UTC",
-    tenant_id: Annotated[str | None, Query(deprecated=True, description="Deprecated: tenant scope is resolved from JWT/context and this value is only validated for compatibility.")] = None,
+    tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),

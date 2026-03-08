@@ -24,8 +24,7 @@ TAG_METADATA = [
 ]
 
 _STATUS_CANONICAL_DESCRIPTION = (
-    "Canonical values are uppercase (`ACTIVE`, `SUSPENDED`, `CANCELED`). "
-    "Lowercase variants are accepted only for backward compatibility."
+    "Canonical values are uppercase (`ACTIVE`, `SUSPENDED`, `CANCELED`)."
 )
 
 
@@ -55,8 +54,6 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
         "description": (
             "Creates a store under an explicit tenant scope.\n\n"
             "- **Canonical input**: send `tenant_id` in the JSON body.\n"
-            "- **Legacy compatibility**: optional `query_tenant_id` is supported only for backward compatibility.\n"
-            "- **Consistency rule**: when both values are sent, `tenant_id` and `query_tenant_id` must match.\n"
             "- **Admin rule**: `SUPERADMIN` and `PLATFORM_ADMIN` must provide an explicit tenant (no implicit fallback)."
         ),
     },
@@ -478,16 +475,6 @@ def _polish_admin_store_create_parameters(path: str, method: str, operation: dic
         if not (parameter.get("in") == "query" and parameter.get("name") == "tenant_id")
     ]
 
-    for parameter in operation.get("parameters", []):
-        if parameter.get("in") == "query" and parameter.get("name") == "query_tenant_id":
-            parameter["deprecated"] = True
-            parameter["description"] = (
-                "Legacy tenant selector kept for backward compatibility. "
-                "Prefer body.tenant_id as canonical source."
-            )
-            schema = parameter.setdefault("schema", {})
-            schema["description"] = parameter["description"]
-
     body_content = operation.get("requestBody", {}).get("content", {}).get("application/json", {})
     if body_content:
         body_content.setdefault(
@@ -496,11 +483,6 @@ def _polish_admin_store_create_parameters(path: str, method: str, operation: dic
                 "canonical_body_tenant": {
                     "summary": "Recommended (canonical)",
                     "value": {"name": "Store Centro", "tenant_id": "4f7f2c5e-9cfd-4efa-a575-2a0ad38df4e8"},
-                },
-                "legacy_query_tenant": {
-                    "summary": "Legacy compatibility (query_tenant_id)",
-                    "description": "Prefer sending tenant_id in request body for new integrations.",
-                    "value": {"name": "Store Centro"},
                 },
             },
         )
@@ -603,6 +585,45 @@ def _polish_status_schema_descriptions(schema: dict) -> None:
         status_prop["description"] = f"{existing} {_STATUS_CANONICAL_DESCRIPTION}".strip()
 
 
+
+
+def _prune_public_legacy_contract(schema: dict) -> None:
+    components = schema.get("components", {}).get("schemas", {})
+
+    for schema_name, field_names in {
+        "SaleLineBySkuInput": {"unit_price", "status", "location_code", "pool", "snapshot"},
+        "SaleLineByEpcInput": {"unit_price", "status", "location_code", "pool", "snapshot"},
+        "ReturnQuoteRequest": {"tenant_id"},
+        "CompleteReturnActionRequest": {"tenant_id"},
+        "VoidReturnActionRequest": {"tenant_id"},
+        "OpenCashSessionRequest": {"tenant_id"},
+        "CashInRequest": {"tenant_id"},
+        "CashOutRequest": {"tenant_id"},
+        "CloseCashSessionRequest": {"tenant_id"},
+        "PosCashDayCloseActionRequest": {"tenant_id"},
+        "UserCreateRequest": {"tenant_id"},
+    }.items():
+        model = components.get(schema_name, {})
+        props = model.get("properties", {})
+        required = model.get("required", [])
+        for field in field_names:
+            props.pop(field, None)
+            if field in required:
+                required.remove(field)
+
+    for path in (
+        "/aris3/pos/cash/session/current",
+        "/aris3/pos/cash/movements",
+        "/aris3/pos/cash/day-close/summary",
+        "/aris3/pos/cash/reconciliation/breakdown",
+    ):
+        op = schema.get("paths", {}).get(path, {}).get("get", {})
+        if op:
+            op["parameters"] = [
+                p for p in op.get("parameters", []) if p.get("name") != "tenant_id"
+            ]
+
+
 def harden_openapi_schema(app: FastAPI):
     if app.openapi_schema:
         return app.openapi_schema
@@ -645,6 +666,7 @@ def harden_openapi_schema(app: FastAPI):
 
     _polish_status_schema_descriptions(schema)
     _polish_exports_schema_descriptions(schema)
+    _prune_public_legacy_contract(schema)
 
     generated_schemas = schema.get("components", {}).get("schemas", {})
     generated_schemas.pop("HTTPValidationError", None)

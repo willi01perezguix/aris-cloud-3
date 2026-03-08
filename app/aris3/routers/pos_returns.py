@@ -46,7 +46,6 @@ RETURN_ERROR_EXAMPLES = {
     "responses": {
         "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
         "403": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["403"]}}},
-        "409": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["409"]}}},
         "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "business_date_from", "message": "business_date_from must be <= business_date_to", "type": "value_error"}]}, "trace_id": "trace-returns-list-422"}}}},
     }
 })
@@ -64,12 +63,11 @@ def list_returns(
     return ReturnListResponse(page=page, page_size=page_size, total=0, rows=[])
 
 
-@router.get('/aris3/pos/returns/{return_id}', response_model=ReturnDetail, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
+@router.get('/aris3/pos/returns/{return_id}', response_model=ReturnDetail, responses={k: v for k, v in POS_STANDARD_ERROR_RESPONSES.items() if k != 409}, openapi_extra={
     "responses": {
         "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
         "403": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["403"]}}},
         "404": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["404"]}}},
-        "409": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["409"]}}},
     }
 })
 def get_return(return_id: str):
@@ -94,7 +92,14 @@ def get_return(return_id: str):
     )
 
 
-@router.get('/aris3/pos/returns/eligibility', response_model=ReturnEligibilityResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+@router.get('/aris3/pos/returns/eligibility', response_model=ReturnEligibilityResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
+    "responses": {
+        "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
+        "403": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["403"]}}},
+        "404": {"content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "sale not found", "details": {"sale_id": "00000000-0000-0000-0000-000000009999"}, "trace_id": "trace-returns-eligibility-404"}}}},
+        "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "sale_id", "message": "sale_id or receipt_number is required", "type": "value_error"}]}, "trace_id": "trace-returns-eligibility-422"}}}},
+    }
+})
 def get_eligibility(sale_id: str | None = None, receipt_number: str | None = None):
     return ReturnEligibilityResponse(
         sale_id=sale_id or 'unknown',
@@ -111,7 +116,7 @@ def get_eligibility(sale_id: str | None = None, receipt_number: str | None = Non
     response_model=ReturnQuoteResponse,
     responses=POS_STANDARD_ERROR_RESPONSES,
     summary='Quote return draft',
-    description='Previews refund/exchange totals using canonical line selectors (`line_type` + `sku`/`epc`) for exchange lines. Legacy compatibility fields are optional/deprecated.',
+    description='Previews refund/exchange totals using canonical line selectors (`line_type` + `sku`/`epc`) for exchange lines.',
     openapi_extra={
         "requestBody": {
             "content": {
@@ -169,7 +174,7 @@ def quote_return(request: ReturnQuoteRequest):
             "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
             "403": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["403"]}}},
             "404": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["404"]}}},
-            "409": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["409"]}}},
+            "409": {"content": {"application/json": {"example": {"code": "BUSINESS_CONFLICT", "message": "return exceeds returnable_qty", "details": {"sale_line_id": "line-001", "returnable_qty": 1, "requested_qty": 2}, "trace_id": "trace-returns-409"}}}},
             "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "items", "message": "items must not be empty", "type": "value_error"}]}, "trace_id": "trace-returns-create-422"}}}},
         },
     },

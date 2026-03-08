@@ -97,7 +97,6 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-LEGACY_QUERY_TENANT_ID_SUNSET = "2026-06-30"
 
 
 ADMIN_STANDARD_ERROR_RESPONSES = {
@@ -1583,19 +1582,13 @@ async def tenant_actions(
     description=(
         "Lists stores with pagination, search, and sorting.\n\n"
         "- For tenant-bound admins: scope is always the token tenant.\n"
-        "- For `SUPERADMIN`/`PLATFORM_ADMIN`: pass `tenant_id` explicitly to scope cross-tenant queries.\n"
-        "- Legacy `query_tenant_id` is still accepted temporarily for backward compatibility and will be removed on 2026-06-30."
+        "- For `SUPERADMIN`/`PLATFORM_ADMIN`: pass `tenant_id` explicitly to scope cross-tenant queries."
     ),
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
 async def list_stores(
     request: Request,
     tenant_id: str | None = Query(default=None, description="Explicit tenant scope for superadmin/platform admin cross-tenant access."),
-    query_tenant_id: str | None = Query(
-        default=None,
-        deprecated=True,
-        description="Legacy alias for tenant_id. Deprecated and scheduled for removal on 2026-06-30.",
-    ),
     search: str | None = Query(default=None, description="Case-insensitive search by store name."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
@@ -1607,14 +1600,7 @@ async def list_stores(
     db=Depends(get_db),
 ):
     started_at = time.perf_counter()
-    legacy_query_tenant_id = _normalize_optional_str(query_tenant_id or request.query_params.get("query_tenant_id"))
-    requested_tenant_id = _normalize_optional_str(tenant_id) or legacy_query_tenant_id
-    if legacy_query_tenant_id:
-        logger.warning(
-            "Deprecated query_tenant_id used on /aris3/admin/stores; sunset=%s",
-            LEGACY_QUERY_TENANT_ID_SUNSET,
-            extra={"trace_id": getattr(request.state, "trace_id", ""), "query_tenant_id": legacy_query_tenant_id},
-        )
+    requested_tenant_id = _normalize_optional_str(tenant_id)
     if is_superadmin(token_data.role):
         token_tenant_id = None
         effective_tenant_id = requested_tenant_id
@@ -1651,23 +1637,6 @@ async def list_stores(
     )
 
 
-def _store_create_query_tenant_id(
-    request: Request,
-    query_tenant_id_param: str | None = Query(
-        default=None,
-        alias="query_tenant_id",
-        include_in_schema=False,
-        description=(
-            "Legacy tenant selector kept for backward compatibility. "
-            "Prefer body.tenant_id as the canonical source."
-        ),
-    ),
-) -> str | None:
-    # Keep undocumented legacy compatibility for clients still sending `tenant_id`
-    # while exposing only `query_tenant_id` in the OpenAPI schema.
-    return query_tenant_id_param or request.query_params.get("tenant_id")
-
-
 @router.post(
     "/stores",
     response_model=StoreResponse,
@@ -1676,8 +1645,6 @@ def _store_create_query_tenant_id(
     description=(
         "Creates a store under an explicit tenant scope.\n\n"
         "- **Canonical input**: send `tenant_id` in the JSON body.\n"
-        "- **Legacy compatibility**: optional `query_tenant_id` is supported only for backward compatibility.\n"
-        "- **Consistency rule**: when both values are sent, `tenant_id` and `query_tenant_id` must match.\n"
         "- **Admin role rule**: `SUPERADMIN` / `PLATFORM_ADMIN` must provide an explicit tenant; no implicit fallback is used."
     ),
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
@@ -1685,15 +1652,6 @@ def _store_create_query_tenant_id(
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
-    query_tenant_id: str | None = Query(
-        default=None,
-        deprecated=True,
-        description=(
-            "Legacy tenant selector kept for backward compatibility. "
-            "Prefer body.tenant_id as canonical source. Removal date: 2026-06-30."
-        ),
-    ),
-    legacy_query_tenant_id: str | None = Depends(_store_create_query_tenant_id),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
@@ -1701,25 +1659,7 @@ async def create_store(
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
-    query_tenant_candidate = query_tenant_id or legacy_query_tenant_id
-    if query_tenant_candidate and not body_tenant_id:
-        logger.warning(
-            "Deprecated query tenant selector used for store creation; sunset=%s",
-            LEGACY_QUERY_TENANT_ID_SUNSET,
-            extra={"trace_id": getattr(request.state, "trace_id", ""), "query_tenant_id": query_tenant_candidate},
-        )
-
-    if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={
-                "message": "tenant_id mismatch between body and query_tenant_id",
-                "body_tenant_id": body_tenant_id,
-                "query_tenant_id": query_tenant_candidate,
-            },
-        )
-
-    request_tenant_id = body_tenant_id or query_tenant_candidate
+    request_tenant_id = body_tenant_id
     user_role = (current_user.role or "").upper()
 
     if user_role in {"SUPERADMIN", "PLATFORM_ADMIN"}:
@@ -1727,7 +1667,7 @@ async def create_store(
             raise AppError(
                 ErrorCatalog.TENANT_ID_REQUIRED_FOR_SUPERADMIN,
                 details={
-                    "message": "tenant_id is required in body or query_tenant_id",
+                    "message": "tenant_id is required in request body",
                 },
             )
         if TenantRepository(db).get_by_id(request_tenant_id) is None:
@@ -1976,7 +1916,7 @@ async def delete_store(
     summary="List users with tenant/store/status filters",
     description=(
         "Lists users with explicit scope filters. `status` is canonical business lifecycle (`ACTIVE|SUSPENDED|CANCELED`) "
-        "and controls access semantics. `is_active` is a backward-compatible derived flag: ACTIVE => true, otherwise false."
+        "and controls access semantics."
     ),
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
@@ -1986,7 +1926,6 @@ async def list_users(
     store_id: str | None = Query(default=None, description="Optional store filter."),
     role: str | None = Query(default=None, description="Optional role filter."),
     status: str | None = Query(default=None, description="Canonical lifecycle status filter (active/suspended/canceled)."),
-    is_active: bool | None = Query(default=None, description="Deprecated compatibility filter derived from status (ACTIVE=true, others=false).", deprecated=True),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
@@ -2021,10 +1960,10 @@ async def list_users(
         )
 
     normalized_status = _normalize_optional_str(status)
-    if normalized_status and normalized_status.lower() not in {"active", "suspended", "canceled"}:
+    if normalized_status and normalized_status.upper() not in {"ACTIVE", "SUSPENDED", "CANCELED"}:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "status is not allowed", "status": normalized_status, "allowed": ["active", "suspended", "canceled"]},
+            details={"message": "status is not allowed", "status": normalized_status, "allowed": ["ACTIVE", "SUSPENDED", "CANCELED"]},
         )
 
     resolved_sort_by = _validate_sort(sort_by, allowed={"created_at", "username", "email"}) or "username"
@@ -2036,7 +1975,6 @@ async def list_users(
         store_id=requested_store_id,
         role=normalized_role,
         status=normalized_status,
-        is_active=is_active,
         search=_normalize_optional_str(search),
         limit=limit,
         offset=offset,

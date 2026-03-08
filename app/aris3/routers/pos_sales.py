@@ -704,18 +704,11 @@ def list_sales(
     status: str | None = Query(default=None),
     checked_out_from: date | None = Query(default=None, description="Inclusive calendar date (store business date) to start filtering sales by checkout date."),
     checked_out_to: date | None = Query(default=None, description="Inclusive calendar date (store business date) to end filtering sales by checkout date."),
-    from_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_from"),
-    to_date: date | None = Query(default=None, deprecated=True, description="Deprecated: use checked_out_to"),
     q: str | None = Query(default=None),
     sku: str | None = Query(default=None),
     epc: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
-    tenant_id: str | None = Query(
-        default=None,
-        deprecated=True,
-        description="Deprecated: tenant/store scope is resolved from JWT/context.",
-    ),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_SALE_VIEW")),
@@ -726,15 +719,14 @@ def list_sales(
     if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
         store_id = token_data.store_id
     repo = PosSaleRepository(db)
-    _ = tenant_id
     rows, total = repo.list_sales(
         PosSaleQueryFilters(
             tenant_id=scoped_tenant_id,
             store_id=store_id,
             receipt_number=receipt_number,
             status=status,
-            from_date=_parse_filter_date(checked_out_from or from_date),
-            to_date=_parse_filter_date(checked_out_to or to_date, end_of_day=True),
+            from_date=_parse_filter_date(checked_out_from),
+            to_date=_parse_filter_date(checked_out_to, end_of_day=True),
             q=q,
             sku=sku,
             epc=epc,
@@ -792,7 +784,7 @@ def create_sale(
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
-    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
     resolved_store_id = _resolve_store_id(token_data, payload.store_id)
     enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
@@ -917,7 +909,7 @@ def update_sale(
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
-    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -1047,7 +1039,7 @@ def get_sale(
 
 @router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES,
     summary="Execute sale action",
-    description="Canonical actions are `CHECKOUT` and `CANCEL`. Legacy post-sale actions (`REFUND_ITEMS`, `EXCHANGE_ITEMS`) remain available for compatibility and existing runtimes.",
+    description="Canonical actions are `CHECKOUT` and `CANCEL`.",
     openapi_extra={
         "requestBody": {
             "content": {
@@ -1092,7 +1084,7 @@ def sale_action(
     db=Depends(get_db),
 ):
     _require_transaction_id(payload.transaction_id)
-    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
 
     idempotency_key = extract_idempotency_key(request.headers, required=True)

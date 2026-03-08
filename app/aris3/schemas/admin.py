@@ -8,7 +8,7 @@ from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorRespons
 
 AdminRole = Literal["USER", "MANAGER", "ADMIN"]
 AdminUserRole = Literal["USER", "MANAGER", "ADMIN", "SUPERADMIN", "PLATFORM_ADMIN"]
-AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]
+AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED"]
 AdminUserAction = Literal["set_status", "set_role", "reset_password"]
 
 
@@ -18,7 +18,7 @@ class StoreCreateRequest(BaseModel):
         default=None,
         description=(
             "Canonical tenant for store creation. Superadmin/platform admin must provide this field "
-            "(or legacy query_tenant_id); no implicit fallback to token default tenant is applied."
+            "and no implicit fallback to token default tenant is applied."
         ),
     )
 

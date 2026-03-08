@@ -54,3 +54,20 @@ siempre sobre `ALLOW` (default deny).
 - Release checklist: `docs/RELEASE_CHECKLIST_ARIS_CONTROL_2_v1.md`
 - Rollback playbook: `docs/ROLLBACK_PLAYBOOK_ARIS_CONTROL_2_v1.md`
 - Reportes JSON: `out/aris_control_2_uat_report.json`, `out/aris_control_2_release_readiness.json`
+
+
+## API contract hardening (2026-Q1)
+
+- **Error envelope unificado**: todos los errores HTTP/validación/backend exponen `{code,message,details,trace_id}`.
+- **`change-password` canónico**: `PATCH /aris3/auth/change-password` es la ruta canónica.
+  - `POST /aris3/auth/change-password` sigue disponible como alias temporal (`deprecated=true` + headers `Deprecation`/`Sunset`).
+  - **Fecha de retiro alias POST**: `2026-06-30`.
+- **Admin stores scoping**:
+  - `tenant_id` (query) es el selector explícito para superadmin/platform admin en `GET /aris3/admin/stores`.
+  - `query_tenant_id` se mantiene por compatibilidad y está deprecado.
+  - **Fecha de retiro `query_tenant_id`**: `2026-06-30`.
+- **Users status vs is_active**:
+  - `status` es el estado canónico de negocio (`ACTIVE|SUSPENDED|CANCELED`).
+  - `is_active` queda como flag derivado de compatibilidad (`ACTIVE=true`, resto `false`) y está deprecado como filtro de entrada.
+- **Health probes**:
+  - `GET /health` y `GET /ready` devuelven JSON estructurado con `ok/service/timestamp/version/trace_id/readiness`.

@@ -11,7 +11,7 @@ class ApiErrorResponse(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "code": "NOT_FOUND",
+                    "code": "RESOURCE_NOT_FOUND",
                     "message": "sale not found",
                     "details": {"message": "sale_id does not exist", "sale_id": "00000000-0000-0000-0000-000000009999"},
                     "trace_id": "trace-sale-not-found-001",

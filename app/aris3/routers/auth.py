@@ -134,12 +134,18 @@ async def oauth2_token(
 @router.post(
     "/change-password",
     response_model=ChangePasswordResponse,
-    summary="Change Password (Authenticated User)",
+    summary="Change Password (Authenticated User) [DEPRECATED alias]",
+    description=(
+        "Deprecated alias for password change. Use `PATCH /aris3/auth/change-password` as canonical endpoint. "
+        "Retirement date for POST alias: 2026-06-30."
+    ),
+    deprecated=True,
 )
 @router.patch(
     "/change-password",
     response_model=ChangePasswordResponse,
     summary="Change Password (Authenticated User)",
+    description="Canonical endpoint for authenticated password changes.",
 )
 async def change_password(
     request: Request,
@@ -216,4 +222,8 @@ async def change_password(
             result="success",
         )
     )
-    return response
+    transport_response = JSONResponse(status_code=200, content=response.model_dump())
+    if request.method.upper() == "POST":
+        transport_response.headers["Deprecation"] = "true"
+        transport_response.headers["Sunset"] = "2026-06-30"
+    return transport_response

@@ -16,4 +16,16 @@
   - `<owner> — <date> — <action>`
 
 ## Entries
-- _No hotfixes recorded yet._
+
+### 2026-01-15 18:00 UTC — `api-contract-hardening-admin-auth`
+- **Severity**: SEV2
+- **Root cause**: inconsistencias de contrato (errores, scoping superadmin, probes de salud) detectadas en auditoría backend.
+- **Blast radius**: endpoints auth/admin y documentación OpenAPI.
+- **Contract drift check**: PASS (se mantiene compatibilidad con alias/deprecated).
+- **Mitigation path**: forward-fix
+- **Rollback command path**: revert commit del hardening y redeploy.
+- **Tests run (evidence)**: `pytest -q tests/test_admin_auth_contract_hardening.py tests/test_health.py tests/test_ready.py tests/test_openapi_admin_list_filters.py`
+- **Result**: GO
+- **Postmortem actions**:
+  - Backend TL — 2026-02-01 — remover alias/deprecated inputs al llegar sunset (`2026-06-30`).
+

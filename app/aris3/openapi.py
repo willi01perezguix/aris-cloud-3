@@ -172,7 +172,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "required": ["code", "message", "details", "trace_id"],
         "properties": {
             **_ERROR_PROPS,
-            "code": {"type": "string", "example": "NOT_FOUND"},
+            "code": {"type": "string", "example": "RESOURCE_NOT_FOUND"},
             "message": {"type": "string", "example": "Resource not found"},
         },
     },
@@ -182,7 +182,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "required": ["code", "message"],
         "properties": {
             **_ERROR_PROPS,
-            "code": {"type": "string", "example": "NOT_FOUND"},
+            "code": {"type": "string", "example": "RESOURCE_NOT_FOUND"},
             "message": {"type": "string", "example": "Resource not found"},
         },
     },
@@ -236,7 +236,7 @@ ERROR_RESPONSE_SCHEMAS = {
         "required": ["code", "message"],
         "properties": {
             **_ERROR_PROPS,
-            "code": {"type": "string", "example": "NOT_FOUND"},
+            "code": {"type": "string", "example": "RESOURCE_NOT_FOUND"},
             "message": {"type": "string", "example": "Resource not found"},
         },
     },
@@ -400,7 +400,7 @@ def _apply_error_responses(path: str, method: str, operation: dict) -> None:
         responses["404"]["content"] = {
             "application/json": {
                 "schema": {"$ref": NOT_FOUND_ERROR_REF},
-                "example": {"code": "NOT_FOUND", "message": not_found_message, "details": None, "trace_id": "trace-123"},
+                "example": {"code": "RESOURCE_NOT_FOUND", "message": not_found_message, "details": None, "trace_id": "trace-123"},
             }
         }
 

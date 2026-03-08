@@ -1,20 +1,34 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
 
+from app.aris3.core.config import settings
 from app.aris3.core.error_catalog import ErrorCatalog
 from app.aris3.core.errors import error_response
 from app.aris3.db.session import get_db
+from app.aris3.schemas.health import ServiceHealthResponse
 
 router = APIRouter()
 
 
-@router.get("/health")
+def _health_payload(request: Request, readiness: str) -> ServiceHealthResponse:
+    return ServiceHealthResponse(
+        ok=True,
+        service="aris3",
+        timestamp=datetime.now(timezone.utc),
+        version=settings.APP_VERSION,
+        trace_id=getattr(request.state, "trace_id", ""),
+        readiness=readiness,
+    )
+
+
+@router.get("/health", response_model=ServiceHealthResponse, summary="Liveness probe")
 async def health(request: Request):
-    trace_id = getattr(request.state, "trace_id", "")
-    return {"status": "ok", "trace_id": trace_id}
+    return _health_payload(request, readiness="live")
 
 
-@router.get("/ready")
+@router.get("/ready", response_model=ServiceHealthResponse, summary="Readiness probe")
 async def ready(request: Request, db=Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
@@ -29,5 +43,4 @@ async def ready(request: Request, db=Depends(get_db)):
             trace_id=trace_id,
             status_code=ErrorCatalog.DB_UNAVAILABLE.status_code,
         )
-    trace_id = getattr(request.state, "trace_id", "")
-    return {"status": "ready", "trace_id": trace_id}
+    return _health_payload(request, readiness="ready")

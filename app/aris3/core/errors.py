@@ -17,7 +17,7 @@ _HTTP_STATUS_CODES = {
     400: "BAD_REQUEST",
     401: "INVALID_TOKEN",
     403: "PERMISSION_DENIED",
-    404: "NOT_FOUND",
+    404: "RESOURCE_NOT_FOUND",
     409: "CONFLICT",
 }
 
@@ -113,8 +113,8 @@ def _http_error_payload(request: Request, exc: HTTPException) -> dict:
         code = ErrorCatalog.PERMISSION_DENIED.code
         default_message = ErrorCatalog.PERMISSION_DENIED.message
     elif exc.status_code == 404:
-        code = "NOT_FOUND"
-        default_message = "Resource not found"
+        code = ErrorCatalog.RESOURCE_NOT_FOUND.code
+        default_message = ErrorCatalog.RESOURCE_NOT_FOUND.message
     elif exc.status_code == 409:
         code = "CONFLICT"
         default_message = "Resource conflict"
@@ -143,6 +143,12 @@ def _http_error_payload(request: Request, exc: HTTPException) -> dict:
             details = {key: value for key, value in detail.items() if key != "message"} or None
     elif isinstance(detail, list):
         details = {"errors": detail}
+
+    if details is None and exc.status_code in {404, 409}:
+        details = {
+            "path": str(request.url.path),
+            "method": request.method,
+        }
 
     return {
         "code": code,

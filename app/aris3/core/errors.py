@@ -126,7 +126,7 @@ def _http_error_payload(request: Request, exc: HTTPException) -> dict:
     message = default_message
     details = None
 
-    if detail is not None:
+    if detail is not None and exc.status_code != 401:
         message = str(detail)
 
     if isinstance(detail, dict):
@@ -172,14 +172,6 @@ def setup_exception_handlers(app: FastAPI) -> None:
         details = exc.details
         if exc.error.status_code == 401:
             code = ErrorCatalog.INVALID_TOKEN.code
-        elif exc.error.status_code == 403:
-            code = ErrorCatalog.PERMISSION_DENIED.code
-        elif exc.error.status_code == 404:
-            code = "NOT_FOUND"
-        elif exc.error.status_code == 409:
-            code = "CONFLICT"
-            message = "Resource conflict"
-            details = None
 
         if exc.error.status_code == ErrorCatalog.VALIDATION_ERROR.status_code and code == ErrorCatalog.VALIDATION_ERROR.code:
             if not isinstance(details, dict) or "errors" not in details:

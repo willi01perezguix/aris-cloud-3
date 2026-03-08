@@ -91,7 +91,7 @@ def test_not_found_response_schema(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 404
-    assert response.json()["code"] == "NOT_FOUND"
+    assert response.json()["code"] == "TENANT_NOT_FOUND"
     assert "trace_id" in response.json()
 
 
@@ -105,7 +105,7 @@ def test_conflict_response_schema_for_idempotency_reuse(client, db_session):
 
     second = client.post("/aris3/admin/tenants", headers=headers, json={"name": "Tenant Two"})
     assert second.status_code == 409
-    assert second.json()["code"] == "CONFLICT"
+    assert second.json()["code"] == "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD"
     assert "trace_id" in second.json()
 
 

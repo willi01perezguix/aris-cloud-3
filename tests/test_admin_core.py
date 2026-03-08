@@ -179,7 +179,7 @@ def test_create_user_store_not_found_returns_404(client, db_session):
     )
 
     assert response.status_code == 404
-    assert response.json()["code"] == "STORE_NOT_FOUND"
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
 def test_create_user_store_id_required_returns_422(client, db_session):
@@ -487,7 +487,7 @@ def test_variant_fields_tenant_scope_rules_for_tenant_admin_and_superadmin(clien
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert superadmin_not_found.status_code == 404
-    assert superadmin_not_found.json()["code"] == "TENANT_NOT_FOUND"
+    assert superadmin_not_found.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
 def test_variant_fields_change_does_not_modify_stock_contract_var_fields():
@@ -658,7 +658,7 @@ def test_superadmin_delete_store_success_and_not_found(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-store-2"},
     )
     assert missing.status_code == 404
-    assert missing.json()["code"] == "NOT_FOUND"
+    assert missing.json()["code"] == "RESOURCE_NOT_FOUND"
     assert missing.json()["trace_id"]
 
 

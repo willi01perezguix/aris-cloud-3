@@ -38,7 +38,7 @@ def test_admin_users_list_parameters_have_clean_descriptions_without_visual_arti
         assert description.strip() == description
 
     is_active_param = next(p for p in get_operation["parameters"] if p["name"] == "is_active")
-    assert is_active_param["description"] == "Filter by active status (`true` or `false`)."
+    assert is_active_param["description"] == "Deprecated compatibility filter derived from status (ACTIVE=true, others=false)."
 
 
 def test_admin_permission_catalog_has_non_empty_documented_responses_with_schema():

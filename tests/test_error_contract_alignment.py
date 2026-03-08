@@ -45,7 +45,8 @@ def test_403_and_404_follow_standard_error_shape(client, db_session):
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert not_found.status_code == 404
-    assert not_found.json()["code"] == "NOT_FOUND"
+    assert not_found.json()["code"] == "RESOURCE_NOT_FOUND"
+    assert not_found.json()["details"]["path"].startswith("/aris3/admin/tenants/")
     assert not_found.json()["message"] == "Tenant not found"
     assert not_found.json()["trace_id"]
 

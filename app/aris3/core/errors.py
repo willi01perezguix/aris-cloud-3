@@ -178,6 +178,15 @@ def setup_exception_handlers(app: FastAPI) -> None:
         details = exc.details
         if exc.error.status_code == 401:
             code = ErrorCatalog.INVALID_TOKEN.code
+        elif exc.error.status_code == 404:
+            code = ErrorCatalog.RESOURCE_NOT_FOUND.code
+
+        if details is None and exc.error.status_code in {404, 409}:
+            details = {
+                "path": str(request.url.path),
+                "method": request.method,
+                "reason": "resource does not exist" if exc.error.status_code == 404 else "business validation conflict",
+            }
 
         if exc.error.status_code == ErrorCatalog.VALIDATION_ERROR.status_code and code == ErrorCatalog.VALIDATION_ERROR.code:
             if not isinstance(details, dict) or "errors" not in details:
@@ -195,7 +204,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
         payload = {
             "code": code,
             "message": message,
-            "details": details,
+            "details": _json_safe(details),
             "trace_id": _trace_id(request),
         }
         _record_idempotency_failure(request, exc.error.status_code, payload)

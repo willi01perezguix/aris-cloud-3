@@ -750,7 +750,7 @@ def list_sales(
     status_code=201,
     responses=POS_STANDARD_ERROR_RESPONSES,
     summary="Create draft sale",
-    description="Creates a sale in DRAFT status using canonical line selectors (`line_type` + `sku`/`epc`). Legacy fields remain optional/deprecated for transitional compatibility.",
+    description="Creates a sale in DRAFT status using canonical line selectors (`line_type` + `sku`/`epc`).",
     openapi_extra={
         "requestBody": {
             "content": {

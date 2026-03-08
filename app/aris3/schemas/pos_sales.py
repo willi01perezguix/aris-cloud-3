@@ -79,13 +79,13 @@ class PosSaleLineCreate(PosBaseModel):
 
 
 class SaleLineBySkuInput(PosSaleLineCreate):
-    line_type: Literal["SKU"] = "SKU"
+    line_type: Literal["SKU"]
     sku: str = Field(..., min_length=1, description="Canonical SKU selector.")
     epc: None = Field(default=None, description="Must be omitted for SKU lines.")
 
 
 class SaleLineByEpcInput(PosSaleLineCreate):
-    line_type: Literal["EPC"] = "EPC"
+    line_type: Literal["EPC"]
     epc: str = Field(..., min_length=1, description="Canonical EPC selector.")
     sku: None = Field(default=None, description="Must be omitted for EPC lines.")
 
@@ -102,8 +102,8 @@ class PosPaymentCreate(PosBaseModel):
 
 
 class PosSaleCreateRequest(PosBaseModel):
-    transaction_id: str | None
-    store_id: str | None = None
+    transaction_id: str
+    store_id: str
     lines: list[SaleLineSelector]
 
     model_config = ConfigDict(
@@ -121,8 +121,8 @@ class PosSaleCreateRequest(PosBaseModel):
 
 
 class PosSaleUpdateRequest(PosBaseModel):
-    transaction_id: str | None
-    lines: list[SaleLineSelector] | None = None
+    transaction_id: str
+    lines: list[SaleLineSelector] = Field(..., min_length=1)
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -144,14 +144,14 @@ class PosReturnItem(PosBaseModel):
 
 
 class CheckoutSaleActionRequest(PosBaseModel):
-    transaction_id: str | None
+    transaction_id: str
     action: Literal["CHECKOUT"] = Field(examples=["CHECKOUT"])
     payments: list[PosPaymentCreate]
     receipt_number: str | None = None
 
 
 class CancelSaleActionRequest(PosBaseModel):
-    transaction_id: str | None
+    transaction_id: str
     action: Literal["CANCEL"] = Field(examples=["CANCEL"])
 
 

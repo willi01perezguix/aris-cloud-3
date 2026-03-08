@@ -97,6 +97,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+LEGACY_QUERY_TENANT_ID_SUNSET = "2026-06-30"
 
 
 ADMIN_STANDARD_ERROR_RESPONSES = {
@@ -1003,10 +1004,20 @@ async def admin_get_user_overrides(
     db=Depends(get_db),
 ):
     _require_admin(token_data)
-    tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    requested_tenant_id = _normalize_optional_str(tenant_id)
+    if is_superadmin(token_data.role):
+        if not requested_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED, details={"message": "tenant_id is required for superadmin on this endpoint"})
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
+
+    user = UserRepository(db).get_by_id_in_tenant(user_id, effective_tenant_id)
     if user is None:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED, details={"user_id": user_id, "tenant_id": effective_tenant_id})
     _enforce_user_store_scope(token_data, user)
     service = AccessControlPolicyService(db)
     snapshot = service.get_user_overrides(tenant_id=tenant_id, user_id=user_id)
@@ -1034,10 +1045,20 @@ async def admin_patch_user_overrides(
     db=Depends(get_db),
 ):
     _require_admin(token_data)
-    tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    requested_tenant_id = _normalize_optional_str(tenant_id)
+    if is_superadmin(token_data.role):
+        if not requested_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED, details={"message": "tenant_id is required for superadmin on this endpoint"})
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
+
+    user = UserRepository(db).get_by_id_in_tenant(user_id, effective_tenant_id)
     if user is None:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED, details={"user_id": user_id, "tenant_id": effective_tenant_id})
     _enforce_user_store_scope(token_data, user)
     _require_transaction_id(payload.transaction_id)
 
@@ -1102,22 +1123,36 @@ async def admin_patch_user_overrides(
     "/access-control/effective-permissions",
     response_model=EffectivePermissionsResponse,
     summary="Resolve effective permissions (admin)",
-    description="Resolves effective permissions after applying template + tenant/store overlays + user overrides.",
+    description=(
+        "Resolves effective permissions after applying template + tenant/store overlays + user overrides. "
+        "Superadmin/platform admin must pass tenant_id explicitly for cross-tenant audits."
+    ),
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
 )
 async def admin_effective_permissions(
     request: Request,
     user_id: str,
-    store_id: str | None = None,
+    tenant_id: str | None = Query(default=None, description="Explicit tenant scope for superadmin/platform admin cross-tenant requests."),
+    store_id: str | None = Query(default=None, description="Optional store scope inside the selected tenant."),
     token_data=Depends(get_current_token_data),
     _current_user=Depends(require_active_user),
     db=Depends(get_db),
 ):
     _require_admin(token_data)
-    tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    requested_tenant_id = _normalize_optional_str(tenant_id)
+    if is_superadmin(token_data.role):
+        if not requested_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED, details={"message": "tenant_id is required for superadmin on this endpoint"})
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
+
+    user = UserRepository(db).get_by_id_in_tenant(user_id, effective_tenant_id)
     if user is None:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED, details={"user_id": user_id, "tenant_id": effective_tenant_id})
     _enforce_user_store_scope(token_data, user)
     if store_id and user.store_id and str(user.store_id) != store_id:
         raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
@@ -1131,7 +1166,7 @@ async def admin_effective_permissions(
             allow_superadmin=True,
             broader_store_roles={"SUPERADMIN"},
         )
-        if str(store.tenant_id) != tenant_id:
+        if str(store.tenant_id) != effective_tenant_id:
             raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
 
     cache = getattr(request.state, "permission_cache", None)
@@ -1384,7 +1419,7 @@ async def update_tenant(
     "/tenants/{tenant_id}",
     response_model=AdminDeleteResponse,
     responses={
-        404: {"description": "Tenant not found", "content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "Tenant not found", "details": None, "trace_id": "trace-123"}}}},
+        404: {"description": "Tenant not found", "content": {"application/json": {"example": {"code": "RESOURCE_NOT_FOUND", "message": "Tenant not found", "details": None, "trace_id": "trace-123"}}}},
         409: {"description": "Tenant has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"code": "CONFLICT", "message": "Cannot delete tenant with active dependencies", "details": {"dependencies": {"stores": 2, "users": 7}}, "trace_id": "trace-123"}}}},
         422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "tenant_id", "message": "Field required", "type": "missing"}]}, "trace_id": "trace-123"}}}},
     },
@@ -1541,10 +1576,26 @@ async def tenant_actions(
     return response
 
 
-@router.get("/stores", response_model=StoreListResponse)
+@router.get(
+    "/stores",
+    response_model=StoreListResponse,
+    summary="List stores with explicit tenant scoping",
+    description=(
+        "Lists stores with pagination, search, and sorting.\n\n"
+        "- For tenant-bound admins: scope is always the token tenant.\n"
+        "- For `SUPERADMIN`/`PLATFORM_ADMIN`: pass `tenant_id` explicitly to scope cross-tenant queries.\n"
+        "- Legacy `query_tenant_id` is still accepted temporarily for backward compatibility and will be removed on 2026-06-30."
+    ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def list_stores(
     request: Request,
-    tenant_id: str | None = Query(default=None, description="Optional tenant filter (superadmin only)."),
+    tenant_id: str | None = Query(default=None, description="Explicit tenant scope for superadmin/platform admin cross-tenant access."),
+    query_tenant_id: str | None = Query(
+        default=None,
+        deprecated=True,
+        description="Legacy alias for tenant_id. Deprecated and scheduled for removal on 2026-06-30.",
+    ),
     search: str | None = Query(default=None, description="Case-insensitive search by store name."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
@@ -1556,7 +1607,14 @@ async def list_stores(
     db=Depends(get_db),
 ):
     started_at = time.perf_counter()
-    requested_tenant_id = _normalize_optional_str(tenant_id) or _normalize_optional_str(request.query_params.get("query_tenant_id"))
+    legacy_query_tenant_id = _normalize_optional_str(query_tenant_id or request.query_params.get("query_tenant_id"))
+    requested_tenant_id = _normalize_optional_str(tenant_id) or legacy_query_tenant_id
+    if legacy_query_tenant_id:
+        logger.warning(
+            "Deprecated query_tenant_id used on /aris3/admin/stores; sunset=%s",
+            LEGACY_QUERY_TENANT_ID_SUNSET,
+            extra={"trace_id": getattr(request.state, "trace_id", ""), "query_tenant_id": legacy_query_tenant_id},
+        )
     if is_superadmin(token_data.role):
         token_tenant_id = None
         effective_tenant_id = requested_tenant_id
@@ -1632,7 +1690,7 @@ async def create_store(
         deprecated=True,
         description=(
             "Legacy tenant selector kept for backward compatibility. "
-            "Prefer body.tenant_id as canonical source."
+            "Prefer body.tenant_id as canonical source. Removal date: 2026-06-30."
         ),
     ),
     legacy_query_tenant_id: str | None = Depends(_store_create_query_tenant_id),
@@ -1644,6 +1702,12 @@ async def create_store(
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
     query_tenant_candidate = query_tenant_id or legacy_query_tenant_id
+    if query_tenant_candidate and not body_tenant_id:
+        logger.warning(
+            "Deprecated query tenant selector used for store creation; sunset=%s",
+            LEGACY_QUERY_TENANT_ID_SUNSET,
+            extra={"trace_id": getattr(request.state, "trace_id", ""), "query_tenant_id": query_tenant_candidate},
+        )
 
     if body_tenant_id and query_tenant_candidate and body_tenant_id != query_tenant_candidate:
         raise AppError(
@@ -1830,7 +1894,7 @@ async def update_store(
                 }
             },
         },
-        404: {"description": "Store not found", "content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "Store not found", "details": None, "trace_id": "trace-123"}}}},
+        404: {"description": "Store not found", "content": {"application/json": {"example": {"code": "RESOURCE_NOT_FOUND", "message": "Store not found", "details": None, "trace_id": "trace-123"}}}},
         409: {"description": "Store has dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"code": "CONFLICT", "message": "Cannot delete store with active dependencies", "details": {"dependencies": {"users": 3, "sales": 18}}, "trace_id": "trace-123"}}}},
         422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "store_id", "message": "Field required", "type": "missing"}]}, "trace_id": "trace-123"}}}},
     },
@@ -1906,14 +1970,23 @@ async def delete_store(
     return response
 
 
-@router.get("/users", response_model=UserListResponse)
+@router.get(
+    "/users",
+    response_model=UserListResponse,
+    summary="List users with tenant/store/status filters",
+    description=(
+        "Lists users with explicit scope filters. `status` is canonical business lifecycle (`ACTIVE|SUSPENDED|CANCELED`) "
+        "and controls access semantics. `is_active` is a backward-compatible derived flag: ACTIVE => true, otherwise false."
+    ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
 async def list_users(
     request: Request,
-    tenant_id: str | None = Query(default=None, description="Optional tenant filter (superadmin only)."),
+    tenant_id: str | None = Query(default=None, description="Explicit tenant scope for superadmin/platform admin cross-tenant access."),
     store_id: str | None = Query(default=None, description="Optional store filter."),
     role: str | None = Query(default=None, description="Optional role filter."),
-    status: str | None = Query(default=None, description="Optional user status filter (active/suspended/canceled)."),
-    is_active: bool | None = Query(default=None, description="Filter by active status (`true` or `false`)."),
+    status: str | None = Query(default=None, description="Canonical lifecycle status filter (active/suspended/canceled)."),
+    is_active: bool | None = Query(default=None, description="Deprecated compatibility filter derived from status (ACTIVE=true, others=false).", deprecated=True),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
@@ -2099,10 +2172,20 @@ async def get_user(
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    requested_tenant_id = _normalize_optional_str(tenant_id)
+    if is_superadmin(token_data.role):
+        if not requested_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED, details={"message": "tenant_id is required for superadmin on this endpoint"})
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
+
+    user = UserRepository(db).get_by_id_in_tenant(user_id, effective_tenant_id)
     if user is None:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED, details={"user_id": user_id, "tenant_id": effective_tenant_id})
     return UserResponse(
         user=_user_item(user),
         trace_id=getattr(request.state, "trace_id", ""),
@@ -2119,10 +2202,20 @@ async def update_user(
     _permission=Depends(require_permission("USER_MANAGE")),
     db=Depends(get_db),
 ):
-    tenant_id = _tenant_id_or_error(token_data)
-    user = UserRepository(db).get_by_id_in_tenant(user_id, tenant_id)
+    requested_tenant_id = _normalize_optional_str(tenant_id)
+    if is_superadmin(token_data.role):
+        if not requested_tenant_id:
+            raise AppError(ErrorCatalog.TENANT_SCOPE_REQUIRED, details={"message": "tenant_id is required for superadmin on this endpoint"})
+        effective_tenant_id = requested_tenant_id
+    else:
+        token_tenant_id = _tenant_id_or_error(token_data)
+        if requested_tenant_id and requested_tenant_id != token_tenant_id:
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        effective_tenant_id = token_tenant_id
+
+    user = UserRepository(db).get_by_id_in_tenant(user_id, effective_tenant_id)
     if user is None:
-        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED, details={"user_id": user_id, "tenant_id": effective_tenant_id})
 
     if payload.username is None and payload.email is None and payload.store_id is None:
         raise AppError(
@@ -2208,7 +2301,7 @@ async def update_user(
                 }
             },
         },
-        404: {"description": "User not found", "content": {"application/json": {"example": {"code": "NOT_FOUND", "message": "User not found", "details": None, "trace_id": "trace-123"}}}},
+        404: {"description": "User not found", "content": {"application/json": {"example": {"code": "RESOURCE_NOT_FOUND", "message": "User not found", "details": None, "trace_id": "trace-123"}}}},
         409: {"description": "User has critical dependencies", "model": AdminDeleteConflictResponse, "content": {"application/json": {"example": {"code": "CONFLICT", "message": "Cannot delete user with critical dependencies", "details": {"dependencies": {"transfers": 2}}, "trace_id": "trace-123"}}}},
         422: {"description": "Validation error", "content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "user_id", "message": "Field required", "type": "missing"}]}, "trace_id": "trace-123"}}}},
     },

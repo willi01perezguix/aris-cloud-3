@@ -132,8 +132,14 @@ class UserItem(BaseModel):
     username: str
     email: str
     role: AdminUserRole = Field(..., description="Resolved user role as persisted in runtime.")
-    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] = Field(..., description="Runtime user status.")
-    is_active: bool
+    status: Literal["ACTIVE", "SUSPENDED", "CANCELED"] = Field(
+        ...,
+        description="Canonical lifecycle status (`ACTIVE`, `SUSPENDED`, `CANCELED`).",
+    )
+    is_active: bool = Field(
+        ...,
+        description="Backward-compatible derived flag. `ACTIVE` maps to `true`; `SUSPENDED`/`CANCELED` map to `false`.",
+    )
     must_change_password: bool
     created_at: datetime
 

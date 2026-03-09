@@ -21,7 +21,7 @@ def _create_sale(client, token, store_id, txn, idemp):
 def test_pos_sale_actions_canonical_and_cash_business_conflict(client, db_session):
     tenant_id, store_id, user_id, token = _ctx(client, db_session)
 
-    create_stock_item(db_session, tenant_id=tenant_id, sku="SKU-CHECKOUT", epc=None, location_code="LOC-1", pool="P1", status="PENDING")
+    create_stock_item(db_session, tenant_id=tenant_id, sku="SKU-CHECKOUT", epc=None, location_code="LOC-1", pool="P1", status="PENDING", sale_price=25.0)
     sale_id = _create_sale(client, token, store_id, "txn-canonical-checkout-1", "canon-sale-1")
 
     blocked = client.post(
@@ -37,10 +37,11 @@ def test_pos_sale_actions_canonical_and_cash_business_conflict(client, db_sessio
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "canon-checkout-lower"},
         json={"transaction_id": "txn-canonical-checkout-lower", "action": "checkout", "payments": [{"method": "CASH", "amount": 25.0}]},
     )
-    assert lower.status_code == 422
+    assert lower.status_code == 409
+    assert lower.json()["code"] == "BUSINESS_CONFLICT"
 
     open_cash_session(db_session, tenant_id=tenant_id, store_id=store_id, cashier_user_id=user_id)
-    create_stock_item(db_session, tenant_id=tenant_id, sku="SKU-CHECKOUT", epc=None, location_code="LOC-1", pool="P1", status="PENDING")
+    create_stock_item(db_session, tenant_id=tenant_id, sku="SKU-CHECKOUT", epc=None, location_code="LOC-1", pool="P1", status="PENDING", sale_price=25.0)
     sale2_id = _create_sale(client, token, store_id, "txn-canonical-checkout-2", "canon-sale-2")
 
     ok = client.post(
@@ -53,7 +54,7 @@ def test_pos_sale_actions_canonical_and_cash_business_conflict(client, db_sessio
 
 def test_pos_sale_cancel_action_is_canonical(client, db_session):
     tenant_id, store_id, _user_id, token = _ctx(client, db_session)
-    create_stock_item(db_session, tenant_id=tenant_id, sku="SKU-CHECKOUT", epc=None, location_code="LOC-1", pool="P1", status="PENDING")
+    create_stock_item(db_session, tenant_id=tenant_id, sku="SKU-CHECKOUT", epc=None, location_code="LOC-1", pool="P1", status="PENDING", sale_price=25.0)
     sale_id = _create_sale(client, token, store_id, "txn-canonical-cancel-1", "canon-cancel-sale")
 
     res = client.post(

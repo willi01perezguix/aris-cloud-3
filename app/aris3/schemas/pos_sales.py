@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, TypeAdapter, WithJsonSchema, field_serializer
 
 
 POSMoney = Annotated[
@@ -145,20 +145,43 @@ class PosReturnItem(PosBaseModel):
 
 class CheckoutSaleActionRequest(PosBaseModel):
     transaction_id: str
-    action: Literal["CHECKOUT"] = Field(examples=["CHECKOUT"])
+    action: Literal["CHECKOUT", "checkout"] = Field(examples=["CHECKOUT"])
     payments: list[PosPaymentCreate]
     receipt_number: str | None = None
 
 
 class CancelSaleActionRequest(PosBaseModel):
     transaction_id: str
-    action: Literal["CANCEL"] = Field(examples=["CANCEL"])
+    action: Literal["CANCEL", "cancel"] = Field(examples=["CANCEL"])
+
+
+class RefundItemsSaleActionRequest(PosBaseModel):
+    transaction_id: str
+    action: Literal["REFUND_ITEMS", "refund_items"] = Field(examples=["REFUND_ITEMS"])
+    return_items: list[PosReturnItem] = Field(min_length=1)
+    refund_payments: list[PosPaymentCreate] = Field(min_length=1)
+    manager_override: bool | None = None
+    receipt_number: str | None = None
+
+
+class ExchangeItemsSaleActionRequest(PosBaseModel):
+    transaction_id: str
+    action: Literal["EXCHANGE_ITEMS", "exchange_items"] = Field(examples=["EXCHANGE_ITEMS"])
+    return_items: list[PosReturnItem] = Field(min_length=1)
+    exchange_lines: list[SaleLineSelector] = Field(min_length=1)
+    payments: list[PosPaymentCreate] | None = None
+    refund_payments: list[PosPaymentCreate] | None = None
+    manager_override: bool | None = None
+    receipt_number: str | None = None
 
 
 PosSaleActionRequest = Annotated[
-    CheckoutSaleActionRequest | CancelSaleActionRequest,
+    CheckoutSaleActionRequest | CancelSaleActionRequest | RefundItemsSaleActionRequest | ExchangeItemsSaleActionRequest,
     Field(discriminator="action"),
 ]
+
+
+POS_SALE_ACTION_ADAPTER = TypeAdapter(PosSaleActionRequest)
 
 
 class PosSaleHeaderResponse(PosBaseModel):

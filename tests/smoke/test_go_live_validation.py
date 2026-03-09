@@ -199,6 +199,7 @@ def test_go_live_pos_checkout_and_reports_exports(client, db_session):
         location_code="LOC-1",
         pool="P1",
         status="PENDING",
+        sale_price=25.00,
     )
     sale_without_cash = _create_sale(
         client,
@@ -212,11 +213,12 @@ def test_go_live_pos_checkout_and_reports_exports(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "go-live-checkout-no-cash"},
         json={
             "transaction_id": "txn-go-live-checkout-no-cash",
-            "action": "checkout",
+            "action": "CHECKOUT",
             "payments": [{"method": "CASH", "amount": 25.0}],
         },
     )
-    assert checkout_without_cash.status_code == 422
+    assert checkout_without_cash.status_code == 409
+    assert checkout_without_cash.json()["code"] == "BUSINESS_CONFLICT"
 
     open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
     create_stock_item(
@@ -227,6 +229,7 @@ def test_go_live_pos_checkout_and_reports_exports(client, db_session):
         location_code="LOC-1",
         pool="P1",
         status="PENDING",
+        sale_price=25.00,
     )
 
     sale_with_cash = _create_sale(
@@ -241,11 +244,18 @@ def test_go_live_pos_checkout_and_reports_exports(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "go-live-checkout-with-cash"},
         json={
             "transaction_id": "txn-go-live-checkout-with-cash",
-            "action": "checkout",
+            "action": "CHECKOUT",
             "payments": [{"method": "CASH", "amount": 25.0}],
         },
     )
     assert checkout_with_cash.status_code == 200
+    checkout_payload = checkout_with_cash.json()
+    assert checkout_payload["header"]["status"] == "PAID"
+    assert checkout_payload["header"]["total_due"] == "25.00"
+    assert checkout_payload["header"]["paid_total"] == "25.00"
+    assert checkout_payload["header"]["balance_due"] == "0.00"
+    assert checkout_payload["header"]["change_due"] == "0.00"
+    assert checkout_payload["payment_summary"] == [{"method": "CASH", "amount": "25.00"}]
 
     today = date.today().isoformat()
     overview = client.get(

@@ -79,7 +79,7 @@ POS_ERROR_EXAMPLES = {
     "401": {"code": "UNAUTHORIZED", "message": "Authentication required", "details": {"message": "Missing or invalid bearer token"}, "trace_id": "trace-auth-401"},
     "403": {"code": "FORBIDDEN", "message": "You do not have access to this store", "details": {"store_id": "00000000-0000-0000-0000-000000000099", "required_permission": "POS_SALE_MANAGE"}, "trace_id": "trace-authz-403"},
     "404_sale": {"code": "NOT_FOUND", "message": "sale not found", "details": {"sale_id": "00000000-0000-0000-0000-000000009999"}, "trace_id": "trace-sale-404"},
-    "409_draft_required": {"code": "BUSINESS_CONFLICT", "message": "sale must be DRAFT to update", "details": {"sale_id": "00000000-0000-0000-0000-000000000111", "status": "CHECKED_OUT"}, "trace_id": "trace-sale-409"},
+    "409_draft_required": {"code": "BUSINESS_CONFLICT", "message": "sale must be DRAFT to update", "details": {"sale_id": "00000000-0000-0000-0000-000000000111", "status": "PAID"}, "trace_id": "trace-sale-409"},
     "409_idempotency": {"code": "BUSINESS_CONFLICT", "message": "Idempotency conflict: transaction_id already used with different payload", "details": {"transaction_id": "txn-checkout-1001"}, "trace_id": "trace-sale-idempotency-409"},
 }
 
@@ -697,6 +697,51 @@ def _sale_summary_row(repo: PosSaleRepository, sale: PosSale) -> SaleSummaryRow:
     response_model=PosSaleListResponse,
     responses=POS_LIST_ERROR_RESPONSES,
     openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/PosSaleActionRequest"},
+                    "examples": {
+                        "checkout": {
+                            "summary": "Checkout sale",
+                            "value": {
+                                "transaction_id": "txn-checkout-1001",
+                                "action": "CHECKOUT",
+                                "payments": [{"method": "CASH", "amount": "25.00"}],
+                            },
+                        },
+                        "cancel": {
+                            "summary": "Cancel draft sale",
+                            "value": {
+                                "transaction_id": "txn-cancel-1002",
+                                "action": "CANCEL",
+                            },
+                        },
+                        "refund_items": {
+                            "summary": "Refund selected items from a PAID sale",
+                            "value": {
+                                "transaction_id": "txn-refund-1003",
+                                "action": "REFUND_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
+                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
+                            },
+                        },
+                        "exchange_items": {
+                            "summary": "Exchange returned items and collect/refund the delta",
+                            "value": {
+                                "transaction_id": "txn-exchange-1004",
+                                "action": "EXCHANGE_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
+                                "exchange_lines": [{"line_type": "SKU", "sku": "SKU-NEW", "qty": 1}],
+                                "payments": [{"method": "CASH", "amount": "5.00"}],
+                            },
+                        },
+                    },
+                }
+            }
+        },
         "responses": {
             "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
             "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
@@ -895,6 +940,51 @@ def create_sale(
     summary="Replace draft sale lines",
     description="Allowed only when the sale is in DRAFT status. This PATCH performs a full replacement of draft lines (`lines` array), preserving identifier and draft lifecycle; this is not an arbitrary partial patch.",
     openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/PosSaleActionRequest"},
+                    "examples": {
+                        "checkout": {
+                            "summary": "Checkout sale",
+                            "value": {
+                                "transaction_id": "txn-checkout-1001",
+                                "action": "CHECKOUT",
+                                "payments": [{"method": "CASH", "amount": "25.00"}],
+                            },
+                        },
+                        "cancel": {
+                            "summary": "Cancel draft sale",
+                            "value": {
+                                "transaction_id": "txn-cancel-1002",
+                                "action": "CANCEL",
+                            },
+                        },
+                        "refund_items": {
+                            "summary": "Refund selected items from a PAID sale",
+                            "value": {
+                                "transaction_id": "txn-refund-1003",
+                                "action": "REFUND_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
+                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
+                            },
+                        },
+                        "exchange_items": {
+                            "summary": "Exchange returned items and collect/refund the delta",
+                            "value": {
+                                "transaction_id": "txn-exchange-1004",
+                                "action": "EXCHANGE_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
+                                "exchange_lines": [{"line_type": "SKU", "sku": "SKU-NEW", "qty": 1}],
+                                "payments": [{"method": "CASH", "amount": "5.00"}],
+                            },
+                        },
+                    },
+                }
+            }
+        },
         "responses": {
             "200": {"content": {"application/json": {"example": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "DRAFT", "checked_out_at": None, "canceled_at": None, "total_due": "25.00", "paid_total": "0.00", "balance_due": "25.00", "change_due": "0.00", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T10:15:00Z", "receipt_number": None, "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": None, "canceled_by_user_id": None}, "lines": [{"id": "00000000-0000-0000-0000-000000001002", "line_type": "SKU", "sku": "SKU-456", "qty": 1, "unit_price": "25.00", "line_total": "25.00", "returned_qty": 0, "returnable_qty": 1, "snapshot": {"sku": "SKU-456"}, "created_at": "2026-01-15T10:15:00Z"}], "payments": [], "payment_summary": [], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}},
             "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
@@ -1016,7 +1106,7 @@ def update_sale(
     responses=POS_STANDARD_ERROR_RESPONSES,
     openapi_extra={
         "responses": {
-            "200": {"content": {"application/json": {"example": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "CHECKED_OUT", "checked_out_at": "2026-01-15T11:00:00Z", "canceled_at": None, "total_due": "50.00", "paid_total": "50.00", "balance_due": "0.00", "change_due": "0.00", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:00:00Z", "receipt_number": "RCPT-1001", "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": "00000000-0000-0000-0000-000000000020", "canceled_by_user_id": None}, "lines": [], "payments": [{"id": "00000000-0000-0000-0000-000000008001", "method": "CASH", "amount": "50.00", "authorization_code": None, "bank_name": None, "voucher_number": None, "created_at": "2026-01-15T11:00:00Z"}], "payment_summary": [{"method": "CASH", "amount": "50.00"}], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}},
+            "200": {"content": {"application/json": {"example": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "PAID", "checked_out_at": "2026-01-15T11:00:00Z", "canceled_at": None, "total_due": "50.00", "paid_total": "50.00", "balance_due": "0.00", "change_due": "0.00", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:00:00Z", "receipt_number": "RCPT-1001", "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": "00000000-0000-0000-0000-000000000020", "canceled_by_user_id": None}, "lines": [], "payments": [{"id": "00000000-0000-0000-0000-000000008001", "method": "CASH", "amount": "50.00", "authorization_code": None, "bank_name": None, "voucher_number": None, "created_at": "2026-01-15T11:00:00Z"}], "payment_summary": [{"method": "CASH", "amount": "50.00"}], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}},
             "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
             "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
             "404": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["404_sale"]}}},
@@ -1045,11 +1135,12 @@ def get_sale(
 
 @router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES,
     summary="Execute sale action",
-    description="Canonical actions are `CHECKOUT` and `CANCEL`.",
+    description="Canonical actions are `CHECKOUT`, `CANCEL`, `REFUND_ITEMS`, and `EXCHANGE_ITEMS`. Legacy lowercase is accepted and normalized.",
     openapi_extra={
         "requestBody": {
             "content": {
                 "application/json": {
+                    "schema": {"$ref": "#/components/schemas/PosSaleActionRequest"},
                     "examples": {
                         "checkout": {
                             "summary": "Checkout sale",
@@ -1066,12 +1157,33 @@ def get_sale(
                                 "action": "CANCEL",
                             },
                         },
-                    }
+                        "refund_items": {
+                            "summary": "Refund selected items from a PAID sale",
+                            "value": {
+                                "transaction_id": "txn-refund-1003",
+                                "action": "REFUND_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
+                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
+                            },
+                        },
+                        "exchange_items": {
+                            "summary": "Exchange returned items and collect/refund the delta",
+                            "value": {
+                                "transaction_id": "txn-exchange-1004",
+                                "action": "EXCHANGE_ITEMS",
+                                "receipt_number": "RCPT-1001",
+                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
+                                "exchange_lines": [{"line_type": "SKU", "sku": "SKU-NEW", "qty": 1}],
+                                "payments": [{"method": "CASH", "amount": "5.00"}],
+                            },
+                        },
+                    },
                 }
             }
         },
         "responses": {
-            "200": {"content": {"application/json": {"examples": {"checkout": {"value": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "CHECKED_OUT", "checked_out_at": "2026-01-15T11:00:00Z", "canceled_at": None, "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "total_due": "50.00", "paid_total": "50.00", "balance_due": "0.00", "change_due": "0.00", "receipt_number": "RCPT-1001", "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": "00000000-0000-0000-0000-000000000020", "canceled_by_user_id": None, "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:00:00Z"}, "lines": [], "payments": [{"id": "00000000-0000-0000-0000-000000008001", "method": "CASH", "amount": "50.00", "authorization_code": None, "bank_name": None, "voucher_number": None, "created_at": "2026-01-15T11:00:00Z"}], "payment_summary": [{"method": "CASH", "amount": "50.00"}], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}, "cancel": {"value": {"header": {"id": "00000000-0000-0000-0000-000000000112", "status": "CANCELED", "checked_out_at": None, "canceled_at": "2026-01-15T11:05:00Z", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "total_due": "25.00", "paid_total": "0.00", "balance_due": "25.00", "change_due": "0.00", "receipt_number": None, "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": None, "canceled_by_user_id": "00000000-0000-0000-0000-000000000020", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:05:00Z"}, "lines": [], "payments": [], "payment_summary": [], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}}}},
+            "200": {"content": {"application/json": {"examples": {"checkout": {"value": {"header": {"id": "00000000-0000-0000-0000-000000000111", "status": "PAID", "checked_out_at": "2026-01-15T11:00:00Z", "canceled_at": None, "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "total_due": "50.00", "paid_total": "50.00", "balance_due": "0.00", "change_due": "0.00", "receipt_number": "RCPT-1001", "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": "00000000-0000-0000-0000-000000000020", "canceled_by_user_id": None, "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:00:00Z"}, "lines": [], "payments": [{"id": "00000000-0000-0000-0000-000000008001", "method": "CASH", "amount": "50.00", "authorization_code": None, "bank_name": None, "voucher_number": None, "created_at": "2026-01-15T11:00:00Z"}], "payment_summary": [{"method": "CASH", "amount": "50.00"}], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}, "cancel": {"value": {"header": {"id": "00000000-0000-0000-0000-000000000112", "status": "CANCELED", "checked_out_at": None, "canceled_at": "2026-01-15T11:05:00Z", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "total_due": "25.00", "paid_total": "0.00", "balance_due": "25.00", "change_due": "0.00", "receipt_number": None, "created_by_user_id": "00000000-0000-0000-0000-000000000020", "updated_by_user_id": "00000000-0000-0000-0000-000000000020", "checked_out_by_user_id": None, "canceled_by_user_id": "00000000-0000-0000-0000-000000000020", "created_at": "2026-01-15T10:00:00Z", "updated_at": "2026-01-15T11:05:00Z"}, "lines": [], "payments": [], "payment_summary": [], "refunded_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "exchanged_totals": {"subtotal": "0.00", "restocking_fee": "0.00", "total": "0.00"}, "net_adjustment": "0.00", "return_events": []}}}}}},
             "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
             "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
             "404": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["404_sale"]}}},

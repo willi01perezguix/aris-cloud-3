@@ -198,6 +198,7 @@ def test_smoke_pos_checkout_cash_precondition_and_reports_exports(client, db_ses
         location_code="LOC-1",
         pool="P1",
         status="PENDING",
+        sale_price=12.00,
     )
 
     sale_id = _create_sale(
@@ -212,11 +213,12 @@ def test_smoke_pos_checkout_cash_precondition_and_reports_exports(client, db_ses
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "smoke-sale-checkout-no-cash"},
         json={
             "transaction_id": "txn-smoke-sale-checkout-no-cash",
-            "action": "checkout",
+            "action": "CHECKOUT",
             "payments": [{"method": "CASH", "amount": 12.0}],
         },
     )
-    assert checkout_fail.status_code == 422
+    assert checkout_fail.status_code == 409
+    assert checkout_fail.json()["code"] == "BUSINESS_CONFLICT"
 
     open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
     create_stock_item(
@@ -227,6 +229,7 @@ def test_smoke_pos_checkout_cash_precondition_and_reports_exports(client, db_ses
         location_code="LOC-1",
         pool="P1",
         status="PENDING",
+        sale_price=12.00,
     )
     sale_id_ok = _create_sale(
         client,
@@ -240,11 +243,18 @@ def test_smoke_pos_checkout_cash_precondition_and_reports_exports(client, db_ses
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "smoke-sale-checkout-ok"},
         json={
             "transaction_id": "txn-smoke-sale-checkout-ok",
-            "action": "checkout",
+            "action": "CHECKOUT",
             "payments": [{"method": "CASH", "amount": 12.0}],
         },
     )
     assert checkout_ok.status_code == 200
+    checkout_payload = checkout_ok.json()
+    assert checkout_payload["header"]["status"] == "PAID"
+    assert checkout_payload["header"]["total_due"] == "12.00"
+    assert checkout_payload["header"]["paid_total"] == "12.00"
+    assert checkout_payload["header"]["balance_due"] == "0.00"
+    assert checkout_payload["header"]["change_due"] == "0.00"
+    assert checkout_payload["payment_summary"] == [{"method": "CASH", "amount": "12.00"}]
 
     today = date.today().isoformat()
     overview = client.get(
@@ -267,10 +277,12 @@ def test_smoke_idempotency_replay_critical_mutations(client, db_session):
     import_payload = {
         "transaction_id": "txn-smoke-import-sku",
         "tenant_id": str(tenant.id),
+        "store_id": str(origin_store.id),
         "lines": [
             {
                 "qty": 1,
                 "sku": "SKU-IDEMP",
+                "store_id": str(origin_store.id),
                 "description": "Idem SKU",
                 "var1_value": "V1",
                 "var2_value": "V2",
@@ -279,6 +291,9 @@ def test_smoke_idempotency_replay_critical_mutations(client, db_session):
                 "pool": "P1",
                 "status": "PENDING",
                 "location_is_vendible": True,
+                "cost_price": 8.0,
+                "suggested_price": 15.0,
+                "sale_price": 12.0,
                 "image_asset_id": str(uuid.uuid4()),
                 "image_url": "https://example.com/i.png",
                 "image_thumb_url": "https://example.com/t.png",
@@ -323,6 +338,7 @@ def test_smoke_idempotency_replay_critical_mutations(client, db_session):
         location_code="LOC-1",
         pool="P1",
         status="PENDING",
+        sale_price=12.00,
     )
     sale_id = _create_sale(
         client,
@@ -335,7 +351,7 @@ def test_smoke_idempotency_replay_critical_mutations(client, db_session):
     checkout_headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "smoke-idem-checkout"}
     checkout_payload = {
         "transaction_id": "txn-smoke-idem-checkout",
-        "action": "checkout",
+        "action": "CHECKOUT",
         "payments": [{"method": "CASH", "amount": 12.0}],
     }
     checkout_first = client.post(f"/aris3/pos/sales/{sale_id}/actions", headers=checkout_headers, json=checkout_payload)

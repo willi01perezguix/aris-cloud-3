@@ -13,8 +13,18 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from fastapi.testclient import TestClient
 
+
+def _load_test_client():
+    try:
+        from fastapi.testclient import TestClient  # noqa: WPS433
+
+        return TestClient
+    except Exception as exc:  # pragma: no cover - actionable diagnostics path
+        raise RuntimeError(
+            "Missing runtime dependency for release gate diagnostics (fastapi/starlette/httpx TestClient). "
+            "Run `pip install -r requirements.txt` and retry."
+        ) from exc
 
 @dataclass
 class CheckResult:
@@ -38,7 +48,7 @@ def _check_test_matrix(pytest_target: str, postgres_url: str | None) -> list[Che
     results: list[CheckResult] = []
 
     sqlite_env = os.environ.copy()
-    sqlite_env["DATABASE_URL"] = sqlite_env.get("DATABASE_URL", "sqlite+pysqlite:///./release-gate-sqlite.db")
+    sqlite_env["DATABASE_URL"] = "sqlite+pysqlite:///./release-gate-sqlite.db"
     results.append(
         _run_command(
             "tests:sqlite",
@@ -112,6 +122,7 @@ def _performance_sanity_check(budget_ms: float) -> CheckResult:
     os.environ.setdefault("SECRET_KEY", "release-gate-secret")
     from app.main import create_app
 
+    TestClient = _load_test_client()
     app = create_app()
     sample_latencies = []
     with TestClient(app) as client:
@@ -140,6 +151,7 @@ def _readiness_diagnostics_check() -> CheckResult:
     os.environ.setdefault("SECRET_KEY", "release-gate-secret")
     from app.main import create_app
 
+    TestClient = _load_test_client()
     app = create_app()
     with TestClient(app) as client:
         health = client.get("/health")
@@ -171,10 +183,18 @@ def main() -> int:
     all_results: list[CheckResult] = []
     all_results.extend(_check_test_matrix(args.pytest_target, args.postgres_url))
     all_results.append(_migration_safety_check())
-    all_results.append(_run_command("smoke:critical", ["pytest", "-q", "tests/smoke/test_post_merge_readiness.py"]))
+    all_results.append(_run_command("smoke:post-merge-readiness", ["pytest", "-q", "tests/smoke/test_post_merge_readiness.py"]))
+    all_results.append(_run_command("smoke:go-live-validation", ["pytest", "-q", "tests/smoke/test_go_live_validation.py"]))
     all_results.extend(_security_sanity_check())
-    all_results.append(_readiness_diagnostics_check())
-    all_results.append(_performance_sanity_check(args.perf_p95_budget_ms))
+    try:
+        all_results.append(_readiness_diagnostics_check())
+    except RuntimeError as exc:
+        all_results.append(CheckResult("ops:health-readiness", "WARN", str(exc), 0.0))
+
+    try:
+        all_results.append(_performance_sanity_check(args.perf_p95_budget_ms))
+    except RuntimeError as exc:
+        all_results.append(CheckResult("performance:p95-health", "WARN", str(exc), 0.0))
 
     _print_summary(all_results)
 

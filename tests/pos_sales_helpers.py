@@ -52,6 +52,7 @@ def create_stock_item(
     pool: str,
     status: str,
     location_is_vendible: bool = True,
+    sale_price: float | None = None,
 ):
     stock = StockItem(
         id=uuid.uuid4(),
@@ -70,6 +71,7 @@ def create_stock_item(
         image_thumb_url="https://example.com/thumb.png",
         image_source="catalog",
         image_updated_at=datetime.utcnow(),
+        sale_price=sale_price,
     )
     db_session.add(stock)
     db_session.commit()
@@ -116,11 +118,13 @@ def sale_line(
     pool: str = "P1",
     status: str = "RFID",
 ):
-    _ = (unit_price, location_code, pool, status)
+    _ = (location_code, pool, status)
     payload = {
         "line_type": line_type,
         "qty": qty,
     }
+    if unit_price is not None:
+        payload["unit_price"] = unit_price
     if line_type.upper() == "SKU":
         payload["sku"] = sku
     else:

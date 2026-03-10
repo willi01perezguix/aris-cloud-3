@@ -67,8 +67,13 @@ jobs:
 
       - name: Export Postgres env
         run: |
+          echo "PGHOST=127.0.0.1" >> "$GITHUB_ENV"
           echo "PGPORT=${{ job.services.postgres.ports[5432] }}" >> "$GITHUB_ENV"
+          echo "PGUSER=postgres" >> "$GITHUB_ENV"
+          echo "PGPASSWORD=postgres" >> "$GITHUB_ENV"
+          echo "PGDATABASE=postgres" >> "$GITHUB_ENV"
           echo "DATABASE_URL=postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
+          echo "POSTGRES_GATE_URL=postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
           echo "PG_WAIT_DSN=postgresql://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
 
       - name: Validate Python client layout guardrails
@@ -81,6 +86,32 @@ jobs:
 
       - name: Import check
         run: python -c "import app; print('ok')"
+
+      - name: Validate Postgres env coherence
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy.engine import make_url
+          import psycopg2
+
+          db_url = os.environ["DATABASE_URL"]
+          gate_url = os.environ.get("POSTGRES_GATE_URL")
+          wait_dsn = os.environ["PG_WAIT_DSN"]
+
+          assert db_url == gate_url, "DATABASE_URL and POSTGRES_GATE_URL must match"
+          parsed = make_url(db_url)
+          assert parsed.username == os.environ["PGUSER"]
+          assert parsed.password == os.environ["PGPASSWORD"]
+          assert str(parsed.port) == os.environ["PGPORT"]
+          assert parsed.host == os.environ["PGHOST"]
+
+          conn = psycopg2.connect(wait_dsn, connect_timeout=3)
+          with conn.cursor() as cur:
+              cur.execute("select 1")
+              print(cur.fetchone())
+          conn.close()
+          print("postgres env coherence OK")
+          PY
 
       - name: Wait for Postgres (auth + ready)
         run: |

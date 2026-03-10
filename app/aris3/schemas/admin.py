@@ -111,6 +111,7 @@ class UserCreateRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
     password: str = Field(..., min_length=8, max_length=255)
     role: AdminRole = "USER"
+    tenant_id: str | None = Field(default=None, description="Optional explicit tenant scope for superadmin cross-tenant user creation.")
     store_id: str = Field(..., min_length=1)
 
 

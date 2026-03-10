@@ -1,7 +1,7 @@
 """add store_id to stock_items for store traceability
 
 Revision ID: 0020_s8dx_stock_store_scope
-Revises: 0019_sprint8_dayx_transfer_line_prices
+Revises: 0019_s8dx_transfer_line_prices
 Create Date: 2026-02-24
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "0020_s8dx_stock_store_scope"
-down_revision = "0019_sprint8_dayx_transfer_line_prices"
+down_revision = "0019_s8dx_transfer_line_prices"
 branch_labels = None
 depends_on = None
 

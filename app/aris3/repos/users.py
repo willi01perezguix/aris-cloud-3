@@ -23,6 +23,7 @@ class UserRepository:
         store_id: str | None = None,
         role: str | None = None,
         status: str | None = None,
+        is_active: bool | None = None,
         search: str | None = None,
         limit: int | None = None,
         offset: int | None = None,
@@ -51,6 +52,10 @@ class UserRepository:
             normalized_status = status.strip().upper()
             stmt = stmt.where(func.upper(User.status) == normalized_status)
             count_stmt = count_stmt.where(func.upper(User.status) == normalized_status)
+
+        if is_active is not None:
+            stmt = stmt.where(User.is_active == is_active)
+            count_stmt = count_stmt.where(User.is_active == is_active)
 
         if search:
             pattern = f"%{search.strip()}%"

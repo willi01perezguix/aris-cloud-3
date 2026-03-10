@@ -137,6 +137,13 @@ async def oauth2_token(
     summary="Change Password (Authenticated User)",
     description="Canonical endpoint for authenticated password changes.",
 )
+@router.post(
+    "/change-password",
+    response_model=ChangePasswordResponse,
+    deprecated=True,
+    summary="Change Password (Deprecated Alias)",
+    description="Deprecated alias; use PATCH /change-password.",
+)
 async def change_password(
     request: Request,
     payload: ChangePasswordRequest,
@@ -187,11 +194,8 @@ async def change_password(
         )
         raise
 
-    response = ChangePasswordResponse(
-        ok=True,
-        message="Password updated successfully",
-        trace_id=trace_id,
-    )
+    response = ChangePasswordResponse(ok=True, message="Password updated successfully", trace_id=trace_id)
+
     if context is not None:
         context.record_success(status_code=200, response_body=response.model_dump())
 
@@ -212,4 +216,5 @@ async def change_password(
             result="success",
         )
     )
-    return JSONResponse(status_code=200, content=response.model_dump())
+    headers = {"Deprecation": "true", "Sunset": "2026-06-30"} if request.method == "POST" else None
+    return JSONResponse(status_code=200, content=response.model_dump(), headers=headers)

@@ -68,6 +68,7 @@ jobs:
         run: |
           echo "PGPORT=${{ job.services.postgres.ports[5432] }}" >> "$GITHUB_ENV"
           echo "DATABASE_URL=postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
+          echo "PG_WAIT_DSN=postgresql://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
 
       - name: Validate Python client layout guardrails
         run: python scripts/ci/validate_python_client_layout.py
@@ -86,7 +87,7 @@ jobs:
           import os, time
           import psycopg2
 
-          dsn = os.environ["DATABASE_URL"]
+          dsn = os.environ["PG_WAIT_DSN"]
           last = None
           for _ in range(60):
               try:

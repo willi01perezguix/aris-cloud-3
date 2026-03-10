@@ -55,10 +55,36 @@ jobs:
         run: |
           echo "DATABASE_URL=postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
           echo "POSTGRES_GATE_URL=postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
+          echo "PG_WAIT_DSN=postgresql://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      - name: Wait for Postgres (auth + ready)
+        run: |
+          python - <<'PY'
+          import os, time
+          import psycopg2
+
+          dsn = os.environ["PG_WAIT_DSN"]
+          last = None
+          for _ in range(60):
+              try:
+                  conn = psycopg2.connect(dsn, connect_timeout=2)
+                  with conn.cursor() as cur:
+                      cur.execute("select current_user, current_database()")
+                      print(cur.fetchone())
+                  conn.close()
+                  print("postgres ready/auth OK")
+                  break
+              except Exception as e:
+                  last = e
+                  time.sleep(1)
+          else:
+              raise SystemExit(f"postgres not ready/auth failed: {last}")
+          PY
+      - name: Alembic upgrade (postgres)
+        run: alembic upgrade head
       - name: Release readiness gate (postgres)
         run: |
           python scripts/release_readiness_gate.py --pytest-target tests/smoke/test_post_merge_readiness.py --postgres-url "$POSTGRES_GATE_URL"

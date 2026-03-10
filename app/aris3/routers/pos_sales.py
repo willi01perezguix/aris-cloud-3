@@ -871,7 +871,7 @@ def create_sale(
         AuditEventPayload(
             tenant_id=scoped_tenant_id,
             user_id=str(current_user.id),
-            store_id=str(current_user.store_id) if current_user.store_id else None,
+            store_id=resolved_store_id,
             trace_id=getattr(request.state, "trace_id", None),
             actor=str(current_user.username),
             action="pos_sale.create",
@@ -1016,7 +1016,7 @@ def update_sale(
         AuditEventPayload(
             tenant_id=scoped_tenant_id,
             user_id=str(current_user.id),
-            store_id=str(current_user.store_id) if current_user.store_id else None,
+            store_id=str(sale.store_id),
             trace_id=getattr(request.state, "trace_id", None),
             actor=str(current_user.username),
             action="pos_sale.update",
@@ -1135,6 +1135,7 @@ def sale_action(
     enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
 
     action = str(payload.action).upper()
+    effective_store_id = str(sale.store_id)
 
     if action == "CANCEL":
         if sale.status != "DRAFT":
@@ -1151,7 +1152,7 @@ def sale_action(
             AuditEventPayload(
                 tenant_id=scoped_tenant_id,
                 user_id=str(current_user.id),
-                store_id=str(current_user.store_id) if current_user.store_id else None,
+                store_id=effective_store_id,
                 trace_id=getattr(request.state, "trace_id", None),
                 actor=str(current_user.username),
                 action="pos_sale.cancel",
@@ -1425,7 +1426,7 @@ def sale_action(
             AuditEventPayload(
                 tenant_id=scoped_tenant_id,
                 user_id=str(current_user.id),
-                store_id=str(current_user.store_id) if current_user.store_id else None,
+                store_id=effective_store_id,
                 trace_id=getattr(request.state, "trace_id", None),
                 actor=str(current_user.username),
                 action="pos_sale.refund_items",
@@ -1541,9 +1542,21 @@ def sale_action(
         refund_payments = payload.refund_payments or []
         cash_total = Decimal("0.00")
         if delta > 0:
+            if not payments:
+                raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "payments required for exchange collection"})
+            if refund_payments:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "refund_payments are not allowed when exchange delta is positive"},
+                )
             totals = _validate_payments(payments, delta)
             cash_total = totals["cash_total"]
         elif delta < 0:
+            if payments:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "payments are not allowed when exchange delta is negative"},
+                )
             if not refund_payments:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
@@ -1590,6 +1603,12 @@ def sale_action(
                 (payment.amount for payment in refund_payments if payment.method == "CASH"),
                 Decimal("0.00"),
             )
+        else:
+            if payments or refund_payments:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "payments and refund_payments must be empty when exchange delta is zero"},
+                )
 
         cash_session = None
         if cash_total > 0:
@@ -1602,270 +1621,270 @@ def sale_action(
 
         before_refunded, before_exchanged, before_net, _ = _return_event_summaries(return_events)
 
-        with db.begin_nested():
-            exchange_sale = PosSale(
-                tenant_id=scoped_tenant_id,
-                store_id=sale.store_id,
-                status="PAID",
-                total_due=float(exchange_total),
-                paid_total=float(exchange_total),
-                balance_due=0.0,
-                change_due=0.0,
-                created_by_user_id=current_user.id,
-                updated_by_user_id=current_user.id,
-                checked_out_by_user_id=current_user.id,
-                checked_out_at=now,
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(exchange_sale)
-            db.flush()
+        exchange_sale = PosSale(
+            tenant_id=scoped_tenant_id,
+            store_id=sale.store_id,
+            status="PAID",
+            total_due=float(exchange_total),
+            paid_total=float(exchange_total),
+            balance_due=0.0,
+            change_due=0.0,
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
+            checked_out_by_user_id=current_user.id,
+            checked_out_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(exchange_sale)
+        db.flush()
 
-            new_lines = []
-            for line in resolved_exchange_lines:
-                snapshot = _legacy_snapshot(line)
-                new_lines.append(
-                    PosSaleLine(
-                        sale_id=exchange_sale.id,
-                        tenant_id=scoped_tenant_id,
-                        line_type=line.line_type,
-                        qty=line.qty,
-                        unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
-                        line_total=float(_line_total(line)),
-                        sku=snapshot.sku,
-                        description=snapshot.description,
-                        var1_value=snapshot.var1_value,
-                        var2_value=snapshot.var2_value,
-                        epc=snapshot.epc,
-                        location_code=snapshot.location_code,
-                        pool=snapshot.pool,
-                        status=snapshot.status,
-                        location_is_vendible=snapshot.location_is_vendible,
-                        image_asset_id=snapshot.image_asset_id,
-                        image_url=snapshot.image_url,
-                        image_thumb_url=snapshot.image_thumb_url,
-                        image_source=snapshot.image_source,
-                        image_updated_at=snapshot.image_updated_at,
-                        created_at=now,
-                    )
+        new_lines = []
+        for line in resolved_exchange_lines:
+            snapshot = _legacy_snapshot(line)
+            new_lines.append(
+                PosSaleLine(
+                    sale_id=exchange_sale.id,
+                    tenant_id=scoped_tenant_id,
+                    line_type=line.line_type,
+                    qty=line.qty,
+                    unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
+                    line_total=float(_line_total(line)),
+                    sku=snapshot.sku,
+                    description=snapshot.description,
+                    var1_value=snapshot.var1_value,
+                    var2_value=snapshot.var2_value,
+                    epc=snapshot.epc,
+                    location_code=snapshot.location_code,
+                    pool=snapshot.pool,
+                    status=snapshot.status,
+                    location_is_vendible=snapshot.location_is_vendible,
+                    image_asset_id=snapshot.image_asset_id,
+                    image_url=snapshot.image_url,
+                    image_thumb_url=snapshot.image_thumb_url,
+                    image_source=snapshot.image_source,
+                    image_updated_at=snapshot.image_updated_at,
+                    created_at=now,
                 )
-            db.add_all(new_lines)
+            )
+        db.add_all(new_lines)
 
-            for line in resolved_exchange_lines:
-                snapshot = _legacy_snapshot(line)
-                if line.line_type == "EPC":
-                    stock_row = (
-                        db.execute(
-                            select(StockItem)
-                            .where(
-                                StockItem.tenant_id == sale.tenant_id,
-                                StockItem.store_id == sale.store_id,
-                                StockItem.epc == snapshot.epc,
-                                StockItem.status == "RFID",
-                                StockItem.location_code == snapshot.location_code,
-                                StockItem.pool == snapshot.pool,
-                                StockItem.location_is_vendible.is_(True),
-                            )
-                            .with_for_update()
+        for line in resolved_exchange_lines:
+            snapshot = _legacy_snapshot(line)
+            if line.line_type == "EPC":
+                stock_row = (
+                    db.execute(
+                        select(StockItem)
+                        .where(
+                            StockItem.tenant_id == sale.tenant_id,
+                            StockItem.store_id == sale.store_id,
+                            StockItem.epc == snapshot.epc,
+                            StockItem.status == "RFID",
+                            StockItem.location_code == snapshot.location_code,
+                            StockItem.pool == snapshot.pool,
+                            StockItem.location_is_vendible.is_(True),
                         )
-                        .scalars()
-                        .first()
+                        .with_for_update()
                     )
-                    if stock_row is None:
-                        raise AppError(
-                            ErrorCatalog.VALIDATION_ERROR,
-                            details={"message": "insufficient RFID stock for exchange EPC line", "epc": snapshot.epc},
+                    .scalars()
+                    .first()
+                )
+                if stock_row is None:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "insufficient RFID stock for exchange EPC line", "epc": snapshot.epc},
+                    )
+                stock_row.status = "SOLD"
+                stock_row.location_is_vendible = False
+                stock_row.updated_at = now
+            elif line.line_type == "SKU":
+                stock_rows = (
+                    db.execute(
+                        select(StockItem)
+                        .where(
+                            StockItem.tenant_id == sale.tenant_id,
+                            StockItem.store_id == sale.store_id,
+                            StockItem.sku == snapshot.sku,
+                            StockItem.status == "PENDING",
+                            StockItem.location_code == snapshot.location_code,
+                            StockItem.pool == snapshot.pool,
+                            StockItem.location_is_vendible.is_(True),
                         )
+                        .order_by(StockItem.created_at)
+                        .limit(line.qty)
+                        .with_for_update()
+                    )
+                    .scalars()
+                    .all()
+                )
+                if len(stock_rows) < line.qty:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "insufficient PENDING stock for exchange SKU line", "sku": snapshot.sku},
+                    )
+                for stock_row in stock_rows:
                     stock_row.status = "SOLD"
                     stock_row.location_is_vendible = False
                     stock_row.updated_at = now
-                elif line.line_type == "SKU":
-                    stock_rows = (
-                        db.execute(
-                            select(StockItem)
-                            .where(
-                                StockItem.tenant_id == sale.tenant_id,
-                                StockItem.store_id == sale.store_id,
-                                StockItem.sku == snapshot.sku,
-                                StockItem.status == "PENDING",
-                                StockItem.location_code == snapshot.location_code,
-                                StockItem.pool == snapshot.pool,
-                                StockItem.location_is_vendible.is_(True),
-                            )
-                            .order_by(StockItem.created_at)
-                            .limit(line.qty)
-                            .with_for_update()
-                        )
-                        .scalars()
-                        .all()
-                    )
-                    if len(stock_rows) < line.qty:
-                        raise AppError(
-                            ErrorCatalog.VALIDATION_ERROR,
-                            details={"message": "insufficient PENDING stock for exchange SKU line", "sku": snapshot.sku},
-                        )
-                    for stock_row in stock_rows:
-                        stock_row.status = "SOLD"
-                        stock_row.location_is_vendible = False
-                        stock_row.updated_at = now
 
-            for item in return_items:
-                line = line_lookup[item.line_id]
-                if line.line_type == "EPC":
-                    stock_row = (
-                        db.execute(
-                            select(StockItem)
-                            .where(
-                                StockItem.tenant_id == sale.tenant_id,
-                                StockItem.store_id == sale.store_id,
-                                StockItem.epc == line.epc,
-                                StockItem.status == "SOLD",
-                                StockItem.location_code == line.location_code,
-                                StockItem.pool == line.pool,
-                            )
-                            .with_for_update()
+        for item in return_items:
+            line = line_lookup[item.line_id]
+            if line.line_type == "EPC":
+                stock_row = (
+                    db.execute(
+                        select(StockItem)
+                        .where(
+                            StockItem.tenant_id == sale.tenant_id,
+                            StockItem.store_id == sale.store_id,
+                            StockItem.epc == line.epc,
+                            StockItem.status == "SOLD",
+                            StockItem.location_code == line.location_code,
+                            StockItem.pool == line.pool,
                         )
-                        .scalars()
-                        .first()
+                        .with_for_update()
                     )
-                    if stock_row is None:
-                        raise AppError(
-                            ErrorCatalog.VALIDATION_ERROR,
-                            details={"message": "sold stock not found for EPC return", "epc": line.epc},
-                        )
-                    non_reusable = (line.status or "").upper() == "NON_REUSABLE_LABEL"
-                    if non_reusable and policy.non_reusable_label_strategy == "ASSIGN_NEW_EPC":
-                        stock_row.status = "PENDING"
-                        stock_row.location_is_vendible = False
-                        stock_row.updated_at = now
-                        db.add(
-                            StockItem(
-                                tenant_id=sale.tenant_id,
-                                store_id=sale.store_id,
-                                sku=line.sku,
-                                description=line.description,
-                                var1_value=line.var1_value,
-                                var2_value=line.var2_value,
-                                epc=f"NEW-EPC-{uuid.uuid4()}" if line.epc else None,
-                                location_code=line.location_code,
-                                pool=line.pool,
-                                status="RFID",
-                                location_is_vendible=True,
-                                image_asset_id=line.image_asset_id,
-                                image_url=line.image_url,
-                                image_thumb_url=line.image_thumb_url,
-                                image_source=line.image_source,
-                                image_updated_at=line.image_updated_at,
-                                created_at=now,
-                                updated_at=now,
-                            )
-                        )
-                    elif non_reusable and policy.non_reusable_label_strategy == "TO_PENDING":
-                        stock_row.status = "PENDING"
-                        stock_row.location_is_vendible = True
-                        stock_row.epc = None
-                        stock_row.updated_at = now
-                    else:
-                        stock_row.status = "RFID"
-                        stock_row.location_is_vendible = True
-                        stock_row.updated_at = now
-                elif line.line_type == "SKU":
-                    stock_rows = (
-                        db.execute(
-                            select(StockItem)
-                            .where(
-                                StockItem.tenant_id == sale.tenant_id,
-                                StockItem.store_id == sale.store_id,
-                                StockItem.sku == line.sku,
-                                StockItem.status == "SOLD",
-                                StockItem.location_code == line.location_code,
-                                StockItem.pool == line.pool,
-                            )
-                            .order_by(StockItem.created_at)
-                            .limit(item.qty)
-                            .with_for_update()
-                        )
-                        .scalars()
-                        .all()
-                    )
-                    if len(stock_rows) < item.qty:
-                        raise AppError(
-                            ErrorCatalog.VALIDATION_ERROR,
-                            details={"message": "sold stock not found for SKU return", "sku": line.sku},
-                        )
-                    for stock_row in stock_rows:
-                        stock_row.status = "PENDING"
-                        stock_row.location_is_vendible = True
-                        stock_row.updated_at = now
-
-            payment_records = []
-            for payment in payments:
-                payment_records.append(
-                    PosPayment(
-                        sale_id=exchange_sale.id,
-                        tenant_id=scoped_tenant_id,
-                        method=payment.method,
-                        amount=float(payment.amount),
-                        authorization_code=payment.authorization_code,
-                        bank_name=payment.bank_name,
-                        voucher_number=payment.voucher_number,
-                    )
+                    .scalars()
+                    .first()
                 )
-            if payment_records:
-                db.add_all(payment_records)
-
-            return_event = PosReturnEvent(
-                tenant_id=sale.tenant_id,
-                store_id=sale.store_id,
-                sale_id=sale.id,
-                exchange_sale_id=exchange_sale.id,
-                action="EXCHANGE_ITEMS",
-                refund_subtotal=float(return_totals["subtotal"]),
-                restocking_fee=float(return_totals["restocking_fee"]),
-                refund_total=float(return_totals["total"]),
-                exchange_total=float(exchange_total),
-                net_adjustment=float(delta),
-                payload={
-                    "returned_lines": returned_lines_payload,
-                    "exchange_lines": [line.model_dump(mode="json") for line in resolved_exchange_lines],
-                    "refund_payments": [payment.model_dump(mode="json") for payment in refund_payments],
-                    "collection_payments": [payment.model_dump(mode="json") for payment in payments],
-                    "policy_snapshot": _policy_snapshot(policy),
-                    "receipt_number": payload.receipt_number,
-                    "manager_override": bool(payload.manager_override),
-                    "transaction_id": payload.transaction_id,
-                    "exchange_sale_id": str(exchange_sale.id),
-                },
-                created_at=now,
-            )
-            db.add(return_event)
-
-            if cash_session and cash_total > 0:
-                movement_amount = cash_total
-                if delta > 0:
-                    movement_amount = max(Decimal("0.00"), totals["cash_total"] - totals["change_due"])
-                if movement_amount > 0:
-                    _record_cash_movement(
-                        db,
-                        session=cash_session,
-                        tenant_id=scoped_tenant_id,
-                        store_id=str(sale.store_id),
-                        sale_id=sale.id,
-                        action="CASH_OUT_REFUND" if delta < 0 else "SALE",
-                        amount=movement_amount,
-                        transaction_id=payload.transaction_id,
-                        actor_user_id=str(current_user.id),
-                        trace_id=getattr(request.state, "trace_id", None),
-                        occurred_at=now,
+                if stock_row is None:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "sold stock not found for EPC return", "epc": line.epc},
                     )
+                non_reusable = (line.status or "").upper() == "NON_REUSABLE_LABEL"
+                if non_reusable and policy.non_reusable_label_strategy == "ASSIGN_NEW_EPC":
+                    stock_row.status = "PENDING"
+                    stock_row.location_is_vendible = False
+                    stock_row.updated_at = now
+                    db.add(
+                        StockItem(
+                            tenant_id=sale.tenant_id,
+                            store_id=sale.store_id,
+                            sku=line.sku,
+                            description=line.description,
+                            var1_value=line.var1_value,
+                            var2_value=line.var2_value,
+                            epc=f"NEW-EPC-{uuid.uuid4()}" if line.epc else None,
+                            location_code=line.location_code,
+                            pool=line.pool,
+                            status="RFID",
+                            location_is_vendible=True,
+                            image_asset_id=line.image_asset_id,
+                            image_url=line.image_url,
+                            image_thumb_url=line.image_thumb_url,
+                            image_source=line.image_source,
+                            image_updated_at=line.image_updated_at,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+                elif non_reusable and policy.non_reusable_label_strategy == "TO_PENDING":
+                    stock_row.status = "PENDING"
+                    stock_row.location_is_vendible = True
+                    stock_row.epc = None
+                    stock_row.updated_at = now
+                else:
+                    stock_row.status = "RFID"
+                    stock_row.location_is_vendible = True
+                    stock_row.updated_at = now
+            elif line.line_type == "SKU":
+                stock_rows = (
+                    db.execute(
+                        select(StockItem)
+                        .where(
+                            StockItem.tenant_id == sale.tenant_id,
+                            StockItem.store_id == sale.store_id,
+                            StockItem.sku == line.sku,
+                            StockItem.status == "SOLD",
+                            StockItem.location_code == line.location_code,
+                            StockItem.pool == line.pool,
+                        )
+                        .order_by(StockItem.created_at)
+                        .limit(item.qty)
+                        .with_for_update()
+                    )
+                    .scalars()
+                    .all()
+                )
+                if len(stock_rows) < item.qty:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "sold stock not found for SKU return", "sku": line.sku},
+                    )
+                for stock_row in stock_rows:
+                    stock_row.status = "PENDING"
+                    stock_row.location_is_vendible = True
+                    stock_row.updated_at = now
 
+        payment_records = []
+        for payment in payments:
+            payment_records.append(
+                PosPayment(
+                    sale_id=exchange_sale.id,
+                    tenant_id=scoped_tenant_id,
+                    method=payment.method,
+                    amount=float(payment.amount),
+                    authorization_code=payment.authorization_code,
+                    bank_name=payment.bank_name,
+                    voucher_number=payment.voucher_number,
+                )
+            )
+        if payment_records:
+            db.add_all(payment_records)
+
+        return_event = PosReturnEvent(
+            tenant_id=sale.tenant_id,
+            store_id=sale.store_id,
+            sale_id=sale.id,
+            exchange_sale_id=exchange_sale.id,
+            action="EXCHANGE_ITEMS",
+            refund_subtotal=float(return_totals["subtotal"]),
+            restocking_fee=float(return_totals["restocking_fee"]),
+            refund_total=float(return_totals["total"]),
+            exchange_total=float(exchange_total),
+            net_adjustment=float(delta),
+            payload={
+                "returned_lines": returned_lines_payload,
+                "exchange_lines": [line.model_dump(mode="json") for line in resolved_exchange_lines],
+                "refund_payments": [payment.model_dump(mode="json") for payment in refund_payments],
+                "collection_payments": [payment.model_dump(mode="json") for payment in payments],
+                "policy_snapshot": _policy_snapshot(policy),
+                "receipt_number": payload.receipt_number,
+                "manager_override": bool(payload.manager_override),
+                "transaction_id": payload.transaction_id,
+                "exchange_sale_id": str(exchange_sale.id),
+            },
+            created_at=now,
+        )
+        db.add(return_event)
+
+        if cash_session and cash_total > 0:
+            movement_amount = cash_total
+            if delta > 0:
+                movement_amount = max(Decimal("0.00"), totals["cash_total"] - totals["change_due"])
+            if movement_amount > 0:
+                _record_cash_movement(
+                    db,
+                    session=cash_session,
+                    tenant_id=scoped_tenant_id,
+                    store_id=str(sale.store_id),
+                    sale_id=sale.id,
+                    action="CASH_OUT_REFUND" if delta < 0 else "SALE",
+                    amount=movement_amount,
+                    transaction_id=payload.transaction_id,
+                    actor_user_id=str(current_user.id),
+                    trace_id=getattr(request.state, "trace_id", None),
+                    occurred_at=now,
+                )
+
+        db.commit()
         response = _sale_response(repo, sale)
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         AuditService(db).record_event(
             AuditEventPayload(
                 tenant_id=scoped_tenant_id,
                 user_id=str(current_user.id),
-                store_id=str(current_user.store_id) if current_user.store_id else None,
+                store_id=effective_store_id,
                 trace_id=getattr(request.state, "trace_id", None),
                 actor=str(current_user.username),
                 action="pos_sale.exchange_items",
@@ -2024,7 +2043,7 @@ def sale_action(
         AuditEventPayload(
             tenant_id=scoped_tenant_id,
             user_id=str(current_user.id),
-            store_id=str(current_user.store_id) if current_user.store_id else None,
+            store_id=effective_store_id,
             trace_id=getattr(request.state, "trace_id", None),
             actor=str(current_user.username),
             action="pos_sale.checkout",

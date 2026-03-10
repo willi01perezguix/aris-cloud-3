@@ -1,16 +1,16 @@
-"""ensure stock_items.store_id exists with index and foreign key
+"""guard stock_items columns required by stock import-sku contract
 
-Revision ID: 0022_s8dx_stock_items_store_id_hotfix
-Revises: 0021_s8dx_stock_import_contract_reconcile
-Create Date: 2026-02-25 10:00:00.000000
+Revision ID: 0023_s8dx_items_contract_guard
+Revises: 0022_s8dx_items_storeid_fix
+Create Date: 2026-02-25 12:00:00.000000
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0022_s8dx_stock_items_store_id_hotfix"
-down_revision = "0021_s8dx_stock_import_contract_reconcile"
+revision = "0023_s8dx_items_contract_guard"
+down_revision = "0022_s8dx_items_storeid_fix"
 branch_labels = None
 depends_on = None
 
@@ -36,7 +36,7 @@ def _fk_names(inspector: sa.Inspector, table_name: str) -> set[str]:
 
 
 def _index_names(inspector: sa.Inspector, table_name: str) -> set[str]:
-    return {idx["name"] for idx in inspector.get_indexes(table_name) if idx.get("name")}
+    return {index["name"] for index in inspector.get_indexes(table_name) if index.get("name")}
 
 
 def upgrade() -> None:
@@ -50,6 +50,13 @@ def upgrade() -> None:
     with op.batch_alter_table("stock_items") as batch_op:
         if "store_id" not in columns:
             batch_op.add_column(sa.Column("store_id", GUID(), nullable=True))
+        if "cost_price" not in columns:
+            batch_op.add_column(sa.Column("cost_price", sa.Numeric(12, 2), nullable=True))
+        if "suggested_price" not in columns:
+            batch_op.add_column(sa.Column("suggested_price", sa.Numeric(12, 2), nullable=True))
+        if "sale_price" not in columns:
+            batch_op.add_column(sa.Column("sale_price", sa.Numeric(12, 2), nullable=True))
+
         if "fk_stock_items_store_id_stores" not in fks:
             batch_op.create_foreign_key("fk_stock_items_store_id_stores", "stores", ["store_id"], ["id"])
         if "ix_stock_items_store_id" not in indexes:
@@ -69,5 +76,7 @@ def downgrade() -> None:
             batch_op.drop_index("ix_stock_items_store_id")
         if "fk_stock_items_store_id_stores" in fks:
             batch_op.drop_constraint("fk_stock_items_store_id_stores", type_="foreignkey")
-        if "store_id" in columns:
-            batch_op.drop_column("store_id")
+
+        for column_name in ("sale_price", "suggested_price", "cost_price", "store_id"):
+            if column_name in columns:
+                batch_op.drop_column(column_name)

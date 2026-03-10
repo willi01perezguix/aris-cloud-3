@@ -144,9 +144,7 @@ def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: 
             .scalars()
             .first()
         )
-        if not stock_row:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not found in origin store", "epc": line.snapshot.epc})
-        if stock_row.status == "PENDING":
+        if stock_row is not None and stock_row.status == "PENDING":
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "PENDING stock is not transferable", "epc": line.snapshot.epc})
     else:
         stock_rows = (
@@ -181,7 +179,8 @@ def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: 
     if _active_transfer_line_exists(db, tenant_id=tenant_id, line=line, exclude_transfer_id=exclude_transfer_id):
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "stock is already committed in an active transfer"})
 
-    return {"line_type": line.line_type, "qty": line.qty, "snapshot": _stock_snapshot_from_item(stock_row)}
+    snapshot = _stock_snapshot_from_item(stock_row) if stock_row is not None else line.snapshot.model_dump()
+    return {"line_type": line.line_type, "qty": line.qty, "snapshot": snapshot}
 
 
 def _normalize_transfer_lines(db, *, tenant_id: str, origin_store_id: str, lines: list[TransferLineCreate], exclude_transfer_id: str | None = None) -> list[dict]:

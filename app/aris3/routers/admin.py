@@ -998,6 +998,7 @@ async def admin_replace_store_role_policy(
 async def admin_get_user_overrides(
     request: Request,
     user_id: str,
+    tenant_id: str | None = Query(default=None, description="Optional tenant scope for superadmin; required for superadmin."),
     token_data=Depends(get_current_token_data),
     _current_user=Depends(require_active_user),
     db=Depends(get_db),
@@ -1019,9 +1020,9 @@ async def admin_get_user_overrides(
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED, details={"user_id": user_id, "tenant_id": effective_tenant_id})
     _enforce_user_store_scope(token_data, user)
     service = AccessControlPolicyService(db)
-    snapshot = service.get_user_overrides(tenant_id=tenant_id, user_id=user_id)
+    snapshot = service.get_user_overrides(tenant_id=effective_tenant_id, user_id=user_id)
     return UserPermissionOverrideResponse(
-        tenant_id=tenant_id,
+        tenant_id=effective_tenant_id,
         user_id=user_id,
         allow=snapshot.allow,
         deny=snapshot.deny,
@@ -1039,6 +1040,7 @@ async def admin_patch_user_overrides(
     request: Request,
     user_id: str,
     payload: UserPermissionOverridePatchRequest,
+    tenant_id: str | None = Query(default=None, description="Optional tenant scope for superadmin; required for superadmin."),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     db=Depends(get_db),
@@ -1080,18 +1082,18 @@ async def admin_patch_user_overrides(
     request.state.idempotency = context
 
     service = AccessControlPolicyService(db)
-    before = service.get_user_overrides(tenant_id=tenant_id, user_id=user_id)
+    before = service.get_user_overrides(tenant_id=effective_tenant_id, user_id=user_id)
     allow = before.allow if payload.allow is None else payload.allow
     deny = before.deny if payload.deny is None else payload.deny
     _, after = service.replace_user_overrides(
-        tenant_id=tenant_id,
+        tenant_id=effective_tenant_id,
         user_id=user_id,
         allow=allow,
         deny=deny,
         enforce_ceiling=not is_superadmin(token_data.role),
     )
     response = UserPermissionOverrideResponse(
-        tenant_id=tenant_id,
+        tenant_id=effective_tenant_id,
         user_id=user_id,
         allow=after.allow,
         deny=after.deny,
@@ -1108,7 +1110,7 @@ async def admin_patch_user_overrides(
             actor_role=current_user.role,
             action="access_control.user_override.update",
             entity_type="user_override",
-            entity_id=f"{tenant_id}:{user_id}",
+            entity_id=f"{effective_tenant_id}:{user_id}",
             before={"allow": before.allow, "deny": before.deny},
             after={"allow": after.allow, "deny": after.deny},
             metadata={"user_id": user_id, "transaction_id": payload.transaction_id},
@@ -1241,6 +1243,7 @@ async def list_tenants(
 
     tenants, total = TenantRepository(db).list_all(
         status=normalized_status,
+        is_active=is_active,
         search=_normalize_optional_str(search),
         limit=limit,
         offset=offset,
@@ -1589,6 +1592,7 @@ async def tenant_actions(
 async def list_stores(
     request: Request,
     tenant_id: str | None = Query(default=None, description="Explicit tenant scope for superadmin/platform admin cross-tenant access."),
+    query_tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated alias for tenant_id."),
     search: str | None = Query(default=None, description="Case-insensitive search by store name."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
@@ -1652,6 +1656,7 @@ async def list_stores(
 async def create_store(
     request: Request,
     payload: StoreCreateRequest,
+    query_tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated alias for tenant_id."),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("STORE_MANAGE")),
@@ -1659,7 +1664,10 @@ async def create_store(
 ):
     token_tenant_id = _tenant_id_or_error(token_data)
     body_tenant_id = payload.tenant_id
-    request_tenant_id = body_tenant_id
+    query_tid = _normalize_optional_str(query_tenant_id)
+    if body_tenant_id and query_tid and body_tenant_id != query_tid:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "tenant_id mismatch between body and query_tenant_id"})
+    request_tenant_id = body_tenant_id or query_tid
     user_role = (current_user.role or "").upper()
 
     if user_role in {"SUPERADMIN", "PLATFORM_ADMIN"}:
@@ -1671,7 +1679,7 @@ async def create_store(
                 },
             )
         if TenantRepository(db).get_by_id(request_tenant_id) is None:
-            raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "tenant_id is invalid", "tenant_id": request_tenant_id})
         resolved_tenant_id = request_tenant_id
     else:
         if request_tenant_id and request_tenant_id != token_tenant_id:
@@ -1926,6 +1934,7 @@ async def list_users(
     store_id: str | None = Query(default=None, description="Optional store filter."),
     role: str | None = Query(default=None, description="Optional role filter."),
     status: str | None = Query(default=None, description="Canonical lifecycle status filter (active/suspended/canceled)."),
+    is_active: bool | None = Query(default=None, description="Optional active-state filter."),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),
@@ -1975,6 +1984,7 @@ async def list_users(
         store_id=requested_store_id,
         role=normalized_role,
         status=normalized_status,
+        is_active=is_active,
         search=_normalize_optional_str(search),
         limit=limit,
         offset=offset,
@@ -2105,6 +2115,7 @@ async def create_user(
 async def get_user(
     request: Request,
     user_id: str,
+    tenant_id: str | None = Query(default=None, description="Optional tenant scope for superadmin; required for superadmin."),
     token_data=Depends(get_current_token_data),
     _current_user=Depends(require_active_user),
     _permission=Depends(require_permission("USER_MANAGE")),
@@ -2135,6 +2146,7 @@ async def update_user(
     request: Request,
     user_id: str,
     payload: UserUpdateRequest,
+    tenant_id: str | None = Query(default=None, description="Optional tenant scope for superadmin; required for superadmin."),
     token_data=Depends(get_current_token_data),
     current_user=Depends(require_active_user),
     _permission=Depends(require_permission("USER_MANAGE")),
@@ -2162,7 +2174,7 @@ async def update_user(
         )
 
     if payload.store_id:
-        store = StoreRepository(db).get_by_id_in_tenant(payload.store_id, tenant_id)
+        store = StoreRepository(db).get_by_id_in_tenant(payload.store_id, effective_tenant_id)
         if store is None:
             raise AppError(ErrorCatalog.TENANT_STORE_MISMATCH)
 

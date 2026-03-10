@@ -115,7 +115,7 @@ def extract_idempotency_key(headers, *, required: bool) -> str | None:
     key = headers.get(IDEMPOTENCY_HEADER) or headers.get(LEGACY_IDEMPOTENCY_HEADER)
     if not key and required:
         raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
+            ErrorCatalog.IDEMPOTENCY_KEY_REQUIRED,
             details={
                 "errors": [
                     {

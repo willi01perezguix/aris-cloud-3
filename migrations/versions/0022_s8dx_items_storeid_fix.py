@@ -1,18 +1,30 @@
-"""add store_id to stock_items for store traceability
+"""ensure stock_items.store_id exists with index and foreign key
 
-Revision ID: 0020_s8dx_stock_store_scope
-Revises: 0019_s8dx_transfer_line_prices
-Create Date: 2026-02-24
+Revision ID: 0022_s8dx_items_storeid_fix
+Revises: 0021_s8dx_stock_import_recon
+Create Date: 2026-02-25 10:00:00.000000
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0020_s8dx_stock_store_scope"
-down_revision = "0019_s8dx_transfer_line_prices"
+revision = "0022_s8dx_items_storeid_fix"
+down_revision = "0021_s8dx_stock_import_recon"
 branch_labels = None
 depends_on = None
+
+
+class GUID(sa.TypeDecorator):
+    impl = sa.CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import UUID
+
+            return dialect.type_descriptor(UUID(as_uuid=True))
+        return dialect.type_descriptor(sa.CHAR(36))
 
 
 def _column_names(inspector: sa.Inspector, table_name: str) -> set[str]:
@@ -30,13 +42,14 @@ def _index_names(inspector: sa.Inspector, table_name: str) -> set[str]:
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+
     columns = _column_names(inspector, "stock_items")
     fks = _fk_names(inspector, "stock_items")
     indexes = _index_names(inspector, "stock_items")
 
     with op.batch_alter_table("stock_items") as batch_op:
         if "store_id" not in columns:
-            batch_op.add_column(sa.Column("store_id", sa.UUID(), nullable=True))
+            batch_op.add_column(sa.Column("store_id", GUID(), nullable=True))
         if "fk_stock_items_store_id_stores" not in fks:
             batch_op.create_foreign_key("fk_stock_items_store_id_stores", "stores", ["store_id"], ["id"])
         if "ix_stock_items_store_id" not in indexes:
@@ -46,6 +59,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+
     columns = _column_names(inspector, "stock_items")
     fks = _fk_names(inspector, "stock_items")
     indexes = _index_names(inspector, "stock_items")

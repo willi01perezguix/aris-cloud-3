@@ -47,6 +47,7 @@ def create_stock_item(
     *,
     tenant_id: str,
     sku: str | None,
+    store_id: str | None = None,
     epc: str | None,
     location_code: str,
     pool: str,
@@ -54,9 +55,14 @@ def create_stock_item(
     location_is_vendible: bool = True,
     sale_price: float | None = None,
 ):
+    if store_id is None:
+        tenant_store = db_session.query(Store).filter(Store.tenant_id == tenant_id).order_by(Store.created_at.asc()).first()
+        store_id = str(tenant_store.id) if tenant_store else None
+
     stock = StockItem(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
+        store_id=store_id,
         sku=sku,
         description="Item",
         var1_value="V1",

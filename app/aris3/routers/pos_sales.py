@@ -171,6 +171,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
         epc = snapshot.epc or line.epc
         filters = [
             StockItem.tenant_id == tenant_id,
+            StockItem.store_id == store_id,
             StockItem.epc == epc,
             StockItem.status == "RFID",
             StockItem.location_is_vendible.is_(True),
@@ -208,6 +209,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
     sku = snapshot.sku or line.sku
     filters = [
         StockItem.tenant_id == tenant_id,
+        StockItem.store_id == store_id,
         StockItem.sku == sku,
         StockItem.status == "PENDING",
         StockItem.location_is_vendible.is_(True),
@@ -697,51 +699,6 @@ def _sale_summary_row(repo: PosSaleRepository, sale: PosSale) -> SaleSummaryRow:
     response_model=PosSaleListResponse,
     responses=POS_LIST_ERROR_RESPONSES,
     openapi_extra={
-        "requestBody": {
-            "content": {
-                "application/json": {
-                    "schema": {"$ref": "#/components/schemas/PosSaleActionRequest"},
-                    "examples": {
-                        "checkout": {
-                            "summary": "Checkout sale",
-                            "value": {
-                                "transaction_id": "txn-checkout-1001",
-                                "action": "CHECKOUT",
-                                "payments": [{"method": "CASH", "amount": "25.00"}],
-                            },
-                        },
-                        "cancel": {
-                            "summary": "Cancel draft sale",
-                            "value": {
-                                "transaction_id": "txn-cancel-1002",
-                                "action": "CANCEL",
-                            },
-                        },
-                        "refund_items": {
-                            "summary": "Refund selected items from a PAID sale",
-                            "value": {
-                                "transaction_id": "txn-refund-1003",
-                                "action": "REFUND_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
-                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
-                            },
-                        },
-                        "exchange_items": {
-                            "summary": "Exchange returned items and collect/refund the delta",
-                            "value": {
-                                "transaction_id": "txn-exchange-1004",
-                                "action": "EXCHANGE_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
-                                "exchange_lines": [{"line_type": "SKU", "sku": "SKU-NEW", "qty": 1}],
-                                "payments": [{"method": "CASH", "amount": "5.00"}],
-                            },
-                        },
-                    },
-                }
-            }
-        },
         "responses": {
             "401": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["401"]}}},
             "403": {"content": {"application/json": {"example": POS_ERROR_EXAMPLES["403"]}}},
@@ -943,44 +900,18 @@ def create_sale(
         "requestBody": {
             "content": {
                 "application/json": {
-                    "schema": {"$ref": "#/components/schemas/PosSaleActionRequest"},
+                    "schema": {"$ref": "#/components/schemas/PosSaleUpdateRequest"},
                     "examples": {
-                        "checkout": {
-                            "summary": "Checkout sale",
+                        "replace_draft_lines": {
+                            "summary": "Replace all draft lines using canonical selectors",
                             "value": {
-                                "transaction_id": "txn-checkout-1001",
-                                "action": "CHECKOUT",
-                                "payments": [{"method": "CASH", "amount": "25.00"}],
+                                "transaction_id": "txn-sale-update-1002",
+                                "lines": [
+                                    {"line_type": "SKU", "sku": "SKU-123", "qty": 1},
+                                    {"line_type": "EPC", "epc": "EPC-0002", "qty": 1}
+                                ],
                             },
-                        },
-                        "cancel": {
-                            "summary": "Cancel draft sale",
-                            "value": {
-                                "transaction_id": "txn-cancel-1002",
-                                "action": "CANCEL",
-                            },
-                        },
-                        "refund_items": {
-                            "summary": "Refund selected items from a PAID sale",
-                            "value": {
-                                "transaction_id": "txn-refund-1003",
-                                "action": "REFUND_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
-                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
-                            },
-                        },
-                        "exchange_items": {
-                            "summary": "Exchange returned items and collect/refund the delta",
-                            "value": {
-                                "transaction_id": "txn-exchange-1004",
-                                "action": "EXCHANGE_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
-                                "exchange_lines": [{"line_type": "SKU", "sku": "SKU-NEW", "qty": 1}],
-                                "payments": [{"method": "CASH", "amount": "5.00"}],
-                            },
-                        },
+                        }
                     },
                 }
             }
@@ -1144,39 +1075,11 @@ def get_sale(
                     "examples": {
                         "checkout": {
                             "summary": "Checkout sale",
-                            "value": {
-                                "transaction_id": "txn-checkout-1001",
-                                "action": "CHECKOUT",
-                                "payments": [{"method": "CASH", "amount": "25.00"}],
-                            },
+                            "value": {"transaction_id": "txn-checkout-1001", "action": "CHECKOUT", "payments": [{"method": "CASH", "amount": "25.00"}]},
                         },
                         "cancel": {
                             "summary": "Cancel draft sale",
-                            "value": {
-                                "transaction_id": "txn-cancel-1002",
-                                "action": "CANCEL",
-                            },
-                        },
-                        "refund_items": {
-                            "summary": "Refund selected items from a PAID sale",
-                            "value": {
-                                "transaction_id": "txn-refund-1003",
-                                "action": "REFUND_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
-                                "refund_payments": [{"method": "CASH", "amount": "25.00"}],
-                            },
-                        },
-                        "exchange_items": {
-                            "summary": "Exchange returned items and collect/refund the delta",
-                            "value": {
-                                "transaction_id": "txn-exchange-1004",
-                                "action": "EXCHANGE_ITEMS",
-                                "receipt_number": "RCPT-1001",
-                                "return_items": [{"line_id": "00000000-0000-0000-0000-00000000a111", "qty": 1, "condition": "GOOD"}],
-                                "exchange_lines": [{"line_type": "SKU", "sku": "SKU-NEW", "qty": 1}],
-                                "payments": [{"method": "CASH", "amount": "5.00"}],
-                            },
+                            "value": {"transaction_id": "txn-cancel-1002", "action": "CANCEL"},
                         },
                     },
                 }
@@ -1397,6 +1300,7 @@ def sale_action(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == sale.tenant_id,
+                                StockItem.store_id == sale.store_id,
                                 StockItem.epc == line.epc,
                                 StockItem.status == "SOLD",
                                 StockItem.location_code == line.location_code,
@@ -1454,6 +1358,7 @@ def sale_action(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == sale.tenant_id,
+                                StockItem.store_id == sale.store_id,
                                 StockItem.sku == line.sku,
                                 StockItem.status == "SOLD",
                                 StockItem.location_code == line.location_code,
@@ -1558,8 +1463,10 @@ def sale_action(
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "return_items must not be empty"})
         if not exchange_lines:
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "exchange_lines must not be empty"})
-        for line in exchange_lines:
-            _validate_sale_snapshot(line)
+        resolved_exchange_lines = [
+            _build_sale_line_from_stock(db, tenant_id=scoped_tenant_id, line=line, store_id=str(sale.store_id))
+            for line in exchange_lines
+        ]
 
         policy = _get_return_policy(db, scoped_tenant_id)
         exceptions: list[str] = []
@@ -1627,7 +1534,7 @@ def sale_action(
             )
 
         return_totals = _refund_totals(subtotal, Decimal(str(policy.restocking_fee_pct)))
-        exchange_total = sum((_line_total(line) for line in exchange_lines), Decimal("0.00"))
+        exchange_total = sum((_line_total(line) for line in resolved_exchange_lines), Decimal("0.00"))
         delta = (exchange_total - return_totals["total"]).quantize(Decimal("0.01"))
 
         payments = payload.payments or []
@@ -1715,7 +1622,7 @@ def sale_action(
             db.flush()
 
             new_lines = []
-            for line in exchange_lines:
+            for line in resolved_exchange_lines:
                 snapshot = _legacy_snapshot(line)
                 new_lines.append(
                     PosSaleLine(
@@ -1744,17 +1651,19 @@ def sale_action(
                 )
             db.add_all(new_lines)
 
-            for line in exchange_lines:
+            for line in resolved_exchange_lines:
+                snapshot = _legacy_snapshot(line)
                 if line.line_type == "EPC":
                     stock_row = (
                         db.execute(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == sale.tenant_id,
-                                StockItem.epc == line.snapshot.epc,
+                                StockItem.store_id == sale.store_id,
+                                StockItem.epc == snapshot.epc,
                                 StockItem.status == "RFID",
-                                StockItem.location_code == line.snapshot.location_code,
-                                StockItem.pool == line.snapshot.pool,
+                                StockItem.location_code == snapshot.location_code,
+                                StockItem.pool == snapshot.pool,
                                 StockItem.location_is_vendible.is_(True),
                             )
                             .with_for_update()
@@ -1765,7 +1674,7 @@ def sale_action(
                     if stock_row is None:
                         raise AppError(
                             ErrorCatalog.VALIDATION_ERROR,
-                            details={"message": "insufficient RFID stock for exchange EPC line", "epc": line.snapshot.epc},
+                            details={"message": "insufficient RFID stock for exchange EPC line", "epc": snapshot.epc},
                         )
                     stock_row.status = "SOLD"
                     stock_row.location_is_vendible = False
@@ -1776,10 +1685,11 @@ def sale_action(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == sale.tenant_id,
-                                StockItem.sku == line.snapshot.sku,
+                                StockItem.store_id == sale.store_id,
+                                StockItem.sku == snapshot.sku,
                                 StockItem.status == "PENDING",
-                                StockItem.location_code == line.snapshot.location_code,
-                                StockItem.pool == line.snapshot.pool,
+                                StockItem.location_code == snapshot.location_code,
+                                StockItem.pool == snapshot.pool,
                                 StockItem.location_is_vendible.is_(True),
                             )
                             .order_by(StockItem.created_at)
@@ -1792,7 +1702,7 @@ def sale_action(
                     if len(stock_rows) < line.qty:
                         raise AppError(
                             ErrorCatalog.VALIDATION_ERROR,
-                            details={"message": "insufficient PENDING stock for exchange SKU line", "sku": line.snapshot.sku},
+                            details={"message": "insufficient PENDING stock for exchange SKU line", "sku": snapshot.sku},
                         )
                     for stock_row in stock_rows:
                         stock_row.status = "SOLD"
@@ -1807,6 +1717,7 @@ def sale_action(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == sale.tenant_id,
+                                StockItem.store_id == sale.store_id,
                                 StockItem.epc == line.epc,
                                 StockItem.status == "SOLD",
                                 StockItem.location_code == line.location_code,
@@ -1864,6 +1775,7 @@ def sale_action(
                             select(StockItem)
                             .where(
                                 StockItem.tenant_id == sale.tenant_id,
+                                StockItem.store_id == sale.store_id,
                                 StockItem.sku == line.sku,
                                 StockItem.status == "SOLD",
                                 StockItem.location_code == line.location_code,
@@ -1915,7 +1827,7 @@ def sale_action(
                 net_adjustment=float(delta),
                 payload={
                     "returned_lines": returned_lines_payload,
-                    "exchange_lines": [line.model_dump(mode="json") for line in exchange_lines],
+                    "exchange_lines": [line.model_dump(mode="json") for line in resolved_exchange_lines],
                     "refund_payments": [payment.model_dump(mode="json") for payment in refund_payments],
                     "collection_payments": [payment.model_dump(mode="json") for payment in payments],
                     "policy_snapshot": _policy_snapshot(policy),
@@ -1929,19 +1841,23 @@ def sale_action(
             db.add(return_event)
 
             if cash_session and cash_total > 0:
-                _record_cash_movement(
-                    db,
-                    session=cash_session,
-                    tenant_id=scoped_tenant_id,
-                    store_id=str(sale.store_id),
-                    sale_id=sale.id,
-                    action="CASH_OUT_REFUND" if delta < 0 else "SALE",
-                    amount=cash_total,
-                    transaction_id=payload.transaction_id,
-                    actor_user_id=str(current_user.id),
-                    trace_id=getattr(request.state, "trace_id", None),
-                    occurred_at=now,
-                )
+                movement_amount = cash_total
+                if delta > 0:
+                    movement_amount = max(Decimal("0.00"), totals["cash_total"] - totals["change_due"])
+                if movement_amount > 0:
+                    _record_cash_movement(
+                        db,
+                        session=cash_session,
+                        tenant_id=scoped_tenant_id,
+                        store_id=str(sale.store_id),
+                        sale_id=sale.id,
+                        action="CASH_OUT_REFUND" if delta < 0 else "SALE",
+                        amount=movement_amount,
+                        transaction_id=payload.transaction_id,
+                        actor_user_id=str(current_user.id),
+                        trace_id=getattr(request.state, "trace_id", None),
+                        occurred_at=now,
+                    )
 
         response = _sale_response(repo, sale)
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
@@ -2007,6 +1923,7 @@ def sale_action(
                     select(StockItem)
                     .where(
                         StockItem.tenant_id == sale.tenant_id,
+                        StockItem.store_id == sale.store_id,
                         StockItem.epc == line.epc,
                         StockItem.status == "RFID",
                         StockItem.location_code == line.location_code,
@@ -2032,6 +1949,7 @@ def sale_action(
                     select(StockItem)
                     .where(
                         StockItem.tenant_id == sale.tenant_id,
+                        StockItem.store_id == sale.store_id,
                         StockItem.sku == line.sku,
                         StockItem.status == "PENDING",
                         StockItem.location_code == line.location_code,
@@ -2083,19 +2001,21 @@ def sale_action(
         db.add_all(payment_records)
 
     if cash_session:
-        _record_cash_movement(
-            db,
-            session=cash_session,
-            tenant_id=scoped_tenant_id,
-            store_id=str(sale.store_id),
-            sale_id=sale.id,
-            action="SALE",
-            amount=totals["cash_total"],
-            transaction_id=payload.transaction_id,
-            actor_user_id=str(current_user.id),
-            trace_id=getattr(request.state, "trace_id", None),
-            occurred_at=now,
-        )
+        net_cash_in = max(Decimal("0.00"), totals["cash_total"] - totals["change_due"])
+        if net_cash_in > 0:
+            _record_cash_movement(
+                db,
+                session=cash_session,
+                tenant_id=scoped_tenant_id,
+                store_id=str(sale.store_id),
+                sale_id=sale.id,
+                action="SALE",
+                amount=net_cash_in,
+                transaction_id=payload.transaction_id,
+                actor_user_id=str(current_user.id),
+                trace_id=getattr(request.state, "trace_id", None),
+                occurred_at=now,
+            )
     db.commit()
 
     response = _sale_response(repo, sale)

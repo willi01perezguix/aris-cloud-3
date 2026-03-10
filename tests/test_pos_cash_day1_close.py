@@ -30,6 +30,7 @@ def test_close_computes_difference_and_immutability(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_IN",
             "amount": 10.0,
+            "reason": "Cash in",
         },
     )
 
@@ -44,9 +45,9 @@ def test_close_computes_difference_and_immutability(client, db_session):
         },
     )
     assert close_response.status_code == 200
-    assert close_response.json()["expected_cash"] == "70.0"
-    assert close_response.json()["counted_cash"] == "65.0"
-    assert close_response.json()["difference"] == "-5.0"
+    assert close_response.json()["expected_cash"] == "70.00"
+    assert close_response.json()["counted_cash"] == "65.00"
+    assert close_response.json()["difference"] == "-5.00"
 
     blocked = client.post(
         "/aris3/pos/cash/session/actions",
@@ -56,7 +57,8 @@ def test_close_computes_difference_and_immutability(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_IN",
             "amount": 5.0,
+            "reason": "Cash in",
         },
     )
-    assert blocked.status_code == 422
-    assert blocked.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == ErrorCatalog.BUSINESS_CONFLICT.code

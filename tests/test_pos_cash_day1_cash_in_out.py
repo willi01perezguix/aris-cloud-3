@@ -32,6 +32,7 @@ def test_cash_in_out_success_and_negative_blocked(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_IN",
             "amount": 20.0,
+            "reason": "Cash in",
         },
     )
     assert cash_in.status_code == 200
@@ -45,6 +46,7 @@ def test_cash_in_out_success_and_negative_blocked(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_OUT",
             "amount": 30.0,
+            "reason": "Cash out",
         },
     )
     assert cash_out.status_code == 200
@@ -58,6 +60,7 @@ def test_cash_in_out_success_and_negative_blocked(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_OUT",
             "amount": 100.0,
+            "reason": "Cash out",
         },
     )
     assert denied.status_code == 422

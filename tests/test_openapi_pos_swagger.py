@@ -53,3 +53,15 @@ def test_sales_actions_primary_examples_are_checkout_cancel():
     op = app.openapi()["paths"]["/aris3/pos/sales/{sale_id}/actions"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"checkout", "cancel"}.issubset(set(examples.keys()))
+
+
+
+def test_pos_sales_list_get_has_no_request_body():
+    op = app.openapi()["paths"]["/aris3/pos/sales"]["get"]
+    assert "requestBody" not in op
+
+
+def test_pos_sales_patch_uses_update_schema():
+    op = app.openapi()["paths"]["/aris3/pos/sales/{sale_id}"]["patch"]
+    schema = op["requestBody"]["content"]["application/json"]["schema"]
+    assert schema["$ref"].endswith("/PosSaleUpdateRequest")

@@ -42,6 +42,7 @@ def test_reconciliation_formula_with_mixed_movements(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_IN",
             "amount": 25.0,
+            "reason": "Cash in",
         },
     )
     assert cash_in.status_code == 200
@@ -54,6 +55,7 @@ def test_reconciliation_formula_with_mixed_movements(client, db_session):
             "store_id": str(store.id),
             "action": "CASH_OUT",
             "amount": 10.0,
+            "reason": "Cash out",
         },
     )
     assert cash_out.status_code == 200

@@ -57,14 +57,17 @@ jobs:
 
     env:
       PYTHONPATH: .
-      PGPORT: ${{ job.services.postgres.ports[5432] }}
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Export Postgres env
+        run: |
+          echo "PGPORT=${{ job.services.postgres.ports[5432] }}" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=postgresql+psycopg2://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres" >> "$GITHUB_ENV"
 
       - name: Validate Python client layout guardrails
         run: python scripts/ci/validate_python_client_layout.py

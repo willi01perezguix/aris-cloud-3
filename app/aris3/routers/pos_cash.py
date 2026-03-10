@@ -608,7 +608,7 @@ def list_cash_movements(
 
 @router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone.", openapi_extra={
     "responses": {
-        "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "counted_cash", "message": "counted_cash is required when force_if_open_sessions is true", "type": "value_error"}]}, "trace_id": "trace-day-close-422"}}}}
+        "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "reason", "message": "reason is required for force day close", "type": "value_error"}]}, "trace_id": "trace-day-close-422"}}}}
     }
 })
 def close_day(

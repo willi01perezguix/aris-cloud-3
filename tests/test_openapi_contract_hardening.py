@@ -41,3 +41,12 @@ def test_admin_user_create_and_lists_document_filters_sort_and_pagination():
     assert {"status", "search", "limit", "offset", "sort_by", "sort_order"}.issubset(tenants_params)
     assert {"tenant_id", "search", "limit", "offset", "sort_by", "sort_order"}.issubset(stores_params)
     assert {"tenant_id", "store_id", "role", "status", "is_active", "search", "limit", "offset", "sort_by", "sort_order"}.issubset(users_params)
+
+
+def test_pos_cash_day_close_422_example_matches_force_reason_runtime_requirement():
+    openapi = app.openapi()["paths"]
+    example = openapi["/aris3/pos/cash/day-close/actions"]["post"]["responses"]["422"]["content"]["application/json"]["example"]
+    first_error = example["details"]["errors"][0]
+
+    assert first_error["field"] == "reason"
+    assert first_error["message"] == "reason is required for force day close"

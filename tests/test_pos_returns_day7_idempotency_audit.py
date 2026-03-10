@@ -78,3 +78,65 @@ def test_refund_idempotency_and_audit(client, db_session):
     )
     assert event is not None
     assert event.result == "success"
+
+
+def test_refund_audit_uses_sale_store_not_user_store(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, other_store, user = create_tenant_user(db_session, suffix="refund-audit-store")
+    user.store_id = other_store.id
+    db_session.commit()
+    token = login(client, user.username, "Pass1234!")
+
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        sku="SKU-AUDIT-STORE",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+
+    sale = create_paid_sale(
+        client,
+        token,
+        str(store.id),
+        [sale_line(line_type="SKU", qty=1, unit_price=9.0, sku="SKU-AUDIT-STORE", epc=None, status="PENDING")],
+        payments=[{"method": "CARD", "amount": 9, "authorization_code": "AUTH-AS"}],
+        create_txn="txn-refund-audit-store-create",
+        checkout_txn="txn-refund-audit-store-checkout",
+        idempotency_key="refund-audit-store-create",
+        checkout_idempotency_key="refund-audit-store-checkout",
+    )
+
+    set_return_policy(
+        client,
+        token,
+        {
+            "allow_refund_card": True,
+            "require_receipt": False,
+            "accepted_conditions": ["NEW"],
+        },
+        idempotency_key="refund-audit-store-policy",
+    )
+
+    response = client.post(
+        f"/aris3/pos/sales/{sale['header']['id']}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "refund-audit-store-action"},
+        json={
+            "transaction_id": "txn-refund-audit-store-action",
+            "action": "REFUND_ITEMS",
+            "return_items": [{"line_id": sale["lines"][0]["id"], "qty": 1, "condition": "NEW"}],
+            "refund_payments": [{"method": "CARD", "amount": 9, "authorization_code": "AUTH-AS-REF"}],
+        },
+    )
+    assert response.status_code == 200
+
+    event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.action == "pos_sale.refund_items", AuditEvent.entity_id == str(UUID(sale["header"]["id"])))
+        .order_by(AuditEvent.created_at.desc())
+        .first()
+    )
+    assert event is not None
+    assert str(event.store_id) == str(store.id)

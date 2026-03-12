@@ -42,7 +42,7 @@ def test_auth_login_validation_error_uses_flat_error_envelope(client):
     assert "detail" not in body
 
 
-def test_change_password_patch_canonical_and_post_deprecated_alias(client, db_session):
+def test_change_password_patch_is_only_supported_method(client, db_session):
     _create_user(db_session, username="pwd-admin", password="Pass1234!", role="ADMIN")
     token = _login(client, "pwd-admin", "Pass1234!")
 
@@ -53,15 +53,14 @@ def test_change_password_patch_canonical_and_post_deprecated_alias(client, db_se
     )
     assert patch_response.status_code == 200
     assert "Deprecation" not in patch_response.headers
+    assert "Sunset" not in patch_response.headers
 
     post_response = client.post(
         "/aris3/auth/change-password",
         headers={"Authorization": f"Bearer {token}"},
         json={"current_password": "ChangeMe1234!", "new_password": "Another1234!"},
     )
-    assert post_response.status_code == 200
-    assert post_response.headers.get("Deprecation") == "true"
-    assert post_response.headers.get("Sunset") == "2026-06-30"
+    assert post_response.status_code == 405
 
 
 def test_admin_delete_not_found_and_conflict_include_details(client, db_session):
@@ -146,7 +145,7 @@ def test_users_status_and_is_active_filters_are_consistent(client, db_session):
     assert all(item["is_active"] is True and item["status"] == "ACTIVE" for item in active_response.json()["users"])
 
 
-def test_openapi_stores_docs_and_change_password_deprecation_and_health_ready_contract():
+def test_openapi_stores_docs_and_change_password_patch_only_and_health_ready_contract():
     from app.main import app
 
     schema = app.openapi()
@@ -157,10 +156,10 @@ def test_openapi_stores_docs_and_change_password_deprecation_and_health_ready_co
     assert params["query_tenant_id"]["deprecated"] is True
     assert stores_get["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("StoreListResponse")
 
-    patch_op = schema["paths"]["/aris3/auth/change-password"]["patch"]
-    post_op = schema["paths"]["/aris3/auth/change-password"]["post"]
+    change_password_ops = schema["paths"]["/aris3/auth/change-password"]
+    patch_op = change_password_ops["patch"]
     assert patch_op.get("deprecated") is not True
-    assert post_op.get("deprecated") is True
+    assert "post" not in change_password_ops
 
     health_schema = schema["paths"]["/health"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     ready_schema = schema["paths"]["/ready"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]

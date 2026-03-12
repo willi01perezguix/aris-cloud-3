@@ -14,7 +14,7 @@
 
 **Usado hoy (obligatorio mantener):**
 - `POST /aris3/auth/login`
-- `POST|PATCH /aris3/auth/change-password` (al menos un método, mantener compatibilidad)
+- `PATCH /aris3/auth/change-password` (método canónico único)
 - `GET /aris3/me`
 - `GET /aris3/access-control/effective-permissions` (self)
 - `GET /aris3/access-control/permission-catalog` (self)
@@ -52,8 +52,8 @@
 ### P0 (non-breaking, recomendado inmediato)
 1. **Congelar Core obligatorio** (lista sección C) y etiquetar en OpenAPI con tag `core`.
 2. **Unificar comportamiento `change-password`**:
-   - Mantener `POST` y `PATCH` apuntando al mismo handler (ya ocurre).
-   - Marcar `PATCH` como `deprecated: true` (o POST, según cliente principal) y documentar método canónico.
+   - Mantener solo `PATCH` como endpoint canónico.
+   - Eliminar alias deprecated `POST` del contrato OpenAPI y runtime.
 3. **Paginación robusta en `/admin/tenants|stores|users`:**
    - mantener `limit<=200`, `offset>=0`.
    - `pagination.total` siempre desde `count(*)` con mismos filtros.
@@ -79,8 +79,8 @@
 
 ### Operación mínima (OPERADOR)
 - `POST /aris3/auth/login`
-- `POST /aris3/auth/change-password` (canónico)
-- `PATCH /aris3/auth/change-password` (alias temporal)
+- `PATCH /aris3/auth/change-password` (canónico)
+
 - `GET /aris3/me`
 - `GET /aris3/access-control/effective-permissions`
 - `GET /aris3/access-control/permission-catalog`
@@ -102,7 +102,7 @@
 ## D) Endpoints a deprecate / ocultar (sin romper inmediato)
 
 ### Deprecar (soft)
-- `PATCH /aris3/auth/change-password` (si POST queda canónico; o viceversa).
+- `POST /aris3/auth/change-password` retirado; mantener solo PATCH.
 - Rutas ACL legacy hidden en `/aris3/access-control/*` con parámetros tenant/store/user para resolución de terceros.
 
 ### Internal only (mantener pero no promover en contrato público)

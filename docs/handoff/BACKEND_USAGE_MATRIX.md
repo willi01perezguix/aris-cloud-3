@@ -3,7 +3,7 @@
 Static inventory based on router wiring, tests, and client package presence.
 
 ## KEEP (uso confirmado)
-- `/aris3/auth/login`, `/aris3/auth/change-password` (PATCH + POST alias): usados ampliamente por tests e integraciones.
+- `/aris3/auth/login`, `/aris3/auth/change-password` (PATCH): usado ampliamente por tests e integraciones.
 - `/aris3/me`: cubierto en tests de contrato de error/autenticación.
 - `/aris3/admin/tenants*`, `/aris3/admin/stores*`, `/aris3/admin/users*`, `/aris3/admin/settings/*`: cubiertos por tests core/admin y contrato.
 - `/aris3/admin/access-control/*` y `/aris3/access-control/*`: cubiertos por tests de jerarquía, límites, idempotencia.
@@ -11,7 +11,6 @@ Static inventory based on router wiring, tests, and client package presence.
 - Routers POS/stock/transfers/reports/exports/assets: preservados (alto volumen de tests dedicados).
 
 ## LEGACY (compatibilidad temporal)
-- `POST /aris3/auth/change-password`: alias deprecated mantenido con headers `Deprecation` y `Sunset`.
 - `query_tenant_id` en create store: mantenido como query param deprecated.
 - `is_active` en list users: mantenido como filtro deprecated derivado de `status`.
 

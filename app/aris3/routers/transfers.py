@@ -236,6 +236,68 @@ def _normalize_transfer_lines(db, *, tenant_id: str, origin_store_id: str, lines
     return normalized
 
 
+def _revalidate_existing_draft_lines(
+    db,
+    *,
+    tenant_id: str,
+    origin_store_id: str,
+    lines: list[TransferLine],
+    transfer_id: str,
+) -> None:
+    for line in lines:
+        if line.line_type != "EPC":
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "Transfers currently support EPC/RFID lines only"},
+            )
+        if not line.epc:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "epc is required for EPC lines"},
+            )
+        _validate_transferable_epc_stock(
+            db,
+            tenant_id=tenant_id,
+            origin_store_id=origin_store_id,
+            epc=line.epc,
+            expected_location_code=line.location_code,
+            expected_pool=line.pool,
+        )
+        as_create_line = TransferLineCreate(
+            line_type="EPC",
+            qty=line.qty,
+            snapshot=TransferLineSnapshot(
+                sku=line.sku,
+                description=line.description,
+                var1_value=line.var1_value,
+                var2_value=line.var2_value,
+                cost_price=float(line.cost_price) if line.cost_price is not None else None,
+                suggested_price=float(line.suggested_price) if line.suggested_price is not None else None,
+                sale_price=float(line.sale_price) if line.sale_price is not None else None,
+                epc=line.epc,
+                location_code=line.location_code,
+                pool=line.pool,
+                status=line.status,
+                location_is_vendible=line.location_is_vendible,
+                image_asset_id=line.image_asset_id,
+                image_url=line.image_url,
+                image_thumb_url=line.image_thumb_url,
+                image_source=line.image_source,
+                image_updated_at=line.image_updated_at,
+            ),
+        )
+        if _active_transfer_line_exists(
+            db,
+            tenant_id=tenant_id,
+            line=as_create_line,
+            exclude_transfer_id=transfer_id,
+        ):
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "stock is already committed in an active transfer", "epc": line.epc},
+            )
+
+
 
 def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
     if not token_data.tenant_id:
@@ -301,11 +363,6 @@ def _validate_transfer_snapshot(line: TransferLineCreate) -> None:
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "epc is required for EPC lines"},
             )
-    if line.line_type == "SKU" and snapshot.epc is not None:
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "epc must be empty for SKU lines"},
-        )
     if not snapshot.location_code or not snapshot.pool:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
@@ -782,6 +839,15 @@ def update_transfer(
                 )
             )
         db.add_all(new_lines)
+    else:
+        existing_lines = repo.get_lines(_normalize_uuid(transfer.id))
+        _revalidate_existing_draft_lines(
+            db,
+            tenant_id=scoped_tenant_id,
+            origin_store_id=current_origin_store_id,
+            lines=existing_lines,
+            transfer_id=_normalize_uuid(transfer.id),
+        )
     transfer.updated_by_user_id = current_user.id
     transfer.updated_at = datetime.utcnow()
     db.commit()

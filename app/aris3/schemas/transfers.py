@@ -100,6 +100,21 @@ class TransferUpdateRequest(BaseModel):
     destination_store_id: str | None = None
     lines: list[TransferLineCreate] | None = None
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "transaction_id": "txn-transfer-update-1",
+                "lines": [
+                    {
+                        "line_type": "EPC",
+                        "qty": 1,
+                        "snapshot": _TRANSFER_LINE_SNAPSHOT_EXAMPLE,
+                    }
+                ],
+            }
+        }
+    }
+
 
 class TransferReceiveLine(BaseModel):
     line_id: str
@@ -219,6 +234,48 @@ class TransferResponse(BaseModel):
     header: TransferHeaderResponse
     lines: list[TransferLineResponse]
     movement_summary: TransferMovementSummary
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "header": {
+                    "id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                    "tenant_id": "aaaaaaaa-0000-0000-0000-cccccccccccc",
+                    "origin_store_id": "11111111-1111-1111-1111-111111111111",
+                    "destination_store_id": "22222222-2222-2222-2222-222222222222",
+                    "status": "DISPATCHED",
+                    "created_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+                    "updated_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+                    "dispatched_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+                    "canceled_by_user_id": None,
+                    "dispatched_at": "2026-03-27T10:30:00Z",
+                    "canceled_at": None,
+                    "received_at": None,
+                    "created_at": "2026-03-27T10:00:00Z",
+                    "updated_at": "2026-03-27T10:30:00Z",
+                },
+                "lines": [
+                    {
+                        "id": "33333333-3333-3333-3333-333333333333",
+                        "line_type": "EPC",
+                        "qty": 1,
+                        "received_qty": 0,
+                        "outstanding_qty": 1,
+                        "shortage_status": "NONE",
+                        "resolution_status": "NONE",
+                        "snapshot": _TRANSFER_LINE_SNAPSHOT_EXAMPLE,
+                        "created_at": "2026-03-27T10:00:00Z",
+                    }
+                ],
+                "movement_summary": {
+                    "dispatched_lines": 1,
+                    "dispatched_qty": 1,
+                    "pending_reception": True,
+                    "shortages_possible": True,
+                },
+            }
+        }
+    }
 
 
 class TransferListResponse(BaseModel):

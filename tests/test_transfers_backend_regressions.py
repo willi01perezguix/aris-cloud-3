@@ -159,6 +159,31 @@ def test_update_transfer_rejects_stale_epc(client, db_session):
     assert update.json()["code"] != "INTERNAL_ERROR"
 
 
+def test_update_transfer_rejects_stale_epc_without_line_changes(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="update-stale-no-lines")
+    token = _login(client, user.username)
+    epc = "L" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-update-stale-no-lines-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    stock_row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id, StockItem.epc == epc).one()
+    stock_row.store_id = destination_store.id
+    db_session.commit()
+    update = client.patch(
+        f"/aris3/transfers/{transfer_id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-update-stale-no-lines-2"},
+        json={"transaction_id": "txn-update-stale-no-lines-1", "destination_store_id": str(destination_store.id)},
+    )
+    assert update.status_code in {409, 422}
+    assert update.json()["code"] != "INTERNAL_ERROR"
+
+
 def test_dispatch_transfer_epc_from_draft(client, db_session):
     run_seed(db_session)
     tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="dispatch-draft")
@@ -258,3 +283,158 @@ def test_reject_non_epc_transfer_lines(client, db_session):
 
     assert response.status_code in {409, 422}
     assert response.json()["code"] != "INTERNAL_ERROR"
+
+
+def test_receive_transfer_epc(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="receive-epc")
+    destination_user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=destination_store.id,
+        username="user-receive-epc-dest",
+        email="user-receive-epc-dest@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="ADMIN",
+        status="active",
+        must_change_password=False,
+        is_active=True,
+    )
+    db_session.add(destination_user)
+    db_session.commit()
+    token = _login(client, user.username)
+    destination_token = _login(client, destination_user.username)
+    epc = "H" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-receive-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    line_id = create.json()["lines"][0]["id"]
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-receive-2"},
+        json={"action": "dispatch", "transaction_id": "txn-receive-dispatch-1"},
+    )
+    assert dispatch.status_code == 200
+
+    receive = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {destination_token}", "Idempotency-Key": "reg-receive-3"},
+        json={
+            "action": "receive",
+            "transaction_id": "txn-receive-1",
+            "receive_lines": [{"line_id": line_id, "qty": 1, "location_code": "STORE-DEST", "pool": "SALE"}],
+        },
+    )
+    assert receive.status_code == 200
+    body = receive.json()
+    assert body["header"]["status"] == "RECEIVED"
+    assert body["lines"][0]["received_qty"] == 1
+    assert body["lines"][0]["outstanding_qty"] == 0
+
+
+def test_cancel_transfer_valid(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="cancel-valid")
+    token = _login(client, user.username)
+    epc = "I" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-cancel-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    cancel = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-cancel-2"},
+        json={"action": "cancel", "transaction_id": "txn-cancel-1"},
+    )
+    assert cancel.status_code == 200
+    assert cancel.json()["header"]["status"] == "CANCELLED"
+
+
+def test_non_epc_transfer_lines_rejected(client, db_session):
+    run_seed(db_session)
+    _, origin_store, destination_store, user = _bootstrap(db_session, suffix="reject-non-epc")
+    token = _login(client, user.username)
+    payload = _payload(str(origin_store.id), str(destination_store.id), "J" * 24)
+    payload["lines"][0]["line_type"] = "SKU"
+    payload["lines"][0]["snapshot"]["epc"] = None
+    response = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-non-epc-2"},
+        json=payload,
+    )
+    assert response.status_code in {409, 422}
+    assert response.json()["code"] != "INTERNAL_ERROR"
+
+
+def test_movement_summary_consistency(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="movement-summary")
+    destination_user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=destination_store.id,
+        username="user-movement-summary-dest",
+        email="user-movement-summary-dest@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="ADMIN",
+        status="active",
+        must_change_password=False,
+        is_active=True,
+    )
+    db_session.add(destination_user)
+    db_session.commit()
+    token = _login(client, user.username)
+    destination_token = _login(client, destination_user.username)
+    epc = "K" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-summary-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    created = create.json()
+    assert created["movement_summary"]["dispatched_lines"] == 0
+    assert created["movement_summary"]["dispatched_qty"] == 0
+    assert created["movement_summary"]["pending_reception"] is False
+    transfer_id = created["header"]["id"]
+    line_id = created["lines"][0]["id"]
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-summary-2"},
+        json={"action": "dispatch", "transaction_id": "txn-summary-dispatch-1"},
+    )
+    assert dispatch.status_code == 200
+    dispatched = dispatch.json()
+    assert dispatched["movement_summary"]["dispatched_lines"] == 1
+    assert dispatched["movement_summary"]["dispatched_qty"] == 1
+    assert dispatched["movement_summary"]["pending_reception"] is True
+
+    receive = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {destination_token}", "Idempotency-Key": "reg-summary-3"},
+        json={
+            "action": "receive",
+            "transaction_id": "txn-summary-receive-1",
+            "receive_lines": [{"line_id": line_id, "qty": 1}],
+        },
+    )
+    assert receive.status_code == 200
+    received = receive.json()
+    assert received["movement_summary"]["dispatched_lines"] == 1
+    assert received["movement_summary"]["dispatched_qty"] == 1
+    assert received["movement_summary"]["pending_reception"] is False
+    assert received["movement_summary"]["shortages_possible"] is False

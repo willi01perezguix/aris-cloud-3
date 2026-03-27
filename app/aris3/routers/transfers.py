@@ -38,6 +38,120 @@ _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_RECEIVE_POOL = "SALE"
 _BROAD_ACCESS_ROLES = {"SUPERADMIN", "PLATFORM_ADMIN", "ADMIN"}
 _ACTIVE_TRANSFER_STATUSES = {"DRAFT", "DISPATCHED", "PARTIAL_RECEIVED"}
+_TRANSFER_LINE_EXAMPLE = {
+    "id": "33333333-3333-3333-3333-333333333333",
+    "line_type": "EPC",
+    "qty": 1,
+    "received_qty": 0,
+    "outstanding_qty": 1,
+    "shortage_status": "NONE",
+    "resolution_status": "NONE",
+    "snapshot": {
+        "sku": "SKU-1",
+        "description": "Blue Jacket",
+        "var1_value": "Blue",
+        "var2_value": "L",
+        "cost_price": 25.0,
+        "suggested_price": 35.0,
+        "sale_price": 32.5,
+        "epc": "ABCDEFABCDEFABCDEFABCDEF",
+        "location_code": "WH-MAIN",
+        "pool": "BODEGA",
+        "status": "RFID",
+        "location_is_vendible": False,
+        "image_asset_id": None,
+        "image_url": None,
+        "image_thumb_url": None,
+        "image_source": None,
+        "image_updated_at": None,
+    },
+    "created_at": "2026-03-27T10:00:00Z",
+}
+_TRANSFER_DRAFT_RESPONSE_EXAMPLE = {
+    "header": {
+        "id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        "tenant_id": "aaaaaaaa-0000-0000-0000-cccccccccccc",
+        "origin_store_id": "11111111-1111-1111-1111-111111111111",
+        "destination_store_id": "22222222-2222-2222-2222-222222222222",
+        "status": "DRAFT",
+        "created_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+        "updated_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+        "dispatched_by_user_id": None,
+        "canceled_by_user_id": None,
+        "dispatched_at": None,
+        "canceled_at": None,
+        "received_at": None,
+        "created_at": "2026-03-27T10:00:00Z",
+        "updated_at": "2026-03-27T10:05:00Z",
+    },
+    "lines": [_TRANSFER_LINE_EXAMPLE],
+    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": True, "shortages_possible": True},
+}
+_TRANSFER_DISPATCHED_RESPONSE_EXAMPLE = {
+    "header": {
+        **_TRANSFER_DRAFT_RESPONSE_EXAMPLE["header"],
+        "status": "DISPATCHED",
+        "dispatched_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+        "dispatched_at": "2026-03-27T10:30:00Z",
+        "updated_at": "2026-03-27T10:30:00Z",
+    },
+    "lines": [_TRANSFER_LINE_EXAMPLE],
+    "movement_summary": {"dispatched_lines": 1, "dispatched_qty": 1, "pending_reception": True, "shortages_possible": True},
+}
+_TRANSFER_RECEIVED_RESPONSE_EXAMPLE = {
+    "header": {
+        **_TRANSFER_DRAFT_RESPONSE_EXAMPLE["header"],
+        "status": "RECEIVED",
+        "dispatched_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+        "dispatched_at": "2026-03-27T10:30:00Z",
+        "received_at": "2026-03-27T11:00:00Z",
+        "updated_at": "2026-03-27T11:00:00Z",
+    },
+    "lines": [{**_TRANSFER_LINE_EXAMPLE, "received_qty": 1, "outstanding_qty": 0}],
+    "movement_summary": {"dispatched_lines": 1, "dispatched_qty": 1, "pending_reception": False, "shortages_possible": False},
+}
+_TRANSFER_CANCELED_RESPONSE_EXAMPLE = {
+    "header": {
+        **_TRANSFER_DRAFT_RESPONSE_EXAMPLE["header"],
+        "status": "CANCELED",
+        "canceled_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+        "canceled_at": "2026-03-27T10:20:00Z",
+        "updated_at": "2026-03-27T10:20:00Z",
+    },
+    "lines": [_TRANSFER_LINE_EXAMPLE],
+    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": False, "shortages_possible": False},
+}
+_TRANSFER_ERROR_EXAMPLES = {
+    "409_epc_not_available": {
+        "code": "BUSINESS_CONFLICT",
+        "message": "Business conflict",
+        "details": {
+            "message": "epc is not available in origin_store_id",
+            "epc": "ABCDEFABCDEFABCDEFABCDEF",
+            "origin_store_id": "11111111-1111-1111-1111-111111111111",
+            "actual_store_id": "99999999-9999-9999-9999-999999999999",
+        },
+        "trace_id": "trace-transfer-409-epc-store",
+    },
+    "422_receive_scope": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation error",
+        "details": {"errors": [{"field": "receive_lines", "message": "receive_lines must target destination store", "type": "value_error"}]},
+        "trace_id": "trace-transfer-422-receive-scope",
+    },
+    "422_draft_stale": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation error",
+        "details": {"errors": [{"field": "lines[0].snapshot.location_code", "message": "stock location changed since draft snapshot", "type": "value_error"}]},
+        "trace_id": "trace-transfer-422-draft-stale",
+    },
+    "422_line_type_not_epc": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation error",
+        "details": {"errors": [{"field": "lines[0].line_type", "message": "Transfers currently support EPC/RFID lines only", "type": "value_error"}]},
+        "trace_id": "trace-transfer-422-line-type",
+    },
+}
 
 
 def _normalized_role(token_data) -> str:
@@ -555,7 +669,26 @@ def _transfer_response(repo: TransferRepository, transfer: Transfer, lines: list
     )
 
 
-@router.get("/aris3/transfers", response_model=TransferListResponse)
+@router.get(
+    "/aris3/transfers",
+    response_model=TransferListResponse,
+    summary="List transfers",
+    description="Returns transfer headers and lines. Transfers are EPC/RFID only in this version; SKU transfer lines are not supported.",
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "rows": [_TRANSFER_DISPATCHED_RESPONSE_EXAMPLE],
+                        "meta": {"page": 1, "page_size": 50, "total": 1},
+                    }
+                }
+            }
+        },
+        409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
+        422: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["422_draft_stale"]}}},
+    },
+)
 def list_transfers(
     status: str | None = Query(default=None),
     origin_store_id: str | None = Query(default=None),
@@ -621,7 +754,27 @@ def list_tenant_stores(
     )
 
 
-@router.post("/aris3/transfers", response_model=TransferResponse, status_code=201)
+@router.post(
+    "/aris3/transfers",
+    response_model=TransferResponse,
+    status_code=201,
+    summary="Create transfer draft",
+    description="Creates a new transfer in DRAFT status. Transfers accept EPC/RFID lines only; SKU lines are rejected.",
+    responses={
+        201: {"content": {"application/json": {"example": _TRANSFER_DRAFT_RESPONSE_EXAMPLE}}},
+        409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
+        422: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
+                        "draft_stale": {"value": _TRANSFER_ERROR_EXAMPLES["422_draft_stale"]},
+                    }
+                }
+            }
+        },
+    },
+)
 def create_transfer(
     request: Request,
     payload: TransferCreateRequest,
@@ -735,7 +888,33 @@ def create_transfer(
     return response
 
 
-@router.patch("/aris3/transfers/{transfer_id}", response_model=TransferResponse)
+@router.patch(
+    "/aris3/transfers/{transfer_id}",
+    response_model=TransferResponse,
+    summary="Update transfer draft",
+    description="Updates a transfer while it remains in DRAFT status. EPC/RFID lines only; SKU lines are not supported.",
+    responses={
+        200: {"content": {"application/json": {"example": _TRANSFER_DRAFT_RESPONSE_EXAMPLE}}},
+        409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
+        422: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "draft_not_editable": {
+                            "value": {
+                                "code": "VALIDATION_ERROR",
+                                "message": "Validation error",
+                                "details": {"errors": [{"field": "status", "message": "only draft transfers can be updated", "type": "value_error"}]},
+                                "trace_id": "trace-transfer-422-update-draft-only",
+                            }
+                        },
+                        "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
+                    }
+                }
+            }
+        },
+    },
+)
 def update_transfer(
     transfer_id: str,
     request: Request,
@@ -876,7 +1055,27 @@ def update_transfer(
     return response
 
 
-@router.get("/aris3/transfers/{transfer_id}", response_model=TransferResponse)
+@router.get(
+    "/aris3/transfers/{transfer_id}",
+    response_model=TransferResponse,
+    summary="Get transfer detail",
+    description="Returns transfer detail for EPC/RFID transfer lines. Includes draft and post-dispatch lifecycle states.",
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "draft": {"value": _TRANSFER_DRAFT_RESPONSE_EXAMPLE},
+                        "dispatched": {"value": _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE},
+                        "received": {"value": _TRANSFER_RECEIVED_RESPONSE_EXAMPLE},
+                    }
+                }
+            }
+        },
+        409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
+        422: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["422_draft_stale"]}}},
+    },
+)
 def get_transfer_detail(
     transfer_id: str,
     token_data=Depends(get_current_token_data),
@@ -901,7 +1100,78 @@ def get_transfer_detail(
     return _transfer_response(repo, transfer, lines)
 
 
-@router.post("/aris3/transfers/{transfer_id}/actions", response_model=TransferResponse)
+@router.post("/aris3/transfers/{transfer_id}/actions",
+    response_model=TransferResponse,
+    summary="Execute transfer action",
+    description="Executes transfer lifecycle actions for EPC/RFID transfers only. Supported actions include dispatch, receive, cancel, shortages reporting, and shortages resolution.",
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "dispatch": {"value": _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE},
+                        "receive": {"value": _TRANSFER_RECEIVED_RESPONSE_EXAMPLE},
+                        "cancel": {"value": _TRANSFER_CANCELED_RESPONSE_EXAMPLE},
+                    }
+                }
+            }
+        },
+        409: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "epc_not_available_in_origin_store": {"value": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]},
+                    }
+                }
+            }
+        },
+        422: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "dispatch_invalid_state": {
+                            "value": {
+                                "code": "VALIDATION_ERROR",
+                                "message": "Validation error",
+                                "details": {"errors": [{"field": "status", "message": "only draft transfers can be dispatched", "type": "value_error"}]},
+                                "trace_id": "trace-transfer-422-dispatch-state",
+                            }
+                        },
+                        "receive_wrong_store": {"value": _TRANSFER_ERROR_EXAMPLES["422_receive_scope"]},
+                        "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
+                    }
+                }
+            }
+        },
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "dispatch": {"value": {"action": "dispatch", "transaction_id": "txn-dispatch-1"}},
+                        "receive": {
+                            "value": {
+                                "action": "receive",
+                                "transaction_id": "txn-receive-1",
+                                "receive_lines": [
+                                    {
+                                        "line_id": "33333333-3333-3333-3333-333333333333",
+                                        "qty": 1,
+                                        "location_code": "STORE-DEST",
+                                        "pool": "SALE",
+                                        "location_is_vendible": True,
+                                    }
+                                ],
+                            }
+                        },
+                        "cancel": {"value": {"action": "cancel", "transaction_id": "txn-cancel-1"}},
+                    }
+                }
+            }
+        }
+    },
+)
 def transfer_actions(
     transfer_id: str,
     request: Request,

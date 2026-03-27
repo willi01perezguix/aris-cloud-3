@@ -51,7 +51,9 @@ class TransferLineSnapshot(BaseModel):
 
 
 class TransferLineCreate(BaseModel):
-    line_type: Literal["EPC", "SKU"]
+    line_type: Literal["EPC"] = Field(
+        description="Transfers support EPC/RFID lines only in this version. SKU lines are not supported."
+    )
     qty: int = 1
     snapshot: TransferLineSnapshot
 
@@ -75,7 +77,7 @@ class TransferCreateRequest(BaseModel):
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     origin_store_id: str
     destination_store_id: str
-    lines: list[TransferLineCreate]
+    lines: list[TransferLineCreate] = Field(description="Transfer lines. Only EPC/RFID lines are supported.")
 
     model_config = {
         "extra": "forbid",
@@ -101,7 +103,10 @@ class TransferUpdateRequest(BaseModel):
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     origin_store_id: str | None = None
     destination_store_id: str | None = None
-    lines: list[TransferLineCreate] | None = None
+    lines: list[TransferLineCreate] | None = Field(
+        default=None,
+        description="Replacement transfer lines for draft update. Only EPC/RFID lines are supported.",
+    )
 
     model_config = {
         "extra": "forbid",
@@ -258,16 +263,16 @@ class TransferResponse(BaseModel):
                     "tenant_id": "aaaaaaaa-0000-0000-0000-cccccccccccc",
                     "origin_store_id": "11111111-1111-1111-1111-111111111111",
                     "destination_store_id": "22222222-2222-2222-2222-222222222222",
-                    "status": "DISPATCHED",
+                    "status": "DRAFT",
                     "created_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
                     "updated_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
-                    "dispatched_by_user_id": "dddddddd-1111-2222-3333-eeeeeeeeeeee",
+                    "dispatched_by_user_id": None,
                     "canceled_by_user_id": None,
-                    "dispatched_at": "2026-03-27T10:30:00Z",
+                    "dispatched_at": None,
                     "canceled_at": None,
                     "received_at": None,
                     "created_at": "2026-03-27T10:00:00Z",
-                    "updated_at": "2026-03-27T10:30:00Z",
+                    "updated_at": "2026-03-27T10:05:00Z",
                 },
                 "lines": [
                     {
@@ -283,8 +288,8 @@ class TransferResponse(BaseModel):
                     }
                 ],
                 "movement_summary": {
-                    "dispatched_lines": 1,
-                    "dispatched_qty": 1,
+                    "dispatched_lines": 0,
+                    "dispatched_qty": 0,
                     "pending_reception": True,
                     "shortages_possible": True,
                 },

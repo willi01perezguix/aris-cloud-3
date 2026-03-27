@@ -1082,9 +1082,9 @@ def update_transfer(
             "content": {
                 "application/json": {
                     "examples": {
-                        "draft": {"value": _TRANSFER_DRAFT_RESPONSE_EXAMPLE},
-                        "dispatched": {"value": _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE},
-                        "received": {"value": _TRANSFER_RECEIVED_RESPONSE_EXAMPLE},
+                        "draft": {"summary": "Draft transfer detail", "value": _TRANSFER_DRAFT_RESPONSE_EXAMPLE},
+                        "dispatched": {"summary": "Dispatched transfer detail", "value": _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE},
+                        "received": {"summary": "Received transfer detail", "value": _TRANSFER_RECEIVED_RESPONSE_EXAMPLE},
                     }
                 }
             }

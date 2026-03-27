@@ -98,7 +98,9 @@ def test_transfer_cancel_draft_success(client, db_session):
     tenant, store, other_store, user = _create_tenant_user(db_session, suffix="cancel-draft")
     token = _login(client, user.username, "Pass1234!")
 
-    payload = _transfer_payload(str(store.id), str(other_store.id), "E" * 24)
+    epc = "E" * 24
+    _seed_stock(db_session, tenant.id, epc=epc)
+    payload = _transfer_payload(str(store.id), str(other_store.id), epc)
     create_response = client.post(
         "/aris3/transfers",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-cancel-1"},

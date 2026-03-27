@@ -126,6 +126,77 @@ def _active_transfer_line_exists(db, *, tenant_id: str, line: TransferLineCreate
     return db.execute(query).scalars().first() is not None
 
 
+
+
+def _validate_transferable_epc_stock(
+    db,
+    *,
+    tenant_id: str,
+    origin_store_id: str,
+    epc: str,
+    expected_location_code: str | None = None,
+    expected_pool: str | None = None,
+):
+    stock_row = (
+        db.execute(
+            select(StockItem)
+            .where(
+                StockItem.tenant_id == tenant_id,
+                or_(StockItem.store_id == origin_store_id, StockItem.store_id.is_(None)),
+                StockItem.epc == epc,
+            )
+            .with_for_update()
+        )
+        .scalars()
+        .first()
+    )
+    if not stock_row:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "epc is not available in origin_store_id",
+                "epc": epc,
+                "origin_store_id": origin_store_id,
+            },
+        )
+
+    if stock_row.status != "RFID":
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "stock is not transferable", "epc": epc, "status": stock_row.status},
+        )
+
+    if stock_row.location_code == _IN_TRANSIT_CODE or stock_row.pool == _IN_TRANSIT_CODE:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "stock is already in transit", "epc": epc},
+        )
+
+    if expected_location_code and stock_row.location_code != expected_location_code:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "stock location changed since draft snapshot",
+                "epc": epc,
+                "expected_location_code": expected_location_code,
+                "actual_location_code": stock_row.location_code,
+            },
+        )
+
+    if expected_pool and stock_row.pool != expected_pool:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={
+                "message": "stock pool changed since draft snapshot",
+                "epc": epc,
+                "expected_pool": expected_pool,
+                "actual_pool": stock_row.pool,
+            },
+        )
+
+    return stock_row
+
+
 def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: TransferLineCreate, exclude_transfer_id: str | None = None) -> dict:
     _validate_transfer_snapshot(line)
     if line.line_type != "EPC":
@@ -136,26 +207,17 @@ def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: 
     if line.snapshot.status == "PENDING":
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "PENDING stock is not transferable"})
 
-    stock_row = (
-        db.execute(
-            select(StockItem)
-            .where(
-                StockItem.tenant_id == tenant_id,
-                or_(StockItem.store_id == origin_store_id, StockItem.store_id.is_(None)),
-                StockItem.epc == line.snapshot.epc,
-            )
-            .with_for_update()
-        )
-        .scalars()
-        .first()
+    stock_row = _validate_transferable_epc_stock(
+        db,
+        tenant_id=tenant_id,
+        origin_store_id=origin_store_id,
+        epc=line.snapshot.epc,
     )
-    if stock_row is not None and stock_row.status == "PENDING":
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "PENDING stock is not transferable", "epc": line.snapshot.epc})
 
     if _active_transfer_line_exists(db, tenant_id=tenant_id, line=line, exclude_transfer_id=exclude_transfer_id):
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "stock is already committed in an active transfer"})
 
-    snapshot = _stock_snapshot_from_item(stock_row) if stock_row is not None else line.snapshot.model_dump()
+    snapshot = _stock_snapshot_from_item(stock_row)
     return {"line_type": line.line_type, "qty": line.qty, "snapshot": snapshot}
 
 
@@ -833,27 +895,14 @@ def transfer_actions(
                     ErrorCatalog.VALIDATION_ERROR,
                     details={"message": "epc is required for EPC dispatch"},
                 )
-            row = (
-                db.execute(
-                    select(StockItem)
-                    .where(
-                        StockItem.tenant_id == scoped_tenant_id,
-                        StockItem.epc == line.epc,
-                        or_(StockItem.store_id == transfer.origin_store_id, StockItem.store_id.is_(None)),
-                        StockItem.location_code == line.location_code,
-                        StockItem.pool == line.pool,
-                        StockItem.status != "PENDING",
-                    )
-                    .with_for_update()
-                )
-                .scalars()
-                .first()
+            row = _validate_transferable_epc_stock(
+                db,
+                tenant_id=scoped_tenant_id,
+                origin_store_id=str(transfer.origin_store_id),
+                epc=line.epc,
+                expected_location_code=line.location_code,
+                expected_pool=line.pool,
             )
-            if not row:
-                raise AppError(
-                    ErrorCatalog.VALIDATION_ERROR,
-                    details={"message": "insufficient stock for EPC dispatch", "epc": line.epc},
-                )
             row.location_code = _IN_TRANSIT_CODE
             row.pool = _IN_TRANSIT_CODE
             row.store_id = transfer.origin_store_id

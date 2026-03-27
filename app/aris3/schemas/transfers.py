@@ -188,8 +188,8 @@ class TransferReceiveActionRequest(BaseModel):
                     {
                         "line_id": "33333333-3333-3333-3333-333333333333",
                         "qty": 1,
-                        "location_code": "STORE-DEST",
-                        "pool": "SALE",
+                        "location_code": "ONLINE-A1",
+                        "pool": "VENTA",
                         "location_is_vendible": True,
                     }
                 ],

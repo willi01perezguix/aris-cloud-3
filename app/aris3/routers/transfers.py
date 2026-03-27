@@ -139,6 +139,17 @@ _TRANSFER_ERROR_EXAMPLES = {
         "details": {"errors": [{"field": "receive_lines", "message": "receive_lines must target destination store", "type": "value_error"}]},
         "trace_id": "trace-transfer-422-receive-scope",
     },
+    "409_draft_stale": {
+        "code": "BUSINESS_CONFLICT",
+        "message": "Business conflict",
+        "details": {
+            "message": "stock location changed since draft snapshot",
+            "epc": "ABCDEFABCDEFABCDEFABCDEF",
+            "expected_location_code": "WH-MAIN",
+            "actual_location_code": "WH-OVERFLOW",
+        },
+        "trace_id": "trace-transfer-409-draft-stale",
+    },
     "422_draft_stale": {
         "code": "VALIDATION_ERROR",
         "message": "Validation error",
@@ -1089,8 +1100,16 @@ def update_transfer(
                 }
             }
         },
-        409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
-        422: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["422_draft_stale"]}}},
+        409: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "epc_not_available_in_origin_store": {"value": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]},
+                        "draft_stale": {"value": _TRANSFER_ERROR_EXAMPLES["409_draft_stale"]},
+                    }
+                }
+            }
+        },
     },
 )
 def get_transfer_detail(

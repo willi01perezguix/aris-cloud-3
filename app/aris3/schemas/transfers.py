@@ -272,7 +272,7 @@ class TransferResponse(BaseModel):
                     "canceled_at": None,
                     "received_at": None,
                     "created_at": "2026-03-27T10:00:00Z",
-                    "updated_at": "2026-03-27T10:05:00Z",
+                    "updated_at": "2026-03-27T10:00:00Z",
                 },
                 "lines": [
                     {
@@ -290,8 +290,8 @@ class TransferResponse(BaseModel):
                 "movement_summary": {
                     "dispatched_lines": 0,
                     "dispatched_qty": 0,
-                    "pending_reception": True,
-                    "shortages_possible": True,
+                    "pending_reception": False,
+                    "shortages_possible": False,
                 },
             }
         }

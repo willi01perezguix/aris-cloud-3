@@ -82,10 +82,10 @@ _TRANSFER_DRAFT_RESPONSE_EXAMPLE = {
         "canceled_at": None,
         "received_at": None,
         "created_at": "2026-03-27T10:00:00Z",
-        "updated_at": "2026-03-27T10:05:00Z",
+        "updated_at": "2026-03-27T10:00:00Z",
     },
     "lines": [_TRANSFER_LINE_EXAMPLE],
-    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": True, "shortages_possible": True},
+    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": False, "shortages_possible": False},
 }
 _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE = {
     "header": {
@@ -1109,9 +1109,9 @@ def get_transfer_detail(
             "content": {
                 "application/json": {
                     "examples": {
-                        "dispatch": {"value": _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE},
-                        "receive": {"value": _TRANSFER_RECEIVED_RESPONSE_EXAMPLE},
-                        "cancel": {"value": _TRANSFER_CANCELED_RESPONSE_EXAMPLE},
+                        "dispatch": {"summary": "Dispatch action response", "value": _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE},
+                        "receive": {"summary": "Receive action response", "value": _TRANSFER_RECEIVED_RESPONSE_EXAMPLE},
+                        "cancel": {"summary": "Cancel action response", "value": _TRANSFER_CANCELED_RESPONSE_EXAMPLE},
                     }
                 }
             }
@@ -1149,8 +1149,12 @@ def get_transfer_detail(
             "content": {
                 "application/json": {
                     "examples": {
-                        "dispatch": {"value": {"action": "dispatch", "transaction_id": "txn-dispatch-1"}},
+                        "dispatch": {
+                            "summary": "Dispatch action request",
+                            "value": {"action": "dispatch", "transaction_id": "txn-dispatch-1"},
+                        },
                         "receive": {
+                            "summary": "Receive action request",
                             "value": {
                                 "action": "receive",
                                 "transaction_id": "txn-receive-1",
@@ -1165,7 +1169,10 @@ def get_transfer_detail(
                                 ],
                             }
                         },
-                        "cancel": {"value": {"action": "cancel", "transaction_id": "txn-cancel-1"}},
+                        "cancel": {
+                            "summary": "Cancel action request",
+                            "value": {"action": "cancel", "transaction_id": "txn-cancel-1"},
+                        },
                     }
                 }
             }

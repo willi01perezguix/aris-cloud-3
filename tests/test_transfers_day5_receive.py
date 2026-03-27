@@ -50,45 +50,25 @@ def _create_tenant_users(db_session, *, suffix: str):
 
 
 def _seed_stock(db_session, tenant_id, store_id, *, epc: str, qty: int):
-    items = [
-        StockItem(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            store_id=store_id,
-            sku="SKU-1",
-            description="Blue Jacket",
-            var1_value="Blue",
-            var2_value="L",
-            epc=epc,
-            location_code="LOC-1",
-            pool="P1",
-            status="RFID",
-            location_is_vendible=True,
-            image_asset_id=uuid.uuid4(),
-            image_url="https://example.com/img.png",
-            image_thumb_url="https://example.com/thumb.png",
-            image_source="catalog",
-            image_updated_at=datetime.utcnow(),
-        )
-    ]
-    for _ in range(qty):
+    items = []
+    for i in range(qty):
         items.append(
             StockItem(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
                 store_id=store_id,
-                sku="SKU-2",
-                description="Green Tee",
-                var1_value="Green",
-                var2_value="M",
-                epc=None,
+                sku="SKU-1",
+                description="Blue Jacket",
+                var1_value="Blue",
+                var2_value="L",
+                epc=f"{epc[:-1]}{i}",
                 location_code="LOC-1",
                 pool="P1",
                 status="RFID",
                 location_is_vendible=True,
                 image_asset_id=uuid.uuid4(),
-                image_url="https://example.com/img2.png",
-                image_thumb_url="https://example.com/thumb2.png",
+                image_url="https://example.com/img.png",
+                image_thumb_url="https://example.com/thumb.png",
                 image_source="catalog",
                 image_updated_at=datetime.utcnow(),
             )
@@ -111,7 +91,7 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "description": "Blue Jacket",
                     "var1_value": "Blue",
                     "var2_value": "L",
-                    "epc": epc,
+                    "epc": f"{epc[:-1]}0",
                     "location_code": "LOC-1",
                     "pool": "P1",
                     "status": "RFID",
@@ -122,27 +102,7 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "image_source": "catalog",
                     "image_updated_at": datetime.utcnow().isoformat(),
                 },
-            },
-            {
-                "line_type": "SKU",
-                "qty": qty,
-                "snapshot": {
-                    "sku": "SKU-2",
-                    "description": "Green Tee",
-                    "var1_value": "Green",
-                    "var2_value": "M",
-                    "epc": None,
-                    "location_code": "LOC-1",
-                    "pool": "P1",
-                    "status": "RFID",
-                    "location_is_vendible": True,
-                    "image_asset_id": str(uuid.uuid4()),
-                    "image_url": "https://example.com/img2.png",
-                    "image_thumb_url": "https://example.com/thumb2.png",
-                    "image_source": "catalog",
-                    "image_updated_at": datetime.utcnow().isoformat(),
-                },
-            },
+            }
         ],
     }
 
@@ -216,7 +176,7 @@ def test_transfer_receive_full_success(client, db_session):
         )
         .count()
     )
-    assert in_destination == 3
+    assert in_destination == 1
 
 
 def test_transfer_receive_partial_success(client, db_session):
@@ -242,22 +202,12 @@ def test_transfer_receive_partial_success(client, db_session):
 
     _dispatch_transfer(client, origin_token, transfer_id)
 
-    epc_line = next(line for line in lines if line["line_type"] == "EPC")
-    sku_line = next(line for line in lines if line["line_type"] == "SKU")
-
     receive_payload = {
         "transaction_id": "txn-receive-4",
         "action": "receive",
         "receive_lines": [
             {
-                "line_id": epc_line["id"],
-                "qty": 1,
-                "location_code": "DEST-2",
-                "pool": "DP2",
-                "location_is_vendible": True,
-            },
-            {
-                "line_id": sku_line["id"],
+                "line_id": lines[0]["id"],
                 "qty": 1,
                 "location_code": "DEST-2",
                 "pool": "DP2",
@@ -271,11 +221,9 @@ def test_transfer_receive_partial_success(client, db_session):
         json=receive_payload,
     )
     assert receive_response.status_code == 200
-    assert receive_response.json()["header"]["status"] == "PARTIAL_RECEIVED"
-
-    sku_response = next(line for line in receive_response.json()["lines"] if line["line_type"] == "SKU")
-    assert sku_response["received_qty"] == 1
-    assert sku_response["outstanding_qty"] == 1
+    assert receive_response.json()["header"]["status"] == "RECEIVED"
+    assert receive_response.json()["lines"][0]["received_qty"] == 1
+    assert receive_response.json()["lines"][0]["outstanding_qty"] == 0
 
 
 def test_transfer_receive_over_receive_denied(client, db_session):
@@ -410,5 +358,4 @@ def test_transfer_receive_defaults_to_sale_pool(client, db_session):
         )
         .count()
     )
-    assert count == 2
-
+    assert count == 1

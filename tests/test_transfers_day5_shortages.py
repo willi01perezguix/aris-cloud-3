@@ -69,32 +69,11 @@ def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
             image_updated_at=datetime.utcnow(),
         )
     ]
-    for _ in range(qty):
-        items.append(
-            StockItem(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                sku="SKU-2",
-                description="Green Tee",
-                var1_value="Green",
-                var2_value="M",
-                epc=None,
-                location_code="LOC-1",
-                pool="P1",
-                status="PENDING",
-                location_is_vendible=True,
-                image_asset_id=uuid.uuid4(),
-                image_url="https://example.com/img2.png",
-                image_thumb_url="https://example.com/thumb2.png",
-                image_source="catalog",
-                image_updated_at=datetime.utcnow(),
-            )
-        )
     db_session.add_all(items)
     db_session.commit()
 
 
-def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str, qty: int):
+def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str):
     return {
         "transaction_id": "txn-shortage-1",
         "origin_store_id": origin_store_id,
@@ -119,27 +98,7 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "image_source": "catalog",
                     "image_updated_at": datetime.utcnow().isoformat(),
                 },
-            },
-            {
-                "line_type": "SKU",
-                "qty": qty,
-                "snapshot": {
-                    "sku": "SKU-2",
-                    "description": "Green Tee",
-                    "var1_value": "Green",
-                    "var2_value": "M",
-                    "epc": None,
-                    "location_code": "LOC-1",
-                    "pool": "P1",
-                    "status": "PENDING",
-                    "location_is_vendible": True,
-                    "image_asset_id": str(uuid.uuid4()),
-                    "image_url": "https://example.com/img2.png",
-                    "image_thumb_url": "https://example.com/thumb2.png",
-                    "image_source": "catalog",
-                    "image_updated_at": datetime.utcnow().isoformat(),
-                },
-            },
+            }
         ],
     }
 
@@ -155,7 +114,7 @@ def test_transfer_report_shortages_snapshot(client, db_session):
     epc = "V" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc, qty=2)
+    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc)
     create_response = client.post(
         "/aris3/transfers",
         headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "transfer-shortage-1"},
@@ -172,33 +131,12 @@ def test_transfer_report_shortages_snapshot(client, db_session):
     )
     assert dispatch_response.status_code == 200
 
-    sku_line = next(line for line in lines if line["line_type"] == "SKU")
-    receive_payload = {
-        "transaction_id": "txn-shortage-3",
-        "action": "receive",
-        "receive_lines": [
-            {
-                "line_id": sku_line["id"],
-                "qty": 1,
-                "location_code": "DEST-1",
-                "pool": "DP1",
-                "location_is_vendible": True,
-            }
-        ],
-    }
-    receive_response = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-shortage-3"},
-        json=receive_payload,
-    )
-    assert receive_response.status_code == 200
-
     shortage_payload = {
         "transaction_id": "txn-shortage-4",
         "action": "report_shortages",
         "shortages": [
             {
-                "line_id": sku_line["id"],
+                "line_id": lines[0]["id"],
                 "qty": 1,
                 "reason_code": "MISSING",
                 "notes": "Box damaged",
@@ -212,8 +150,7 @@ def test_transfer_report_shortages_snapshot(client, db_session):
     )
     assert shortage_response.status_code == 200
 
-    shortage_line = next(line for line in shortage_response.json()["lines"] if line["line_type"] == "SKU")
-    assert shortage_line["shortage_status"] == "REPORTED"
+    assert shortage_response.json()["lines"][0]["shortage_status"] == "REPORTED"
 
     movement = (
         db_session.query(TransferMovement)

@@ -102,32 +102,11 @@ def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
             image_updated_at=datetime.utcnow(),
         )
     ]
-    for _ in range(qty):
-        items.append(
-            StockItem(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                sku="SKU-2",
-                description="Green Tee",
-                var1_value="Green",
-                var2_value="M",
-                epc=None,
-                location_code="LOC-1",
-                pool="P1",
-                status="PENDING",
-                location_is_vendible=True,
-                image_asset_id=uuid.uuid4(),
-                image_url="https://example.com/img2.png",
-                image_thumb_url="https://example.com/thumb2.png",
-                image_source="catalog",
-                image_updated_at=datetime.utcnow(),
-            )
-        )
     db_session.add_all(items)
     db_session.commit()
 
 
-def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str, qty: int):
+def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str):
     return {
         "transaction_id": "txn-resolve-1",
         "origin_store_id": origin_store_id,
@@ -152,33 +131,13 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "image_source": "catalog",
                     "image_updated_at": datetime.utcnow().isoformat(),
                 },
-            },
-            {
-                "line_type": "SKU",
-                "qty": qty,
-                "snapshot": {
-                    "sku": "SKU-2",
-                    "description": "Green Tee",
-                    "var1_value": "Green",
-                    "var2_value": "M",
-                    "epc": None,
-                    "location_code": "LOC-1",
-                    "pool": "P1",
-                    "status": "PENDING",
-                    "location_is_vendible": True,
-                    "image_asset_id": str(uuid.uuid4()),
-                    "image_url": "https://example.com/img2.png",
-                    "image_thumb_url": "https://example.com/thumb2.png",
-                    "image_source": "catalog",
-                    "image_updated_at": datetime.utcnow().isoformat(),
-                },
-            },
+            }
         ],
     }
 
 
 def _setup_transfer(client, origin_token: str, dest_token: str, origin_store, destination_store, epc: str):
-    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc, qty=2)
+    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc)
     create_response = client.post(
         "/aris3/transfers",
         headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "transfer-resolve-1"},
@@ -195,34 +154,12 @@ def _setup_transfer(client, origin_token: str, dest_token: str, origin_store, de
     )
     assert dispatch_response.status_code == 200
 
-    sku_line = next(line for line in lines if line["line_type"] == "SKU")
-
-    receive_payload = {
-        "transaction_id": "txn-resolve-3",
-        "action": "receive",
-        "receive_lines": [
-            {
-                "line_id": sku_line["id"],
-                "qty": 1,
-                "location_code": "DEST-1",
-                "pool": "DP1",
-                "location_is_vendible": True,
-            }
-        ],
-    }
-    receive_response = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-resolve-3"},
-        json=receive_payload,
-    )
-    assert receive_response.status_code == 200
-
     shortage_payload = {
         "transaction_id": "txn-resolve-4",
         "action": "report_shortages",
         "shortages": [
             {
-                "line_id": sku_line["id"],
+                "line_id": lines[0]["id"],
                 "qty": 1,
                 "reason_code": "MISSING",
                 "notes": "Not in box",
@@ -235,7 +172,7 @@ def _setup_transfer(client, origin_token: str, dest_token: str, origin_store, de
         json=shortage_payload,
     )
     assert shortage_response.status_code == 200
-    return transfer_id, lines, sku_line
+    return transfer_id, lines
 
 
 def test_transfer_resolve_shortages_found_and_resend(client, db_session):
@@ -249,7 +186,7 @@ def test_transfer_resolve_shortages_found_and_resend(client, db_session):
     epc = "W" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    transfer_id, _lines, sku_line = _setup_transfer(
+    transfer_id, lines = _setup_transfer(
         client, origin_token, dest_token, origin_store, destination_store, epc
     )
 
@@ -258,7 +195,7 @@ def test_transfer_resolve_shortages_found_and_resend(client, db_session):
         "action": "resolve_shortages",
         "resolution": {
             "resolution": "FOUND_AND_RESEND",
-            "lines": [{"line_id": sku_line["id"], "qty": 1}],
+            "lines": [{"line_id": lines[0]["id"], "qty": 1}],
         },
     }
     resolve_response = client.post(
@@ -267,8 +204,7 @@ def test_transfer_resolve_shortages_found_and_resend(client, db_session):
         json=resolve_payload,
     )
     assert resolve_response.status_code == 200
-    sku_response = next(line for line in resolve_response.json()["lines"] if line["line_type"] == "SKU")
-    assert sku_response["resolution_status"] == "FOUND_AND_RESEND"
+    assert resolve_response.json()["lines"][0]["resolution_status"] == "FOUND_AND_RESEND"
 
     movement = (
         db_session.query(TransferMovement)
@@ -292,36 +228,16 @@ def test_transfer_resolve_shortages_lost_in_route_manager(client, db_session):
     epc = "X" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    transfer_id, lines, sku_line = _setup_transfer(
+    transfer_id, lines = _setup_transfer(
         client, origin_token, manager_token, origin_store, destination_store, epc
     )
-    epc_line = next(line for line in lines if line["line_type"] == "EPC")
-    receive_payload = {
-        "transaction_id": "txn-resolve-6b",
-        "action": "receive",
-        "receive_lines": [
-            {
-                "line_id": epc_line["id"],
-                "qty": 1,
-                "location_code": "DEST-1",
-                "pool": "DP1",
-                "location_is_vendible": True,
-            }
-        ],
-    }
-    receive_response = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers={"Authorization": f"Bearer {manager_token}", "Idempotency-Key": "transfer-resolve-6b"},
-        json=receive_payload,
-    )
-    assert receive_response.status_code == 200
 
     resolve_payload = {
         "transaction_id": "txn-resolve-6",
         "action": "resolve_shortages",
         "resolution": {
             "resolution": "LOST_IN_ROUTE",
-            "lines": [{"line_id": sku_line["id"], "qty": 1}],
+            "lines": [{"line_id": lines[0]["id"], "qty": 1}],
         },
     }
     resolve_response = client.post(
@@ -356,7 +272,7 @@ def test_transfer_resolve_shortages_lost_in_route_denied_for_non_manager(client,
     epc = "Y" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    transfer_id, _lines, sku_line = _setup_transfer(
+    transfer_id, lines = _setup_transfer(
         client, origin_token, dest_token, origin_store, destination_store, epc
     )
 
@@ -365,7 +281,7 @@ def test_transfer_resolve_shortages_lost_in_route_denied_for_non_manager(client,
         "action": "resolve_shortages",
         "resolution": {
             "resolution": "LOST_IN_ROUTE",
-            "lines": [{"line_id": sku_line["id"], "qty": 1}],
+            "lines": [{"line_id": lines[0]["id"], "qty": 1}],
         },
     }
     resolve_response = client.post(
@@ -388,7 +304,7 @@ def test_transfer_resolve_shortages_invalid_payload_denied(client, db_session):
     epc = "Z" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    transfer_id, _lines, sku_line = _setup_transfer(
+    transfer_id, lines = _setup_transfer(
         client, origin_token, dest_token, origin_store, destination_store, epc
     )
 
@@ -397,7 +313,7 @@ def test_transfer_resolve_shortages_invalid_payload_denied(client, db_session):
         "action": "resolve_shortages",
         "resolution": {
             "resolution": "FOUND_AND_RESEND",
-            "lines": [{"line_id": sku_line["id"], "qty": 2}],
+            "lines": [{"line_id": lines[0]["id"], "qty": 2}],
         },
     }
     resolve_response = client.post(

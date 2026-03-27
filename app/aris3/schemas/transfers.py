@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -75,6 +75,23 @@ class TransferCreateRequest(BaseModel):
     destination_store_id: str
     lines: list[TransferLineCreate]
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "transaction_id": "txn-transfer-create-1",
+                "origin_store_id": "11111111-1111-1111-1111-111111111111",
+                "destination_store_id": "22222222-2222-2222-2222-222222222222",
+                "lines": [
+                    {
+                        "line_type": "EPC",
+                        "qty": 1,
+                        "snapshot": _TRANSFER_LINE_SNAPSHOT_EXAMPLE,
+                    }
+                ],
+            }
+        }
+    }
+
 
 class TransferUpdateRequest(BaseModel):
     transaction_id: str | None
@@ -109,13 +126,69 @@ class TransferShortageResolution(BaseModel):
     lines: list[TransferShortageResolutionLine]
 
 
-class TransferActionRequest(BaseModel):
+class TransferDispatchActionRequest(BaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
-    action: Literal["dispatch", "cancel", "receive", "report_shortages", "resolve_shortages"]
+    action: Literal["dispatch"]
+
+    model_config = {"json_schema_extra": {"example": {"transaction_id": "txn-dispatch-1", "action": "dispatch"}}}
+
+
+class TransferCancelActionRequest(BaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
+    action: Literal["cancel"]
+
+    model_config = {"json_schema_extra": {"example": {"transaction_id": "txn-cancel-1", "action": "cancel"}}}
+
+
+class TransferReceiveActionRequest(BaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
+    action: Literal["receive"]
     receive_lines: list[TransferReceiveLine] | None = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "transaction_id": "txn-receive-1",
+                "action": "receive",
+                "receive_lines": [
+                    {
+                        "line_id": "33333333-3333-3333-3333-333333333333",
+                        "qty": 1,
+                        "location_code": "STORE-DEST",
+                        "pool": "SALE",
+                        "location_is_vendible": True,
+                    }
+                ],
+            }
+        }
+    }
+
+
+class TransferReportShortagesActionRequest(BaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
+    action: Literal["report_shortages"]
     shortages: list[TransferShortageLine] | None = None
+
+
+class TransferResolveShortagesActionRequest(BaseModel):
+    transaction_id: str | None
+    tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
+    action: Literal["resolve_shortages"]
     resolution: TransferShortageResolution | None = None
+
+
+TransferActionRequest = Annotated[
+    TransferDispatchActionRequest
+    | TransferCancelActionRequest
+    | TransferReceiveActionRequest
+    | TransferReportShortagesActionRequest
+    | TransferResolveShortagesActionRequest,
+    Field(discriminator="action"),
+]
 
 
 class TransferHeaderResponse(BaseModel):

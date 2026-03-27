@@ -20,8 +20,8 @@ def test_transfers_create_and_update_examples_are_draft() -> None:
         assert "canceled_at" not in example["header"]
         assert example["movement_summary"]["dispatched_lines"] == 0
         assert example["movement_summary"]["dispatched_qty"] == 0
-        assert example["movement_summary"]["pending_reception"] is True
-        assert example["movement_summary"]["shortages_possible"] is True
+        assert example["movement_summary"]["pending_reception"] is False
+        assert example["movement_summary"]["shortages_possible"] is False
         _assert_qty_consistency(example)
 
 
@@ -45,6 +45,8 @@ def test_transfers_list_and_detail_examples_cover_expected_states() -> None:
     assert detail_examples["draft"]["value"]["lines"][0]["outstanding_qty"] == 1
     assert detail_examples["draft"]["value"]["movement_summary"]["dispatched_lines"] == 0
     assert detail_examples["draft"]["value"]["movement_summary"]["dispatched_qty"] == 0
+    assert detail_examples["draft"]["value"]["movement_summary"]["pending_reception"] is False
+    assert detail_examples["draft"]["value"]["movement_summary"]["shortages_possible"] is False
     assert detail_examples["dispatched"]["value"]["header"]["status"] == "DISPATCHED"
     assert detail_examples["dispatched"]["value"]["header"]["dispatched_at"] is not None
     assert detail_examples["dispatched"]["value"]["lines"][0]["qty"] == 1

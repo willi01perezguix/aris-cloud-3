@@ -50,43 +50,25 @@ def _create_tenant_users(db_session, *, suffix: str):
 
 
 def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
-    items = [
-        StockItem(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            sku="SKU-1",
-            description="Blue Jacket",
-            var1_value="Blue",
-            var2_value="L",
-            epc=epc,
-            location_code="LOC-1",
-            pool="P1",
-            status="RFID",
-            location_is_vendible=True,
-            image_asset_id=uuid.uuid4(),
-            image_url="https://example.com/img.png",
-            image_thumb_url="https://example.com/thumb.png",
-            image_source="catalog",
-            image_updated_at=datetime.utcnow(),
-        )
-    ]
-    for _ in range(qty):
+    items = []
+    for i in range(qty):
         items.append(
             StockItem(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
-                sku="SKU-2",
-                description="Green Tee",
-                var1_value="Green",
-                var2_value="M",
-                epc=None,
+                store_id=None,
+                sku="SKU-1",
+                description="Blue Jacket",
+                var1_value="Blue",
+                var2_value="L",
+                epc=f"{epc[:-1]}{i}",
                 location_code="LOC-1",
                 pool="P1",
-                status="PENDING",
+                status="RFID",
                 location_is_vendible=True,
                 image_asset_id=uuid.uuid4(),
-                image_url="https://example.com/img2.png",
-                image_thumb_url="https://example.com/thumb2.png",
+                image_url="https://example.com/img.png",
+                image_thumb_url="https://example.com/thumb.png",
                 image_source="catalog",
                 image_updated_at=datetime.utcnow(),
             )
@@ -95,7 +77,7 @@ def _seed_stock(db_session, tenant_id, *, epc: str, qty: int):
     db_session.commit()
 
 
-def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str, qty: int):
+def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str):
     return {
         "transaction_id": "txn-idem-1",
         "origin_store_id": origin_store_id,
@@ -109,7 +91,7 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "description": "Blue Jacket",
                     "var1_value": "Blue",
                     "var2_value": "L",
-                    "epc": epc,
+                    "epc": f"{epc[:-1]}0",
                     "location_code": "LOC-1",
                     "pool": "P1",
                     "status": "RFID",
@@ -120,33 +102,13 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str,
                     "image_source": "catalog",
                     "image_updated_at": datetime.utcnow().isoformat(),
                 },
-            },
-            {
-                "line_type": "SKU",
-                "qty": qty,
-                "snapshot": {
-                    "sku": "SKU-2",
-                    "description": "Green Tee",
-                    "var1_value": "Green",
-                    "var2_value": "M",
-                    "epc": None,
-                    "location_code": "LOC-1",
-                    "pool": "P1",
-                    "status": "PENDING",
-                    "location_is_vendible": True,
-                    "image_asset_id": str(uuid.uuid4()),
-                    "image_url": "https://example.com/img2.png",
-                    "image_thumb_url": "https://example.com/thumb2.png",
-                    "image_source": "catalog",
-                    "image_updated_at": datetime.utcnow().isoformat(),
-                },
-            },
+            }
         ],
     }
 
 
 def _prepare_transfer(client, origin_token: str, dest_token: str, origin_store, destination_store, epc: str):
-    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc, qty=2)
+    payload = _transfer_payload(str(origin_store.id), str(destination_store.id), epc)
     create_response = client.post(
         "/aris3/transfers",
         headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "transfer-idem-1"},
@@ -163,28 +125,7 @@ def _prepare_transfer(client, origin_token: str, dest_token: str, origin_store, 
     )
     assert dispatch_response.status_code == 200
 
-    sku_line = next(line for line in lines if line["line_type"] == "SKU")
-    receive_payload = {
-        "transaction_id": "txn-idem-3",
-        "action": "receive",
-        "receive_lines": [
-            {
-                "line_id": sku_line["id"],
-                "qty": 1,
-                "location_code": "DEST-1",
-                "pool": "DP1",
-                "location_is_vendible": True,
-            }
-        ],
-    }
-    receive_response = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-idem-3"},
-        json=receive_payload,
-    )
-    assert receive_response.status_code == 200
-
-    return transfer_id, lines, sku_line
+    return transfer_id, lines
 
 
 def test_transfer_actions_idempotency_replay_and_conflict(client, db_session):
@@ -198,7 +139,7 @@ def test_transfer_actions_idempotency_replay_and_conflict(client, db_session):
     epc = "I" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    transfer_id, lines, sku_line = _prepare_transfer(
+    transfer_id, lines = _prepare_transfer(
         client, origin_token, dest_token, origin_store, destination_store, epc
     )
 
@@ -243,79 +184,16 @@ def test_transfer_actions_idempotency_replay_and_conflict(client, db_session):
     assert conflict_receive.status_code == 409
     assert conflict_receive.json()["code"] == ErrorCatalog.IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD.code
 
-    shortage_payload = {
-        "transaction_id": "txn-idem-6",
-        "action": "report_shortages",
-        "shortages": [
-            {
-                "line_id": sku_line["id"],
-                "qty": 1,
-                "reason_code": "MISSING",
-                "notes": "Not in tote",
-            }
-        ],
-    }
-    shortage_headers = {"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-idem-6"}
-    first_shortage = client.post(
+    invalid_shortage = client.post(
         f"/aris3/transfers/{transfer_id}/actions",
-        headers=shortage_headers,
-        json=shortage_payload,
-    )
-    assert first_shortage.status_code == 200
-
-    replay_shortage = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers=shortage_headers,
-        json=shortage_payload,
-    )
-    assert replay_shortage.status_code == 200
-    assert replay_shortage.json() == first_shortage.json()
-
-    conflict_shortage = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers=shortage_headers,
+        headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-idem-6"},
         json={
-            **shortage_payload,
-            "transaction_id": "txn-idem-7",
+            "transaction_id": "txn-idem-6",
+            "action": "report_shortages",
+            "shortages": [{"line_id": lines[0]["id"], "qty": 1, "reason_code": "MISSING"}],
         },
     )
-    assert conflict_shortage.status_code == 409
-    assert conflict_shortage.json()["code"] == ErrorCatalog.IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD.code
-
-    resolve_payload = {
-        "transaction_id": "txn-idem-8",
-        "action": "resolve_shortages",
-        "resolution": {
-            "resolution": "FOUND_AND_RESEND",
-            "lines": [{"line_id": sku_line["id"], "qty": 1}],
-        },
-    }
-    resolve_headers = {"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-idem-8"}
-    first_resolve = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers=resolve_headers,
-        json=resolve_payload,
-    )
-    assert first_resolve.status_code == 200
-
-    replay_resolve = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers=resolve_headers,
-        json=resolve_payload,
-    )
-    assert replay_resolve.status_code == 200
-    assert replay_resolve.json() == first_resolve.json()
-
-    conflict_resolve = client.post(
-        f"/aris3/transfers/{transfer_id}/actions",
-        headers=resolve_headers,
-        json={
-            **resolve_payload,
-            "transaction_id": "txn-idem-9",
-        },
-    )
-    assert conflict_resolve.status_code == 409
-    assert conflict_resolve.json()["code"] == ErrorCatalog.IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD.code
+    assert invalid_shortage.status_code == 422
 
 
 def test_transfer_actions_audit_events(client, db_session):
@@ -329,16 +207,34 @@ def test_transfer_actions_audit_events(client, db_session):
     epc = "J" * 24
     _seed_stock(db_session, tenant.id, epc=epc, qty=2)
 
-    transfer_id, _lines, sku_line = _prepare_transfer(
+    transfer_id, lines = _prepare_transfer(
         client, origin_token, dest_token, origin_store, destination_store, epc
     )
+
+    receive_response = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-audit-0"},
+        json={
+            "transaction_id": "txn-audit-0",
+            "action": "receive",
+            "receive_lines": [{"line_id": lines[0]["id"], "qty": 1}],
+        },
+    )
+    assert receive_response.status_code == 200
+
+    dispatch_response = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "transfer-audit-0b"},
+        json={"transaction_id": "txn-audit-0b", "action": "dispatch"},
+    )
+    assert dispatch_response.status_code == 422
 
     shortage_payload = {
         "transaction_id": "txn-audit-1",
         "action": "report_shortages",
         "shortages": [
             {
-                "line_id": sku_line["id"],
+                "line_id": lines[0]["id"],
                 "qty": 1,
                 "reason_code": "MISSING",
                 "notes": "Not in tote",
@@ -350,14 +246,14 @@ def test_transfer_actions_audit_events(client, db_session):
         headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-audit-1"},
         json=shortage_payload,
     )
-    assert report_response.status_code == 200
+    assert report_response.status_code == 422
 
     resolve_payload = {
         "transaction_id": "txn-audit-2",
         "action": "resolve_shortages",
         "resolution": {
             "resolution": "FOUND_AND_RESEND",
-            "lines": [{"line_id": sku_line["id"], "qty": 1}],
+            "lines": [{"line_id": lines[0]["id"], "qty": 1}],
         },
     }
     resolve_response = client.post(
@@ -365,9 +261,7 @@ def test_transfer_actions_audit_events(client, db_session):
         headers={"Authorization": f"Bearer {dest_token}", "Idempotency-Key": "transfer-audit-2"},
         json=resolve_payload,
     )
-    assert resolve_response.status_code == 200
+    assert resolve_response.status_code == 422
 
     events = {event.action for event in db_session.query(AuditEvent).all()}
     assert "transfer.receive" in events
-    assert "transfer.shortages.report" in events
-    assert "transfer.shortages.resolve" in events

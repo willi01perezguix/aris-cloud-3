@@ -3,7 +3,7 @@ from datetime import datetime
 
 from app.aris3.core.error_catalog import ErrorCatalog
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import AuditEvent, Store, Tenant, User
+from app.aris3.db.models import AuditEvent, StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
 
 
@@ -44,17 +44,17 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str):
         "destination_store_id": destination_store_id,
         "lines": [
             {
-                "line_type": "SKU",
+                "line_type": "EPC",
                 "qty": 1,
                 "snapshot": {
                     "sku": "SKU-1",
                     "description": "Blue Jacket",
                     "var1_value": "Blue",
                     "var2_value": "L",
-                    "epc": None,
+                    "epc": "A" * 24,
                     "location_code": "LOC-1",
                     "pool": "P1",
-                    "status": "PENDING",
+                    "status": "RFID",
                     "location_is_vendible": True,
                     "image_asset_id": str(uuid.uuid4()),
                     "image_url": "https://example.com/img.png",
@@ -67,9 +67,35 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str):
     }
 
 
+def _seed_stock_for_transfer(db_session, tenant_id, store_id):
+    db_session.add(
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            store_id=store_id,
+            sku="SKU-1",
+            description="Blue Jacket",
+            var1_value="Blue",
+            var2_value="L",
+            epc="A" * 24,
+            location_code="LOC-1",
+            pool="P1",
+            status="RFID",
+            location_is_vendible=True,
+            image_asset_id=uuid.uuid4(),
+            image_url="https://example.com/img.png",
+            image_thumb_url="https://example.com/thumb.png",
+            image_source="catalog",
+            image_updated_at=datetime.utcnow(),
+        )
+    )
+    db_session.commit()
+
+
 def test_transfer_idempotency_replay_and_conflict(client, db_session):
     run_seed(db_session)
-    _tenant, store, other_store, user = _create_tenant_user(db_session, suffix="idem")
+    tenant, store, other_store, user = _create_tenant_user(db_session, suffix="idem")
+    _seed_stock_for_transfer(db_session, tenant.id, store.id)
     token = _login(client, user.username, "Pass1234!")
 
     payload = _transfer_payload(str(store.id), str(other_store.id))
@@ -97,7 +123,8 @@ def test_transfer_idempotency_replay_and_conflict(client, db_session):
 
 def test_transfer_audit_event_created(client, db_session):
     run_seed(db_session)
-    _tenant, store, other_store, user = _create_tenant_user(db_session, suffix="audit")
+    tenant, store, other_store, user = _create_tenant_user(db_session, suffix="audit")
+    _seed_stock_for_transfer(db_session, tenant.id, store.id)
     token = _login(client, user.username, "Pass1234!")
 
     payload = _transfer_payload(str(store.id), str(other_store.id))

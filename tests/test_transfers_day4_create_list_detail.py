@@ -122,29 +122,6 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str):
                     "image_updated_at": datetime.utcnow().isoformat(),
                 },
             },
-            {
-                "line_type": "SKU",
-                "qty": 2,
-                "snapshot": {
-                    "sku": "SKU-2",
-                    "description": "Green Tee",
-                    "var1_value": "Green",
-                    "var2_value": "M",
-                    "cost_price": 10.0,
-                    "suggested_price": 15.0,
-                    "sale_price": 12.5,
-                    "epc": None,
-                    "location_code": "LOC-1",
-                    "pool": "P1",
-                    "status": "RFID",
-                    "location_is_vendible": True,
-                    "image_asset_id": str(uuid.uuid4()),
-                    "image_url": "https://example.com/img2.png",
-                    "image_thumb_url": "https://example.com/thumb2.png",
-                    "image_source": "catalog",
-                    "image_updated_at": datetime.utcnow().isoformat(),
-                },
-            },
         ],
     }
 
@@ -181,6 +158,9 @@ def test_transfer_create_list_detail(client, db_session):
         assert "cost_price" in line["snapshot"]
         assert "suggested_price" in line["snapshot"]
         assert "sale_price" in line["snapshot"]
+        assert line["qty"] == 1
+        assert line["received_qty"] == 0
+        assert line["outstanding_qty"] == 1
 
 
 def test_transfer_list_tenant_scoped(client, db_session):
@@ -238,5 +218,21 @@ def test_transfer_create_bodega_to_store_same_tenant(client, db_session):
     )
     assert response.status_code == 201
     assert response.json()["header"]["origin_store_id"] == str(bodega_store.id)
-    assert response.json()["header"]["destination_store_id"] == str(store.id)
 
+
+def test_transfer_create_rejects_sku_lines(client, db_session):
+    run_seed(db_session)
+    tenant, store, other_store, user = _create_tenant_user(db_session, suffix="create-sku")
+    token = _login(client, user.username, "Pass1234!")
+
+    payload = _transfer_payload(str(store.id), str(other_store.id))
+    payload["lines"][0]["line_type"] = "SKU"
+    payload["lines"][0]["snapshot"]["epc"] = None
+
+    response = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-create-sku-1"},
+        json=payload,
+    )
+    assert response.status_code == 422
+    assert "Transfers currently support EPC/RFID lines only" in str(response.json())

@@ -44,17 +44,17 @@ def _transfer_payload(origin_store_id: str, destination_store_id: str):
         "destination_store_id": destination_store_id,
         "lines": [
             {
-                "line_type": "SKU",
+                "line_type": "EPC",
                 "qty": 1,
                 "snapshot": {
                     "sku": "SKU-1",
                     "description": "Blue Jacket",
                     "var1_value": "Blue",
                     "var2_value": "L",
-                    "epc": None,
+                    "epc": "A" * 24,
                     "location_code": "LOC-1",
                     "pool": "P1",
-                    "status": "PENDING",
+                    "status": "RFID",
                     "location_is_vendible": True,
                     "image_asset_id": str(uuid.uuid4()),
                     "image_url": "https://example.com/img.png",
@@ -127,4 +127,3 @@ def test_transfer_rejects_mixed_tenant_origin_destination(client, db_session):
     )
     assert response.status_code == 422
     assert response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
-

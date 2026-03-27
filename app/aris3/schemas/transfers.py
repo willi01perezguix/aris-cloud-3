@@ -55,6 +55,8 @@ class TransferLineCreate(BaseModel):
     qty: int = 1
     snapshot: TransferLineSnapshot
 
+    model_config = {"extra": "forbid"}
+
 
 class TransferLineResponse(BaseModel):
     id: str
@@ -76,6 +78,7 @@ class TransferCreateRequest(BaseModel):
     lines: list[TransferLineCreate]
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "transaction_id": "txn-transfer-create-1",
@@ -101,6 +104,7 @@ class TransferUpdateRequest(BaseModel):
     lines: list[TransferLineCreate] | None = None
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "transaction_id": "txn-transfer-update-1",
@@ -112,7 +116,7 @@ class TransferUpdateRequest(BaseModel):
                     }
                 ],
             }
-        }
+        },
     }
 
 
@@ -123,6 +127,8 @@ class TransferReceiveLine(BaseModel):
     pool: str | None = None
     location_is_vendible: bool | None = None
 
+    model_config = {"extra": "forbid"}
+
 
 class TransferShortageLine(BaseModel):
     line_id: str
@@ -130,31 +136,35 @@ class TransferShortageLine(BaseModel):
     reason_code: str
     notes: str | None = None
 
+    model_config = {"extra": "forbid"}
+
 
 class TransferShortageResolutionLine(BaseModel):
     line_id: str
     qty: int
+
+    model_config = {"extra": "forbid"}
 
 
 class TransferShortageResolution(BaseModel):
     resolution: Literal["FOUND_AND_RESEND", "LOST_IN_ROUTE"]
     lines: list[TransferShortageResolutionLine]
 
+    model_config = {"extra": "forbid"}
+
 
 class TransferDispatchActionRequest(BaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     action: Literal["dispatch"]
-
-    model_config = {"json_schema_extra": {"example": {"transaction_id": "txn-dispatch-1", "action": "dispatch"}}}
+    model_config = {"extra": "forbid", "json_schema_extra": {"example": {"transaction_id": "txn-dispatch-1", "action": "dispatch"}}}
 
 
 class TransferCancelActionRequest(BaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     action: Literal["cancel"]
-
-    model_config = {"json_schema_extra": {"example": {"transaction_id": "txn-cancel-1", "action": "cancel"}}}
+    model_config = {"extra": "forbid", "json_schema_extra": {"example": {"transaction_id": "txn-cancel-1", "action": "cancel"}}}
 
 
 class TransferReceiveActionRequest(BaseModel):
@@ -164,6 +174,7 @@ class TransferReceiveActionRequest(BaseModel):
     receive_lines: list[TransferReceiveLine] | None = None
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "transaction_id": "txn-receive-1",
@@ -188,12 +199,16 @@ class TransferReportShortagesActionRequest(BaseModel):
     action: Literal["report_shortages"]
     shortages: list[TransferShortageLine] | None = None
 
+    model_config = {"extra": "forbid"}
+
 
 class TransferResolveShortagesActionRequest(BaseModel):
     transaction_id: str | None
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     action: Literal["resolve_shortages"]
     resolution: TransferShortageResolution | None = None
+
+    model_config = {"extra": "forbid"}
 
 
 TransferActionRequest = Annotated[

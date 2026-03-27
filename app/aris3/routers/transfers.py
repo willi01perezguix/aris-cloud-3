@@ -85,7 +85,7 @@ _TRANSFER_DRAFT_RESPONSE_EXAMPLE = {
         "updated_at": "2026-03-27T10:00:00Z",
     },
     "lines": [_TRANSFER_LINE_EXAMPLE],
-    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": False, "shortages_possible": False},
+    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": True, "shortages_possible": True},
 }
 _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE = {
     "header": {
@@ -150,6 +150,18 @@ _TRANSFER_ERROR_EXAMPLES = {
         "message": "Validation error",
         "details": {"errors": [{"field": "lines[0].line_type", "message": "Transfers currently support EPC/RFID lines only", "type": "value_error"}]},
         "trace_id": "trace-transfer-422-line-type",
+    },
+    "422_receive_invalid_state": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation error",
+        "details": {"errors": [{"field": "status", "message": "transfer cannot be received from this state", "type": "value_error"}]},
+        "trace_id": "trace-transfer-422-receive-state",
+    },
+    "422_cancel_invalid_state": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation error",
+        "details": {"errors": [{"field": "status", "message": "transfer cannot be cancelled from this state", "type": "value_error"}]},
+        "trace_id": "trace-transfer-422-cancel-state",
     },
 }
 
@@ -1103,7 +1115,11 @@ def get_transfer_detail(
 @router.post("/aris3/transfers/{transfer_id}/actions",
     response_model=TransferResponse,
     summary="Execute transfer action",
-    description="Executes transfer lifecycle actions for EPC/RFID transfers only. Supported actions include dispatch, receive, cancel, shortages reporting, and shortages resolution.",
+    description=(
+        "Executes transfer lifecycle actions for EPC/RFID transfers only (SKU is not supported). "
+        "Primary documented actions in this iteration are dispatch, receive, and cancel. "
+        "The contract also accepts report_shortages and resolve_shortages for shortage workflows."
+    ),
     responses={
         200: {
             "content": {
@@ -1137,6 +1153,8 @@ def get_transfer_detail(
                                 "trace_id": "trace-transfer-422-dispatch-state",
                             }
                         },
+                        "receive_invalid_state": {"value": _TRANSFER_ERROR_EXAMPLES["422_receive_invalid_state"]},
+                        "cancel_invalid_state": {"value": _TRANSFER_ERROR_EXAMPLES["422_cancel_invalid_state"]},
                         "receive_wrong_store": {"value": _TRANSFER_ERROR_EXAMPLES["422_receive_scope"]},
                         "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
                     }
@@ -1162,8 +1180,8 @@ def get_transfer_detail(
                                     {
                                         "line_id": "33333333-3333-3333-3333-333333333333",
                                         "qty": 1,
-                                        "location_code": "STORE-DEST",
-                                        "pool": "SALE",
+                                        "location_code": "ONLINE-A1",
+                                        "pool": "VENTA",
                                         "location_is_vendible": True,
                                     }
                                 ],

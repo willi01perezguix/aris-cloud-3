@@ -1100,8 +1100,7 @@ def get_transfer_detail(
     return _transfer_response(repo, transfer, lines)
 
 
-@router.post(
-    "/aris3/transfers/{transfer_id}/actions",
+@router.post("/aris3/transfers/{transfer_id}/actions",
     response_model=TransferResponse,
     summary="Execute transfer action",
     description="Executes transfer lifecycle actions for EPC/RFID transfers only. Supported actions include dispatch, receive, cancel, shortages reporting, and shortages resolution.",

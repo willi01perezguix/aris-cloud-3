@@ -1,8 +1,9 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime
 
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import StockItem, Store, Tenant, User
+from app.aris3.db.models import StockItem, Store, Tenant, TransferMovement, User
 from app.aris3.db.seed import run_seed
 
 
@@ -56,6 +57,9 @@ def _seed_stock(db_session, tenant_id, store_id, *, epc: str):
             image_thumb_url="https://example.com/thumb.png",
             image_source="catalog",
             image_updated_at=datetime.utcnow(),
+            cost_price=Decimal("25.00"),
+            suggested_price=Decimal("35.00"),
+            sale_price=Decimal("32.50"),
         )
     ]
     db_session.add_all(items)
@@ -140,6 +144,15 @@ def test_transfer_dispatch_success(client, db_session):
         .count()
     )
     assert total_rfid + total_pending == 1
+
+    movement = (
+        db_session.query(TransferMovement)
+        .filter(TransferMovement.transfer_id == uuid.UUID(transfer_id), TransferMovement.action == "DISPATCH")
+        .one()
+    )
+    assert movement.snapshot["cost_price"] == 25.0
+    assert movement.snapshot["suggested_price"] == 35.0
+    assert movement.snapshot["sale_price"] == 32.5
 
 
 def test_transfer_dispatch_insufficient_stock(client, db_session):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
 
@@ -279,6 +280,13 @@ def _resolve_receive_destination(receive_line, transfer: Transfer) -> tuple[str,
 
 
 def _stock_snapshot_from_line(line: TransferLine) -> dict:
+    def _to_json_number(value):
+        if value is None:
+            return None
+        if isinstance(value, Decimal):
+            return float(value)
+        return value
+
     image_updated_at = line.image_updated_at
     if isinstance(image_updated_at, datetime):
         image_updated_at = image_updated_at.isoformat()
@@ -287,9 +295,9 @@ def _stock_snapshot_from_line(line: TransferLine) -> dict:
         "description": line.description,
         "var1_value": line.var1_value,
         "var2_value": line.var2_value,
-        "cost_price": line.cost_price,
-        "suggested_price": line.suggested_price,
-        "sale_price": line.sale_price,
+        "cost_price": _to_json_number(line.cost_price),
+        "suggested_price": _to_json_number(line.suggested_price),
+        "sale_price": _to_json_number(line.sale_price),
         "epc": line.epc,
         "location_code": line.location_code,
         "pool": line.pool,

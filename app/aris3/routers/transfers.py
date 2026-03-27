@@ -85,7 +85,7 @@ _TRANSFER_DRAFT_RESPONSE_EXAMPLE = {
         "updated_at": "2026-03-27T10:00:00Z",
     },
     "lines": [_TRANSFER_LINE_EXAMPLE],
-    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": True, "shortages_possible": True},
+    "movement_summary": {"dispatched_lines": 0, "dispatched_qty": 0, "pending_reception": False, "shortages_possible": False},
 }
 _TRANSFER_DISPATCHED_RESPONSE_EXAMPLE = {
     "header": {
@@ -162,6 +162,12 @@ _TRANSFER_ERROR_EXAMPLES = {
         "message": "Validation error",
         "details": {"errors": [{"field": "status", "message": "transfer cannot be cancelled from this state", "type": "value_error"}]},
         "trace_id": "trace-transfer-422-cancel-state",
+    },
+    "422_list_invalid_sort_by": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation error",
+        "details": {"message": "invalid sort_by"},
+        "trace_id": "trace-transfer-422-list-sort-by",
     },
 }
 
@@ -697,8 +703,7 @@ def _transfer_response(repo: TransferRepository, transfer: Transfer, lines: list
                 }
             }
         },
-        409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
-        422: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["422_draft_stale"]}}},
+        422: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["422_list_invalid_sort_by"]}}},
     },
 )
 def list_transfers(
@@ -1117,8 +1122,7 @@ def get_transfer_detail(
     summary="Execute transfer action",
     description=(
         "Executes transfer lifecycle actions for EPC/RFID transfers only (SKU is not supported). "
-        "Primary documented actions in this iteration are dispatch, receive, and cancel. "
-        "The contract also accepts report_shortages and resolve_shortages for shortage workflows."
+        "This endpoint documents and exemplifies dispatch, receive, and cancel actions."
     ),
     responses={
         200: {

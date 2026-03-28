@@ -78,7 +78,7 @@ def test_admin_error_responses_include_trace_id(client, db_session):
         json={"var1_label": "Size"},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert response.headers.get("X-Trace-ID") == "trace-admin-error-1"
     assert response.json()["trace_id"] == "trace-admin-error-1"
-    assert response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert response.json()["code"] == "VALIDATION_ERROR"

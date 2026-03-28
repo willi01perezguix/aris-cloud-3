@@ -176,9 +176,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
         code = exc.error.code
         message = exc.error.message
         details = exc.details
-        if exc.error.status_code == 401:
-            code = ErrorCatalog.INVALID_TOKEN.code
-        elif exc.error.status_code == 404:
+        if exc.error.status_code == 404:
             code = ErrorCatalog.RESOURCE_NOT_FOUND.code
 
         if details is None and exc.error.status_code in {404, 409}:
@@ -189,7 +187,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
             }
 
         if exc.error.status_code == ErrorCatalog.VALIDATION_ERROR.status_code and code == ErrorCatalog.VALIDATION_ERROR.code:
-            if not isinstance(details, dict) or "errors" not in details:
+            if details is None or not isinstance(details, dict):
                 details = {
                     "errors": [
                         {

@@ -1243,7 +1243,6 @@ async def list_tenants(
 
     tenants, total = TenantRepository(db).list_all(
         status=normalized_status,
-        is_active=is_active,
         search=_normalize_optional_str(search),
         limit=limit,
         offset=offset,
@@ -1649,6 +1648,7 @@ async def list_stores(
     description=(
         "Creates a store under an explicit tenant scope.\n\n"
         "- **Canonical input**: send `tenant_id` in the JSON body.\n"
+        "- **backward compatibility**: deprecated `query_tenant_id` is accepted only as a legacy alias and must match body `tenant_id` when both are provided.\n"
         "- **Admin role rule**: `SUPERADMIN` / `PLATFORM_ADMIN` must provide an explicit tenant; no implicit fallback is used."
     ),
     responses=ADMIN_STANDARD_ERROR_RESPONSES,
@@ -1934,7 +1934,10 @@ async def list_users(
     store_id: str | None = Query(default=None, description="Optional store filter."),
     role: str | None = Query(default=None, description="Optional role filter."),
     status: str | None = Query(default=None, description="Canonical lifecycle status filter (active/suspended/canceled)."),
-    is_active: bool | None = Query(default=None, description="Optional active-state filter."),
+    is_active: bool | None = Query(
+        default=None,
+        description="Deprecated compatibility filter derived from status (ACTIVE=true, others=false).",
+    ),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),
     limit: int = Query(default=200, gt=0, le=200, description="Page size (max 200)."),
     offset: int = Query(default=0, ge=0, description="Row offset for pagination."),

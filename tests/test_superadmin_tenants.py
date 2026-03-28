@@ -53,7 +53,7 @@ def test_superadmin_can_manage_tenants(client, db_session):
     )
     assert create_response.status_code == 201
     tenant_payload = create_response.json()["tenant"]
-    assert tenant_payload["status"] == "active"
+    assert tenant_payload["status"] == "ACTIVE"
 
     tenant_id = tenant_payload["id"]
     get_response = client.get(
@@ -76,7 +76,7 @@ def test_superadmin_can_manage_tenants(client, db_session):
         json={"action": "set_status", "status": "SUSPENDED"},
     )
     assert action_response.status_code == 200
-    assert action_response.json()["tenant"]["status"] == "suspended"
+    assert action_response.json()["tenant"]["status"] == "SUSPENDED"
 
     list_response = client.get(
         "/aris3/admin/tenants",

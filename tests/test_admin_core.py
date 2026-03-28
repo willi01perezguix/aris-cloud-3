@@ -240,7 +240,7 @@ def test_admin_user_actions_and_role_ceiling(client, db_session):
     )
     assert status_response.status_code == 200
     payload = status_response.json()["user"]
-    assert payload["status"] == "suspended"
+    assert payload["status"] == "SUSPENDED"
     assert payload["is_active"] is False
 
     role_response = client.post(
@@ -336,7 +336,7 @@ def test_manager_store_scope_user_actions_allowed_same_store(client, db_session)
     )
 
     assert response.status_code == 200
-    assert response.json()["user"]["status"] == "suspended"
+    assert response.json()["user"]["status"] == "SUSPENDED"
 
 
 def test_admin_user_actions_tenant_wide_allowed_same_tenant(client, db_session):
@@ -357,7 +357,7 @@ def test_admin_user_actions_tenant_wide_allowed_same_tenant(client, db_session):
     )
 
     assert response.status_code == 200
-    assert response.json()["user"]["status"] == "suspended"
+    assert response.json()["user"]["status"] == "SUSPENDED"
 
 
 def test_superadmin_user_actions_cross_tenant_allowed(client, db_session):
@@ -374,7 +374,7 @@ def test_superadmin_user_actions_cross_tenant_allowed(client, db_session):
         json={"action": "set_status", "status": "SUSPENDED", "transaction_id": "txn-sa-1"},
     )
     assert response.status_code == 200
-    assert response.json()["user"]["status"] == "suspended"
+    assert response.json()["user"]["status"] == "SUSPENDED"
 
 
 def test_superadmin_can_manage_cross_tenant_user(client, db_session):

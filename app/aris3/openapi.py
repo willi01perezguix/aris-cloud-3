@@ -774,6 +774,35 @@ def _normalize_admin_user_actions_request_schema(schema: dict) -> None:
     operation["requestBody"]["content"]["application/json"]["schema"] = clean_union
 
 
+def _normalize_pos_action_discriminators(schema: dict) -> None:
+    paths = schema.get("paths", {})
+    action_paths = (
+        ("/aris3/pos/sales/{sale_id}/actions", "post"),
+        ("/aris3/pos/returns/{return_id}/actions", "post"),
+        ("/aris3/pos/cash/session/actions", "post"),
+    )
+    for path, method in action_paths:
+        operation = paths.get(path, {}).get(method, {})
+        body_schema = (
+            operation.get("requestBody", {})
+            .get("content", {})
+            .get("application/json", {})
+            .get("schema", {})
+        )
+        discriminator = body_schema.get("discriminator", {})
+        mapping = discriminator.get("mapping")
+        if not isinstance(mapping, dict):
+            continue
+        normalized_mapping = {
+            key: value for key, value in mapping.items() if isinstance(key, str) and key.upper() == key
+        }
+        if path == "/aris3/pos/sales/{sale_id}/actions":
+            normalized_mapping = {
+                key: value for key, value in normalized_mapping.items() if key in {"CHECKOUT", "CANCEL"}
+            }
+        discriminator["mapping"] = normalized_mapping
+
+
 def harden_openapi_schema(app: FastAPI):
     if app.openapi_schema:
         return app.openapi_schema
@@ -820,6 +849,7 @@ def harden_openapi_schema(app: FastAPI):
     _enforce_public_request_contracts(schema)
     _set_endpoint_error_examples(schema)
     _normalize_admin_user_actions_request_schema(schema)
+    _normalize_pos_action_discriminators(schema)
 
     generated_schemas = schema.get("components", {}).get("schemas", {})
     generated_schemas.pop("HTTPValidationError", None)

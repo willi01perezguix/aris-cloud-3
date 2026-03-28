@@ -7,7 +7,8 @@ from app.aris3.services.idempotency import IDEMPOTENCY_HEADER, LEGACY_IDEMPOTENC
 
 class IdempotencyGuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path.startswith("/aris3/admin/"):
+        guarded_paths = ("/aris3/admin/", "/aris3/access-control/")
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path.startswith(guarded_paths):
             key = request.headers.get(IDEMPOTENCY_HEADER) or request.headers.get(LEGACY_IDEMPOTENCY_HEADER)
             if not key:
                 trace_id = getattr(request.state, "trace_id", "")

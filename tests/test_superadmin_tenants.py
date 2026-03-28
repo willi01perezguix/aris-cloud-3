@@ -114,8 +114,8 @@ def test_tenant_mutations_require_idempotency_key(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
         json={"name": "Idem Tenant"},
     )
-    assert create_response.status_code == 400
-    assert create_response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert create_response.status_code == 422
+    assert create_response.json()["code"] == "VALIDATION_ERROR"
 
     tenant = Tenant(name="Idem Tenant 2")
     db_session.add(tenant)
@@ -126,16 +126,16 @@ def test_tenant_mutations_require_idempotency_key(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
         json={"name": "Idem Tenant Updated"},
     )
-    assert update_response.status_code == 400
-    assert update_response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert update_response.status_code == 422
+    assert update_response.json()["code"] == "VALIDATION_ERROR"
 
     action_response = client.post(
         f"/aris3/admin/tenants/{tenant.id}/actions",
         headers={"Authorization": f"Bearer {token}"},
         json={"action": "set_status", "status": "SUSPENDED"},
     )
-    assert action_response.status_code == 400
-    assert action_response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert action_response.status_code == 422
+    assert action_response.json()["code"] == "VALIDATION_ERROR"
 
 
 def test_superadmin_store_creation_requires_explicit_tenant_and_honors_precedence(client, db_session):

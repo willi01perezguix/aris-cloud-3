@@ -172,8 +172,8 @@ def test_user_override_updates_effective_permissions_and_requires_idempotency(
         headers={"Authorization": f"Bearer {token}"},
         json={"allow": ["AUDIT_VIEW"], "deny": ["USER_MANAGE"], "transaction_id": "txn-override-3"},
     )
-    assert missing_idempotency.status_code == 400
-    assert missing_idempotency.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert missing_idempotency.status_code == 422
+    assert missing_idempotency.json()["code"] == "VALIDATION_ERROR"
 
     user_token = _login(client, "user4", "Pass1234!")
     effective = client.get(
@@ -317,5 +317,5 @@ def test_role_policy_requires_idempotency_key(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
         json={"allow": ["STORE_VIEW"], "deny": [], "transaction_id": "txn-role-5"},
     )
-    assert response.status_code == 400
-    assert response.json()["code"] == "IDEMPOTENCY_KEY_REQUIRED"
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"

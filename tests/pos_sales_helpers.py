@@ -29,7 +29,7 @@ def create_tenant_user(db_session, *, suffix: str, role: str = "ADMIN"):
         email=f"user-{suffix}@example.com",
         hashed_password=get_password_hash("Pass1234!"),
         role=role,
-        status="active",
+        status="ACTIVE",
         must_change_password=False,
         is_active=True,
     )

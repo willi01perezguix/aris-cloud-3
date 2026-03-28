@@ -18,7 +18,7 @@ def _create_user(db_session, *, tenant, store, username: str, role: str = "ADMIN
         email=f"{username}@example.com",
         hashed_password=get_password_hash(password),
         role=role,
-        status="active",
+        status="ACTIVE",
         must_change_password=False,
         is_active=True,
     )

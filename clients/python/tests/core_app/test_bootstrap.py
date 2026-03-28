@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from aris3_client_sdk.models import (
+    ChangePasswordResponse,
     EffectivePermissionSubject,
     EffectivePermissionsResponse,
     EffectivePermissionsTrace,
@@ -38,8 +39,8 @@ class FakeAuthClient:
         assert self.profile is not None
         return self.profile
 
-    def change_password(self, current_password: str, new_password: str, idempotency_key: str) -> TokenResponse:
-        return TokenResponse(access_token="token-456", must_change_password=False, trace_id="trace-change")
+    def change_password(self, current_password: str, new_password: str, idempotency_key: str) -> ChangePasswordResponse:
+        return ChangePasswordResponse(ok=True, message="Password updated successfully", trace_id="trace-change")
 
 
 @dataclass

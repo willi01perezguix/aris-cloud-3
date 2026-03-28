@@ -139,3 +139,44 @@ def test_transfer_action_idempotency(monkeypatch) -> None:
     )
     client = TransfersClient(http=http, access_token="token")
     client.transfer_action("t1", "dispatch", {})
+
+
+@responses.activate
+def test_transfer_client_contract_alignment(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+    monkeypatch.setattr(
+        transfers_client_module,
+        "new_idempotency_keys",
+        lambda: IdempotencyKeys(transaction_id="txn-transfer", idempotency_key="idem-transfer"),
+    )
+
+    responses.add(
+        responses.POST,
+        "https://api.example.com/aris3/transfers/transfer-1/actions",
+        json={
+            "header": {
+                "id": "transfer-1",
+                "tenant_id": "tenant-1",
+                "origin_store_id": "origin-1",
+                "destination_store_id": "dest-1",
+                "status": "RECEIVED",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+            "lines": [],
+            "movement_summary": {"dispatched_lines": 1, "dispatched_qty": 1, "pending_reception": False, "shortages_possible": False},
+        },
+        status=200,
+    )
+
+    client = TransfersClient(http=http, access_token="token")
+    client.transfer_action(
+        "transfer-1",
+        "receive",
+        payload={"receive_lines": [{"line_id": "line-1", "qty": 1, "location_code": "LOC-1", "pool": "ON_HAND"}]},
+    )
+
+    sent = json.loads(responses.calls[0].request.body)
+    assert sent["action"] == "receive"
+    assert "receive_lines" in sent
+    assert "sku" not in json.dumps(sent).lower()

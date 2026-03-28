@@ -30,7 +30,7 @@ class ControlCenterBootstrap:
         self.state.session.allowed_permissions = {entry.key for entry in decisions.permissions if entry.allowed}
 
     def services(self) -> tuple[AdminUsersService, AccessControlService, SettingsService]:
-        token = self.session.access_token
+        token = self.session.token
         admin = AdminClient(http=self.session._http(), access_token=token)
         access = AccessControlClient(http=self.session._http(), access_token=token)
         return (

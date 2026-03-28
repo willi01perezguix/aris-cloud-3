@@ -53,6 +53,63 @@ def test_login_me_flow(monkeypatch) -> None:
 
 
 @responses.activate
+def test_client_uses_patch_change_password_canonical(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+    responses.add(
+        responses.PATCH,
+        "https://api.example.com/aris3/auth/change-password",
+        json={"ok": True, "message": "Password updated successfully", "trace_id": "trace-change"},
+        status=200,
+    )
+
+    auth = AuthClient(http=http, access_token="token")
+    payload = auth.change_password("OldPass123", "NewPass456", idempotency_key="idem-1")
+
+    assert payload.ok is True
+    assert len(responses.calls) == 1
+    assert responses.calls[0].request.method == "PATCH"
+    assert responses.calls[0].request.url.endswith("/aris3/auth/change-password")
+
+
+@responses.activate
+def test_client_login_and_me_flow_contract(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+    responses.add(
+        responses.POST,
+        "https://api.example.com/aris3/auth/login",
+        json={"access_token": "token-login", "must_change_password": False, "trace_id": "trace-login"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://api.example.com/aris3/me",
+        json={
+            "id": "user-1",
+            "username": "demo",
+            "email": "demo@example.com",
+            "tenant_id": "tenant-1",
+            "store_id": "store-1",
+            "role": "ADMIN",
+            "status": "ACTIVE",
+            "is_active": True,
+            "must_change_password": False,
+            "trace_id": "trace-me",
+        },
+        status=200,
+    )
+
+    auth = AuthClient(http=http)
+    token = auth.login("demo", "pass")
+    user = AuthClient(http=http, access_token=token.access_token).me()
+
+    assert token.access_token == "token-login"
+    assert user.tenant_id == "tenant-1"
+    assert user.trace_id == "trace-me"
+
+
+@responses.activate
 def test_effective_permissions_fetch(monkeypatch) -> None:
     monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
     http = _client("https://api.example.com")

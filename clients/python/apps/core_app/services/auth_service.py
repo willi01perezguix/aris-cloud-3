@@ -4,7 +4,7 @@ import logging
 
 from aris3_client_sdk import ApiSession
 from aris3_client_sdk.exceptions import MustChangePasswordError
-from aris3_client_sdk.models import TokenResponse
+from aris3_client_sdk.models import ChangePasswordResponse, TokenResponse
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,15 @@ class AuthService:
         logger.info("login_success", extra={"username": username, "trace_id": token.trace_id})
         return token
 
-    def change_password(self, current_password: str, new_password: str, idempotency_key: str) -> TokenResponse:
+    def change_password(self, current_password: str, new_password: str, idempotency_key: str) -> ChangePasswordResponse:
         logger.info("change_password_attempt")
-        token = self.session.auth_client().change_password(
+        response = self.session.auth_client().change_password(
             current_password=current_password,
             new_password=new_password,
             idempotency_key=idempotency_key,
         )
-        logger.info("change_password_success", extra={"trace_id": token.trace_id})
-        return token
+        logger.info("change_password_success", extra={"trace_id": response.trace_id})
+        return response
 
     def logout(self) -> None:
         logger.info("logout")

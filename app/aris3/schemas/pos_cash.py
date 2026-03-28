@@ -31,7 +31,7 @@ class CashInRequest(PosBaseModel):
     store_id: str | None = None
     action: Literal['CASH_IN']
     amount: Money
-    reason: str
+    reason: str | None = None
 
 
 
@@ -45,7 +45,7 @@ class CashOutRequest(PosBaseModel):
     store_id: str | None = None
     action: Literal['CASH_OUT']
     amount: Money
-    reason: str
+    reason: str | None = None
 
 class CloseCashSessionRequest(PosBaseModel):
     transaction_id: str

@@ -12,8 +12,8 @@ class IdempotencyGuardMiddleware(BaseHTTPMiddleware):
             if not key:
                 trace_id = getattr(request.state, "trace_id", "")
                 payload = {
-                    "code": "IDEMPOTENCY_KEY_REQUIRED",
-                    "message": "Idempotency key required",
+                    "code": "VALIDATION_ERROR",
+                    "message": "Validation error",
                     "details": {
                         "errors": [
                             {
@@ -25,5 +25,5 @@ class IdempotencyGuardMiddleware(BaseHTTPMiddleware):
                     },
                     "trace_id": trace_id,
                 }
-                return JSONResponse(status_code=400, content=payload)
+                return JSONResponse(status_code=422, content=payload)
         return await call_next(request)

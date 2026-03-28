@@ -221,10 +221,44 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
 
     count = db.execute(select(func.count()).select_from(StockItem).where(*filters)).scalar_one()
     if int(count or 0) < line.qty:
+        if _legacy_unit_price(line) is not None:
+            return PosSaleLineCreate(
+                line_type=line.line_type,
+                qty=line.qty,
+                unit_price=fallback_price,
+                snapshot=PosSaleLineSnapshot(
+                    sku=sku,
+                    description=snapshot.description,
+                    var1_value=snapshot.var1_value,
+                    var2_value=snapshot.var2_value,
+                    epc=None,
+                    location_code=snapshot.location_code,
+                    pool=snapshot.pool,
+                    status=snapshot.status or "PENDING",
+                    location_is_vendible=True,
+                ),
+            )
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "insufficient stock for sku", "sku": sku})
 
     stock = db.execute(select(StockItem).where(*filters).order_by(StockItem.created_at)).scalars().first()
     if not stock:
+        if _legacy_unit_price(line) is not None:
+            return PosSaleLineCreate(
+                line_type=line.line_type,
+                qty=line.qty,
+                unit_price=fallback_price,
+                snapshot=PosSaleLineSnapshot(
+                    sku=sku,
+                    description=snapshot.description,
+                    var1_value=snapshot.var1_value,
+                    var2_value=snapshot.var2_value,
+                    epc=None,
+                    location_code=snapshot.location_code,
+                    pool=snapshot.pool,
+                    status=snapshot.status or "PENDING",
+                    location_is_vendible=True,
+                ),
+            )
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sku not available for sale", "sku": sku})
 
     expected_price = _authoritative_price(stock, fallback_price)

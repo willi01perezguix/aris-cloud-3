@@ -1,6 +1,7 @@
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.security import create_user_access_token, get_password_hash, verify_password
 from app.aris3.repos.users import UserRepository
+from app.aris3.services.active_state import ensure_user_can_authenticate
 
 
 class AuthService:
@@ -37,10 +38,8 @@ class AuthService:
         updated_user = self.repo.update_password(user, hashed)
         return updated_user
 
-    @staticmethod
-    def _ensure_user_active(user) -> None:
-        if not user.is_active or user.status != "active":
-            raise AppError(ErrorCatalog.USER_INACTIVE)
+    def _ensure_user_active(self, user) -> None:
+        ensure_user_can_authenticate(db=self.repo.db, user=user)
 
     @staticmethod
     def _validate_new_password(user, new_password: str) -> None:

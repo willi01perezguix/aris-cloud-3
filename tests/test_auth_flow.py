@@ -267,3 +267,140 @@ def test_change_password_allows_patch_alias(client, db_session):
     )
     assert response.status_code == 200
     assert response.json()["ok"] is True
+
+
+
+def test_login_active_user_succeeds(client, db_session):
+    _create_user(db_session, email="active-ok@example.com", username="active-ok")
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"email": "active-ok@example.com", "password": "OldPass123"},
+    )
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+
+    me_response = client.get("/aris3/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_response.status_code == 200
+
+
+def test_login_user_is_active_false_fails_user_inactive(client, db_session):
+    _create_user(db_session, email="inactive-flag@example.com", username="inactive-flag", is_active=False)
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"email": "inactive-flag@example.com", "password": "OldPass123"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "USER_INACTIVE"
+
+
+def test_login_user_status_suspended_fails(client, db_session):
+    _create_user(db_session, email="status-suspended@example.com", username="status-suspended", status="SUSPENDED")
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"email": "status-suspended@example.com", "password": "OldPass123"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "USER_INACTIVE"
+
+
+def test_login_tenant_inactive_fails(client, db_session):
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant Inactive", status="SUSPENDED")
+    store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store Inactive")
+    _create_user(
+        db_session,
+        tenant=tenant,
+        store=store,
+        email="tenant-inactive@example.com",
+        username="tenant-inactive",
+        status="ACTIVE",
+        is_active=True,
+    )
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"email": "tenant-inactive@example.com", "password": "OldPass123"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "USER_INACTIVE"
+
+
+def test_login_store_inactive_fails_if_applicable(client, db_session):
+    # Current data model has no store active/inactive lifecycle fields.
+    assert not hasattr(Store, "status")
+    assert not hasattr(Store, "is_active")
+
+    _create_user(db_session, email="store-rule-na@example.com", username="store-rule-na", status="ACTIVE", is_active=True)
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"email": "store-rule-na@example.com", "password": "OldPass123"},
+    )
+    assert response.status_code == 200
+
+
+def test_require_active_user_matches_login_rules(client, db_session):
+    tenant, user = _create_user(
+        db_session,
+        email="guard-match@example.com",
+        username="guard-match",
+        status="ACTIVE",
+        is_active=True,
+        must_change_password=False,
+    )
+    login = client.post("/aris3/auth/login", json={"email": "guard-match@example.com", "password": "OldPass123"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+
+    user.status = "SUSPENDED"
+    user.is_active = False
+    db_session.add(user)
+    db_session.commit()
+
+    guarded = client.patch(
+        "/aris3/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "OldPass123", "new_password": "NewPass999999"},
+    )
+    assert guarded.status_code == 403
+    assert guarded.json()["code"] == "USER_INACTIVE"
+
+
+def test_me_endpoint_matches_active_user_rules(client, db_session):
+    tenant, user = _create_user(
+        db_session,
+        email="me-rule@example.com",
+        username="me-rule",
+        status="ACTIVE",
+        is_active=True,
+    )
+    login = client.post("/aris3/auth/login", json={"email": "me-rule@example.com", "password": "OldPass123"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+
+    user.status = "SUSPENDED"
+    user.is_active = False
+    db_session.add(user)
+    db_session.commit()
+
+    me_response = client.get("/aris3/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_response.status_code == 403
+    assert me_response.json()["code"] == "USER_INACTIVE"
+
+
+def test_legacy_lowercase_active_status_is_accepted(client, db_session):
+    _create_user(
+        db_session,
+        email="legacy-lower@example.com",
+        username="legacy-lower",
+        status="active",
+        is_active=True,
+    )
+
+    response = client.post(
+        "/aris3/auth/login",
+        json={"email": "legacy-lower@example.com", "password": "OldPass123"},
+    )
+    assert response.status_code == 200

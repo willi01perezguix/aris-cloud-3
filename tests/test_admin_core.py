@@ -724,3 +724,32 @@ def test_delete_tenant_success_conflict_and_not_found(client, db_session):
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "delete-tenant-3"},
     )
     assert missing.status_code == 404
+
+
+def test_admin_user_status_mutation_keeps_state_consistent(client, db_session):
+    run_seed(db_session)
+    tenant, store = _create_tenant_store(db_session, name_suffix="StatusSync")
+    _create_user(db_session, tenant=tenant, store=store, role="ADMIN", username="status-admin", password="Pass1234!")
+    target = _create_user(db_session, tenant=tenant, store=store, role="USER", username="status-target", password="Pass1234!")
+
+    token = _login(client, "status-admin", "Pass1234!")
+
+    suspend = client.post(
+        f"/aris3/admin/users/{target.id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "status-sync-1"},
+        json={"action": "set_status", "status": "SUSPENDED", "transaction_id": "status-sync-tx-1"},
+    )
+    assert suspend.status_code == 200
+    suspended = suspend.json()["user"]
+    assert suspended["status"] == "SUSPENDED"
+    assert suspended["is_active"] is False
+
+    activate = client.post(
+        f"/aris3/admin/users/{target.id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "status-sync-2"},
+        json={"action": "set_status", "status": "ACTIVE", "transaction_id": "status-sync-tx-2"},
+    )
+    assert activate.status_code == 200
+    active = activate.json()["user"]
+    assert active["status"] == "ACTIVE"
+    assert active["is_active"] is True

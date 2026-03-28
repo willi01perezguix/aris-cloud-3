@@ -9,6 +9,7 @@ from app.aris3.core.security import TokenData, decode_token, oauth2_scheme
 from app.aris3.db.session import get_db
 from app.aris3.repos.users import UserRepository
 from app.aris3.services.access_control import AccessControlService
+from app.aris3.services.active_state import ensure_user_can_authenticate
 
 
 def get_current_token_data(token: str = Depends(oauth2_scheme)) -> TokenData:
@@ -31,9 +32,8 @@ def get_current_user(token_data: TokenData = Depends(get_current_token_data), db
     return user
 
 
-def require_active_user(user=Depends(get_current_user)):
-    if not user.is_active or (user.status or "").upper() != "ACTIVE":
-        raise AppError(ErrorCatalog.USER_INACTIVE)
+def require_active_user(user=Depends(get_current_user), db=Depends(get_db)):
+    ensure_user_can_authenticate(db=db, user=user)
     return user
 
 

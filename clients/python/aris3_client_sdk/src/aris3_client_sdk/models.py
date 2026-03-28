@@ -12,6 +12,12 @@ class TokenResponse(BaseModel):
     trace_id: str | None = None
 
 
+class ChangePasswordResponse(BaseModel):
+    ok: bool
+    message: str
+    trace_id: str | None = None
+
+
 class UserResponse(BaseModel):
     id: str
     username: str

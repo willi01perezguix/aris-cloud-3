@@ -4,6 +4,7 @@ import requests
 import responses
 from pathlib import Path
 
+from aris3_client_sdk import ApiSession
 from aris3_client_sdk.auth_store import AuthStore
 from aris3_client_sdk.clients.auth import AuthClient
 from aris3_client_sdk.clients.stock_client import StockClient
@@ -20,6 +21,7 @@ from aris3_client_sdk.exceptions import (
 )
 from aris3_client_sdk.http_client import HttpClient
 from aris3_client_sdk.idempotency import idempotency_headers, resolve_idempotency_keys
+from aris3_client_sdk.models import SessionData, TokenResponse, UserResponse
 from aris3_client_sdk.models_stock import StockQuery
 from aris3_client_sdk.tracing import TraceContext
 
@@ -135,6 +137,43 @@ def test_auth_store_handles_corruption(tmp_path: Path) -> None:
 
     assert store.load() is None
     assert not store._path().exists()
+
+
+def test_sdk_session_token_usage_consistent() -> None:
+    class InMemoryStore:
+        def __init__(self) -> None:
+            self.persisted: SessionData | None = SessionData(
+                access_token="persisted-token",
+                user=UserResponse(id="u1", username="alice"),
+                env_name="test",
+            )
+
+        def save(self, session: SessionData) -> None:
+            self.persisted = session
+
+        def load(self) -> SessionData | None:
+            return self.persisted
+
+        def clear(self) -> None:
+            self.persisted = None
+
+    store = InMemoryStore()
+    session = ApiSession(config=_cfg(), auth_store=store)  # type: ignore[arg-type]
+
+    assert session.token == "persisted-token"
+    assert session.auth_client().access_token == "persisted-token"
+    assert session.admin_client().access_token == "persisted-token"
+
+    session.establish(
+        TokenResponse(access_token="fresh-token", must_change_password=False, trace_id="trace-auth"),
+        UserResponse(id="u2", username="bob"),
+    )
+
+    assert session.token == "fresh-token"
+    assert store.persisted is not None
+    assert store.persisted.access_token == "fresh-token"
+    session.clear()
+    assert store.persisted is None
 
 
 @responses.activate

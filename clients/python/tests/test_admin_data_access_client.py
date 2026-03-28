@@ -233,3 +233,39 @@ def test_list_users_backward_compat_without_new_filters(monkeypatch) -> None:
 
     result = client.list_users()
     assert result["users"] == []
+
+
+@responses.activate
+def test_admin_client_contract_alignment(monkeypatch) -> None:
+    monkeypatch.setenv("ARIS3_API_BASE_URL", "https://api.example.com")
+    http = _client("https://api.example.com")
+    client = AdminDataAccessClient(http=http, access_token="token")
+
+    responses.add(
+        responses.GET,
+        "https://api.example.com/aris3/admin/stores",
+        match=[
+            responses.matchers.query_param_matcher({"tenant_id": "tenant-1", "limit": "10", "offset": "0"})
+        ],
+        json={"stores": [], "trace_id": "trace-stores"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://api.example.com/aris3/admin/users",
+        match=[
+            responses.matchers.query_param_matcher(
+                {"tenant_id": "tenant-1", "store_id": "store-1", "status": "active", "is_active": "True"}
+            )
+        ],
+        json={"users": [], "trace_id": "trace-users"},
+        status=200,
+    )
+
+    client.list_stores(tenant_id="tenant-1", limit=10, offset=0)
+    client.list_users(tenant_id="tenant-1", store_id="store-1", status=UserStatus.ACTIVE, is_active=True)
+
+    first_qs = responses.calls[0].request.url.split("?", 1)[1]
+    second_qs = responses.calls[1].request.url.split("?", 1)[1]
+    assert "query_tenant_id" not in first_qs
+    assert "query_tenant_id" not in second_qs

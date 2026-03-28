@@ -7,8 +7,6 @@ from time import perf_counter
 from aris3_client_sdk import ApiSession, ClientConfig, load_config, new_idempotency_keys, to_user_facing_error
 from aris3_client_sdk.exceptions import ApiError
 from aris3_client_sdk.exceptions import MustChangePasswordError
-from aris3_client_sdk.models import TokenResponse
-
 from app.navigation import MODULE_SPECS, allowed_modules
 from app.state import AppState, Route
 from services.auth_service import AuthService
@@ -69,12 +67,11 @@ class CoreAppBootstrap:
     def change_password(self, current_password: str, new_password: str) -> BootstrapResult:
         keys = new_idempotency_keys("change-password")
         try:
-            token: TokenResponse = self.auth_service.change_password(
+            self.auth_service.change_password(
                 current_password=current_password,
                 new_password=new_password,
                 idempotency_key=keys.idempotency_key,
             )
-            self.session.establish(token=token, user=self.session.user)
         except Exception as exc:
             self.state.error_message = self._friendly_error(exc)
             self._navigate(Route.CHANGE_PASSWORD, "Change password failed")

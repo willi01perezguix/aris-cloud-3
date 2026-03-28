@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aris3_client_sdk.exceptions import ApiError
+from aris3_client_sdk.config import ClientConfig
 
 from apps.control_center.app.navigation import build_navigation
+from apps.control_center.app.bootstrap import ControlCenterBootstrap
 from apps.control_center.app.state import SessionState
 from apps.control_center.services.access_control_service import AccessControlService, blocked_admin_grants, deny_wins
 from apps.control_center.services.admin_users_service import AdminUsersService
@@ -185,3 +187,33 @@ def test_mapped_api_errors_show_actionable_feedback() -> None:
     summary = summarize_operation(state.operations[0])
     assert "idempotency=idem-create" in summary
     assert action_dedupe_key("u-1", "set_status", "txn-1") == "u-1:set_status:txn-1"
+
+
+def test_services_use_session_token_attribute(monkeypatch) -> None:
+    captured: dict[str, str | None] = {"admin": None, "access": None}
+
+    class FakeSession:
+        token = "session-token"
+
+        def _http(self):
+            return object()
+
+    class FakeAdminClient:
+        def __init__(self, http, access_token=None) -> None:
+            captured["admin"] = access_token
+
+    class FakeAccessClient:
+        def __init__(self, http, access_token=None) -> None:
+            captured["access"] = access_token
+
+    monkeypatch.setattr("apps.control_center.app.bootstrap.AdminClient", FakeAdminClient)
+    monkeypatch.setattr("apps.control_center.app.bootstrap.AccessControlClient", FakeAccessClient)
+
+    bootstrap = ControlCenterBootstrap(
+        config=ClientConfig(env_name="test", api_base_url="https://api.example.com"),
+        session=FakeSession(),  # type: ignore[arg-type]
+    )
+    bootstrap.services()
+
+    assert captured["admin"] == "session-token"
+    assert captured["access"] == "session-token"

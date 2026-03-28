@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..exceptions import MustChangePasswordError
-from ..models import TokenResponse, UserResponse
+from ..models import ChangePasswordResponse, TokenResponse, UserResponse
 from .base import BaseClient
 
 
@@ -21,11 +21,11 @@ class AuthClient(BaseClient):
             )
         return token
 
-    def change_password(self, current_password: str, new_password: str, idempotency_key: str) -> TokenResponse:
+    def change_password(self, current_password: str, new_password: str, idempotency_key: str) -> ChangePasswordResponse:
         payload = {"current_password": current_password, "new_password": new_password}
         headers = {"Idempotency-Key": idempotency_key}
-        data = self._request("POST", "/aris3/auth/change-password", json_body=payload, headers=headers)
-        return TokenResponse.model_validate(data)
+        data = self._request("PATCH", "/aris3/auth/change-password", json_body=payload, headers=headers)
+        return ChangePasswordResponse.model_validate(data)
 
     def me(self) -> UserResponse:
         data = self._request("GET", "/aris3/me")

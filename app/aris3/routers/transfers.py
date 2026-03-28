@@ -294,7 +294,11 @@ def _validate_transferable_epc_stock(
             },
         )
 
-    if stock_row.store_id is not None and str(stock_row.store_id) != str(origin_store_id):
+    if stock_row.store_id is None:
+        stock_row.store_id = origin_store_id
+        stock_row.updated_at = datetime.utcnow()
+
+    if str(stock_row.store_id) != str(origin_store_id):
         raise AppError(
             ErrorCatalog.BUSINESS_CONFLICT,
             details={
@@ -368,7 +372,15 @@ def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: 
 
 def _normalize_transfer_lines(db, *, tenant_id: str, origin_store_id: str, lines: list[TransferLineCreate], exclude_transfer_id: str | None = None) -> list[dict]:
     normalized: list[dict] = []
+    seen_epcs: set[str] = set()
     for line in lines:
+        line_epc = (line.snapshot.epc or "").strip()
+        if line_epc in seen_epcs:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "duplicate epc in transfer lines", "epc": line_epc},
+            )
+        seen_epcs.add(line_epc)
         normalized.append(
             _normalize_transfer_line(
                 db,

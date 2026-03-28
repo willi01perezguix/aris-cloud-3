@@ -235,4 +235,5 @@ def test_transfer_create_rejects_sku_lines(client, db_session):
         json=payload,
     )
     assert response.status_code == 422
-    assert "Transfers currently support EPC/RFID lines only" in str(response.json())
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert "line_type" in str(response.json())

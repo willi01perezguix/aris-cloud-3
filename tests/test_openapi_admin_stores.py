@@ -1,16 +1,17 @@
 from app.main import app
 
 
-def test_create_store_openapi_uses_canonical_body_tenant_id_only():
+def test_create_store_openapi_documents_deprecated_query_tenant_alias():
     operation = app.openapi()["paths"]["/aris3/admin/stores"]["post"]
 
     query_tenant_params = [
         param for param in operation.get("parameters", []) if param.get("name") == "query_tenant_id"
     ]
-    assert query_tenant_params == []
+    assert len(query_tenant_params) == 1
+    assert query_tenant_params[0].get("deprecated") is True
     description = operation.get("description") or ""
     assert "Canonical input" in description
-    assert "Legacy compatibility" not in description
+    assert "backward compatibility" in description
 
     request_body_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
     schema_name = request_body_ref.rsplit("/", 1)[-1]

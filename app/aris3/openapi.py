@@ -54,6 +54,7 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
         "description": (
             "Creates a store under an explicit tenant scope.\n\n"
             "- **Canonical input**: send `tenant_id` in the JSON body.\n"
+            "- **backward compatibility**: deprecated `query_tenant_id` is accepted as legacy alias and must match body `tenant_id` when both are provided.\n"
             "- **Admin rule**: `SUPERADMIN` and `PLATFORM_ADMIN` must provide an explicit tenant (no implicit fallback)."
         ),
     },

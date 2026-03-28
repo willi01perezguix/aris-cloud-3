@@ -8,7 +8,7 @@ from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorRespons
 
 AdminRole = Literal["USER", "MANAGER", "ADMIN"]
 AdminUserRole = Literal["USER", "MANAGER", "ADMIN", "SUPERADMIN", "PLATFORM_ADMIN"]
-AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED"]
+AdminUserStatus = Literal["ACTIVE", "SUSPENDED", "CANCELED", "active", "suspended", "canceled"]
 AdminUserAction = Literal["set_status", "set_role", "reset_password"]
 
 

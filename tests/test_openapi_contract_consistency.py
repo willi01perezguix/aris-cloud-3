@@ -17,11 +17,11 @@ def test_openapi_pos_cash_has_coherent_409_example():
     assert conflict["message"] == "cash session already open"
 
 
-def test_openapi_admin_no_query_tenant_legacy_docs_and_status_description_canonical():
+def test_openapi_admin_query_tenant_legacy_docs_and_status_description_canonical():
     openapi = app.openapi()
     stores_post = openapi["paths"]["/aris3/admin/stores"]["post"]
 
-    assert "query_tenant_id" not in (stores_post.get("description") or "")
+    assert "query_tenant_id" in (stores_post.get("description") or "")
     body_examples = stores_post["requestBody"]["content"]["application/json"].get("examples", {})
     assert "legacy_query_tenant" not in body_examples
 

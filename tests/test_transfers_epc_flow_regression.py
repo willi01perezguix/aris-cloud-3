@@ -277,7 +277,7 @@ def test_cancel_transfer_valid(client, db_session):
     )
 
     assert cancel.status_code == 200
-    assert cancel.json()["header"]["status"] == "CANCELLED"
+    assert cancel.json()["header"]["status"] == "CANCELED"
 
 
 def test_non_epc_transfer_lines_rejected(client, db_session):

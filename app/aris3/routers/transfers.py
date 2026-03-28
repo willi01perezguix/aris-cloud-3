@@ -1853,7 +1853,7 @@ def transfer_actions(
                 row.pool = line.pool
                 row.location_is_vendible = line.location_is_vendible
                 row.updated_at = datetime.utcnow()
-        transfer.status = "CANCELLED"
+        transfer.status = "CANCELED"
         transfer.canceled_by_user_id = current_user.id
         transfer.canceled_at = datetime.utcnow()
         transfer.updated_at = datetime.utcnow()

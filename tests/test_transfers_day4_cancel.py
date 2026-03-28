@@ -115,7 +115,7 @@ def test_transfer_cancel_draft_success(client, db_session):
         json={"transaction_id": "txn-cancel-2", "action": "cancel"},
     )
     assert cancel_response.status_code == 200
-    assert cancel_response.json()["header"]["status"] == "CANCELLED"
+    assert cancel_response.json()["header"]["status"] == "CANCELED"
 
 
 def test_transfer_cancel_dispatched_success(client, db_session):
@@ -147,7 +147,7 @@ def test_transfer_cancel_dispatched_success(client, db_session):
         json={"transaction_id": "txn-cancel-4", "action": "cancel"},
     )
     assert cancel_response.status_code == 200
-    assert cancel_response.json()["header"]["status"] == "CANCELLED"
+    assert cancel_response.json()["header"]["status"] == "CANCELED"
 
 
 def test_transfer_cancel_invalid_state_denied(client, db_session):

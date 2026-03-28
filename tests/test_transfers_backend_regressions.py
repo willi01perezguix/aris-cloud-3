@@ -438,3 +438,199 @@ def test_movement_summary_consistency(client, db_session):
     assert received["movement_summary"]["dispatched_qty"] == 1
     assert received["movement_summary"]["pending_reception"] is False
     assert received["movement_summary"]["shortages_possible"] is False
+
+
+def test_create_transfer_rejects_epc_already_in_active_transfer(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="create-active-conflict")
+    token = _login(client, user.username)
+    epc = "M" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    first = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-active-conflict-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-active-conflict-2"},
+        json={**_payload(str(origin_store.id), str(destination_store.id), epc), "transaction_id": "txn-active-conflict-2"},
+    )
+    assert second.status_code in {409, 422}
+    assert second.json()["code"] in {"BUSINESS_CONFLICT", "VALIDATION_ERROR"}
+
+
+def test_dispatch_transfer_revalidates_stock(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="dispatch-revalidate")
+    token = _login(client, user.username)
+    epc = "N" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-dispatch-revalidate-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+
+    stock_row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id, StockItem.epc == epc).one()
+    stock_row.store_id = destination_store.id
+    db_session.commit()
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-dispatch-revalidate-2"},
+        json={"action": "dispatch", "transaction_id": "txn-dispatch-revalidate-1"},
+    )
+    assert dispatch.status_code in {409, 422}
+    assert dispatch.status_code != 500
+    assert dispatch.json()["code"] in {"BUSINESS_CONFLICT", "VALIDATION_ERROR"}
+
+
+def test_dispatch_transfer_blocks_reuse_of_epc(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="dispatch-reuse-block")
+    token = _login(client, user.username)
+    epc = "O" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-reuse-block-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-reuse-block-2"},
+        json={"action": "dispatch", "transaction_id": "txn-reuse-block-dispatch-1"},
+    )
+    assert dispatch.status_code == 200
+
+    second = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-reuse-block-3"},
+        json={**_payload(str(origin_store.id), str(destination_store.id), epc), "transaction_id": "txn-reuse-block-create-2"},
+    )
+    assert second.status_code in {409, 422}
+    assert second.status_code != 500
+
+
+def test_received_epc_not_available_in_origin_after_receive(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="received-not-origin")
+    destination_user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=destination_store.id,
+        username="user-received-not-origin-dest",
+        email="user-received-not-origin-dest@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="ADMIN",
+        status="active",
+        must_change_password=False,
+        is_active=True,
+    )
+    db_session.add(destination_user)
+    db_session.commit()
+    token = _login(client, user.username)
+    destination_token = _login(client, destination_user.username)
+    epc = "P" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-received-not-origin-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    line_id = create.json()["lines"][0]["id"]
+    assert (
+        client.post(
+            f"/aris3/transfers/{transfer_id}/actions",
+            headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-received-not-origin-2"},
+            json={"action": "dispatch", "transaction_id": "txn-received-not-origin-dispatch"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/aris3/transfers/{transfer_id}/actions",
+            headers={"Authorization": f"Bearer {destination_token}", "Idempotency-Key": "reg-received-not-origin-3"},
+            json={"action": "receive", "transaction_id": "txn-received-not-origin-receive", "receive_lines": [{"line_id": line_id, "qty": 1}]},
+        ).status_code
+        == 200
+    )
+
+    second = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-received-not-origin-4"},
+        json={**_payload(str(origin_store.id), str(destination_store.id), epc), "transaction_id": "txn-received-not-origin-create-2"},
+    )
+    assert second.status_code in {409, 422}
+    assert second.status_code != 500
+
+
+def test_cancel_draft_restores_origin_availability(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="cancel-draft-availability")
+    token = _login(client, user.username)
+    epc = "Q" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-cancel-draft-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    cancel = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-cancel-draft-2"},
+        json={"action": "cancel", "transaction_id": "txn-cancel-draft-1"},
+    )
+    assert cancel.status_code == 200
+
+    create_again = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-cancel-draft-3"},
+        json={**_payload(str(origin_store.id), str(destination_store.id), epc), "transaction_id": "txn-cancel-draft-2"},
+    )
+    assert create_again.status_code == 201
+
+
+def test_transfer_never_returns_500_for_business_validation(client, db_session):
+    run_seed(db_session)
+    tenant, origin_store, destination_store, user = _bootstrap(db_session, suffix="never-500-business")
+    token = _login(client, user.username)
+    epc = "R" * 24
+    _seed_epc(db_session, tenant_id=tenant.id, store_id=origin_store.id, epc=epc)
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-never500-1"},
+        json=_payload(str(origin_store.id), str(destination_store.id), epc),
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+
+    stock_row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id, StockItem.epc == epc).one()
+    stock_row.store_id = destination_store.id
+    db_session.commit()
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "reg-never500-2"},
+        json={"action": "dispatch", "transaction_id": "txn-never500-dispatch-1"},
+    )
+    assert dispatch.status_code in {409, 422}
+    assert dispatch.status_code != 500
+    assert dispatch.json()["code"] != "INTERNAL_ERROR"

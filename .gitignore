@@ -43,7 +43,6 @@ build/
 *.egg-info/
 
 # Windows packaging smoke outputs
-clients/python/packaging/temp/
 
 # Local export artifacts
 exports_storage/

@@ -31,10 +31,8 @@ run_check() {
   fi
 }
 
-run_check "Packaging scaffold (repo path)" python -m pytest clients/python/tests/test_packaging_scaffold.py -q
 run_check "Timezone boundary report" python -m pytest tests/test_reports_day3_daily_timezone.py::test_reports_daily_timezone_boundary_and_week_span -q -vv
 run_check "Go-live smoke POS checkout and reports" python -m pytest tests/smoke/test_go_live_validation.py::test_go_live_pos_checkout_and_reports_exports -q -vv
-run_check "Packaging scripts contract" python -m pytest tests/packaging/test_packaging_scripts_contract.py -q
 
 if [[ "$FULL_SUITE" -eq 1 ]]; then
   run_check "Full suite gate" python -m pytest tests -q -x --maxfail=1

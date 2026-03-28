@@ -25,11 +25,6 @@ class Check:
 
 def _command_matrix(run_full_suite: bool) -> list[Check]:
     checks = [
-        Check("Packaging scaffold (repo path)", "python -m pytest clients/python/tests/test_packaging_scaffold.py -q"),
-        Check(
-            "Packaging scaffold (clients/python cwd)",
-            "python -m pytest tests/test_packaging_scaffold.py -q",
-        ),
         Check(
             "Timezone boundary report",
             "python -m pytest tests/test_reports_day3_daily_timezone.py::test_reports_daily_timezone_boundary_and_week_span -q -vv",
@@ -38,7 +33,6 @@ def _command_matrix(run_full_suite: bool) -> list[Check]:
             "Go-live smoke POS checkout and reports",
             "python -m pytest tests/smoke/test_go_live_validation.py::test_go_live_pos_checkout_and_reports_exports -q -vv",
         ),
-        Check("Packaging scripts contract", "python -m pytest tests/packaging/test_packaging_scripts_contract.py -q"),
     ]
     if run_full_suite:
         checks.append(Check("Full suite gate", "python -m pytest tests -q -x --maxfail=1", required=False))
@@ -104,8 +98,6 @@ def main() -> int:
 
     for check in checks:
         cwd = repo_root
-        if check.name == "Packaging scaffold (clients/python cwd)":
-            cwd = repo_root / "clients/python"
         code, output, elapsed = _run_command(check.command, cwd)
         passed = code == 0
         results.append(

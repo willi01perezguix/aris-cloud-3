@@ -104,7 +104,6 @@ def main() -> int:
         ScopeRule(repo_root / "artifacts/post-ga", args.post_ga_days, "artifacts/post-ga"),
         ScopeRule(repo_root / "artifacts/diagnostics", args.diag_days, "artifacts/diagnostics"),
         ScopeRule(repo_root / "tmp/diagnostics", args.diag_days, "tmp/diagnostics"),
-        ScopeRule(repo_root / "clients/python/packaging/temp", args.temp_days, "clients/python/packaging/temp"),
     ]
 
     env_snapshot = {

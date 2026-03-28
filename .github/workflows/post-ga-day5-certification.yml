@@ -52,13 +52,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest clients/python/tests/test_packaging_scaffold.py -q
-          pushd clients/python >/dev/null
-          python -m pytest tests/test_packaging_scaffold.py -q
-          popd >/dev/null
           python -m pytest tests/test_reports_day3_daily_timezone.py::test_reports_daily_timezone_boundary_and_week_span -q -vv
           python -m pytest tests/smoke/test_go_live_validation.py::test_go_live_pos_checkout_and_reports_exports -q -vv
-          python -m pytest tests/packaging/test_packaging_scripts_contract.py -q
           if [[ "${{ inputs.run_full_suite }}" == "true" ]]; then
             python -m pytest tests -q -x --maxfail=1
           fi

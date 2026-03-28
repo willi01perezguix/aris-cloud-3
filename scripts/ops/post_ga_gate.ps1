@@ -58,11 +58,8 @@ function Invoke-PostGaCheck {
     $script:FailCount += 1
 }
 
-Invoke-PostGaCheck -Name "Packaging scaffold (repo path)" -Command "python -m pytest clients/python/tests/test_packaging_scaffold.py -q"
-Invoke-PostGaCheck -Name "Packaging scaffold (clients/python cwd)" -Command "Push-Location clients/python; python -m pytest tests/test_packaging_scaffold.py -q; Pop-Location"
 Invoke-PostGaCheck -Name "Timezone boundary report" -Command "python -m pytest tests/test_reports_day3_daily_timezone.py::test_reports_daily_timezone_boundary_and_week_span -q -vv"
 Invoke-PostGaCheck -Name "Go-live smoke POS checkout and reports" -Command "python -m pytest tests/smoke/test_go_live_validation.py::test_go_live_pos_checkout_and_reports_exports -q -vv"
-Invoke-PostGaCheck -Name "Packaging scripts contract" -Command "python -m pytest tests/packaging/test_packaging_scripts_contract.py -q"
 
 if ($FullSuite.IsPresent) {
     Invoke-PostGaCheck -Name "Full suite gate" -Command "python -m pytest tests -q -x --maxfail=1"

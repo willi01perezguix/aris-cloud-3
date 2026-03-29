@@ -242,23 +242,80 @@ def _stock_snapshot_from_item(item: StockItem) -> dict:
     }
 
 
-def _active_transfer_line_exists(db, *, tenant_id: str, line: TransferLineCreate, exclude_transfer_id: str | None = None) -> bool:
-    if line.line_type != "EPC":
-        raise AppError(
-            ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "Transfers currently support EPC/RFID lines only"},
-        )
+def _get_transfer_conflict_for_epc(
+    db,
+    *,
+    tenant_id: str,
+    epc: str,
+    current_store_id: str | None = None,
+    exclude_transfer_id: str | None = None,
+) -> dict | None:
     conditions = [
         TransferLine.tenant_id == tenant_id,
         Transfer.id == TransferLine.transfer_id,
         Transfer.tenant_id == tenant_id,
         Transfer.status.in_(_ACTIVE_TRANSFER_STATUSES),
+        TransferLine.epc == epc,
     ]
     if exclude_transfer_id:
         conditions.append(Transfer.id != exclude_transfer_id)
-    conditions.append(TransferLine.epc == line.snapshot.epc)
-    query = select(TransferLine.id).join(Transfer, Transfer.id == TransferLine.transfer_id).where(and_(*conditions)).limit(1)
-    return db.execute(query).scalars().first() is not None
+    rows = db.execute(
+        select(
+            Transfer.id,
+            Transfer.status,
+            Transfer.origin_store_id,
+            Transfer.destination_store_id,
+        )
+        .select_from(TransferLine)
+        .join(Transfer, Transfer.id == TransferLine.transfer_id)
+        .where(and_(*conditions))
+        .order_by(Transfer.created_at.asc())
+    ).all()
+    for row in rows:
+        if row.status == "DRAFT" and current_store_id and str(row.origin_store_id) != str(current_store_id):
+            continue
+        return {
+            "blocking_transfer_id": str(row.id),
+            "blocking_status": row.status,
+            "blocking_origin_store_id": str(row.origin_store_id),
+            "blocking_destination_store_id": str(row.destination_store_id),
+            "epc": epc,
+            "current_store_id": current_store_id,
+            "message": "epc is reserved by a valid active transfer",
+            "conflict_type": "valid_active_transfer",
+        }
+    return None
+
+
+def _assert_draft_line_not_stale(
+    db,
+    *,
+    tenant_id: str,
+    transfer_id: str,
+    origin_store_id: str,
+    destination_store_id: str,
+    epc: str,
+) -> None:
+    stock_row = (
+        db.execute(select(StockItem.store_id).where(StockItem.tenant_id == tenant_id, StockItem.epc == epc))
+        .first()
+    )
+    current_store_id = str(stock_row.store_id) if stock_row and stock_row.store_id is not None else None
+    if current_store_id and current_store_id != str(origin_store_id):
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={
+                "message": "draft transfer line is stale: epc no longer belongs to draft origin_store_id",
+                "conflict_type": "stale_draft",
+                "epc": epc,
+                "blocking_transfer_id": transfer_id,
+                "blocking_status": "DRAFT",
+                "blocking_origin_store_id": origin_store_id,
+                "blocking_destination_store_id": destination_store_id,
+                "actual_store_id": current_store_id,
+                "current_store_id": current_store_id,
+            },
+        )
 
 
 
@@ -363,8 +420,15 @@ def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: 
         epc=line.snapshot.epc,
     )
 
-    if _active_transfer_line_exists(db, tenant_id=tenant_id, line=line, exclude_transfer_id=exclude_transfer_id):
-        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "stock is already committed in an active transfer"})
+    conflict = _get_transfer_conflict_for_epc(
+        db,
+        tenant_id=tenant_id,
+        epc=line.snapshot.epc,
+        current_store_id=str(stock_row.store_id),
+        exclude_transfer_id=exclude_transfer_id,
+    )
+    if conflict:
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details=conflict)
 
     snapshot = _stock_snapshot_from_item(stock_row)
     return {"line_type": line.line_type, "qty": line.qty, "snapshot": snapshot}
@@ -398,6 +462,7 @@ def _revalidate_existing_draft_lines(
     *,
     tenant_id: str,
     origin_store_id: str,
+    destination_store_id: str,
     lines: list[TransferLine],
     transfer_id: str,
 ) -> None:
@@ -412,6 +477,14 @@ def _revalidate_existing_draft_lines(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "epc is required for EPC lines"},
             )
+        _assert_draft_line_not_stale(
+            db,
+            tenant_id=tenant_id,
+            transfer_id=transfer_id,
+            origin_store_id=origin_store_id,
+            destination_store_id=destination_store_id,
+            epc=line.epc,
+        )
         _validate_transferable_epc_stock(
             db,
             tenant_id=tenant_id,
@@ -420,38 +493,17 @@ def _revalidate_existing_draft_lines(
             expected_location_code=line.location_code,
             expected_pool=line.pool,
         )
-        as_create_line = TransferLineCreate(
-            line_type="EPC",
-            qty=line.qty,
-            snapshot=TransferLineSnapshot(
-                sku=line.sku,
-                description=line.description,
-                var1_value=line.var1_value,
-                var2_value=line.var2_value,
-                cost_price=float(line.cost_price) if line.cost_price is not None else None,
-                suggested_price=float(line.suggested_price) if line.suggested_price is not None else None,
-                sale_price=float(line.sale_price) if line.sale_price is not None else None,
-                epc=line.epc,
-                location_code=line.location_code,
-                pool=line.pool,
-                status=line.status,
-                location_is_vendible=line.location_is_vendible,
-                image_asset_id=line.image_asset_id,
-                image_url=line.image_url,
-                image_thumb_url=line.image_thumb_url,
-                image_source=line.image_source,
-                image_updated_at=line.image_updated_at,
-            ),
-        )
-        if _active_transfer_line_exists(
+        conflict = _get_transfer_conflict_for_epc(
             db,
             tenant_id=tenant_id,
-            line=as_create_line,
+            epc=line.epc,
+            current_store_id=origin_store_id,
             exclude_transfer_id=transfer_id,
-        ):
+        )
+        if conflict:
             raise AppError(
                 ErrorCatalog.BUSINESS_CONFLICT,
-                details={"message": "stock is already committed in an active transfer", "epc": line.epc},
+                details=conflict,
             )
 
 
@@ -1066,6 +1118,7 @@ def update_transfer(
             db,
             tenant_id=scoped_tenant_id,
             origin_store_id=current_origin_store_id,
+            destination_store_id=current_destination_store_id,
             lines=existing_lines,
             transfer_id=_normalize_uuid(transfer.id),
         )
@@ -1142,6 +1195,7 @@ def get_transfer_detail(
             db,
             tenant_id=scoped_tenant_id,
             origin_store_id=str(transfer.origin_store_id),
+            destination_store_id=str(transfer.destination_store_id),
             lines=lines,
             transfer_id=transfer_id,
         )
@@ -1293,6 +1347,7 @@ def transfer_actions(
             db,
             tenant_id=scoped_tenant_id,
             origin_store_id=str(transfer.origin_store_id),
+            destination_store_id=str(transfer.destination_store_id),
             lines=lines,
             transfer_id=transfer_id,
         )

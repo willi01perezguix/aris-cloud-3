@@ -1,0 +1,3904 @@
+{
+  "summary": {
+    "core_modules": [
+      "auth",
+      "admin (tenants/stores/users)",
+      "stock",
+      "transfers",
+      "pos_sales",
+      "reports",
+      "exports",
+      "health/ready"
+    ],
+    "suspicious_modules": [
+      "access_control hidden endpoints",
+      "ops metrics",
+      "assets upload image",
+      "pos_returns quote/actions"
+    ],
+    "duplicates": [
+      "POST /aris3/auth/change-password vs PATCH /aris3/auth/change-password",
+      "/aris3/auth/login vs /aris3/auth/token (different contract, overlapping objective)",
+      "reports vs exports (same data domain, different delivery mode)"
+    ],
+    "external_validation_needed": [
+      "hidden access-control tenant/platform policy endpoints",
+      "ops metrics endpoint consumer",
+      "assets/upload-image external clients",
+      "stock migration/import endpoints used by external batch tools"
+    ]
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/effective-permissions",
+      "module": "access_control",
+      "purpose": "effective permissions",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::effective_permissions"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_access_control.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_access_control_surface.py",
+        "tests/test_openapi_final_qa_swagger.py",
+        "tests/test_access_control_policies.py",
+        "tests/test_effective_permissions_target.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=17",
+        "repo_refs broad=17"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/effective-permissions",
+        "/aris3/access-control/effective-permissions",
+        "effective_permissions"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/effective-permissions/users/{user_id}",
+      "module": "access_control",
+      "purpose": "effective permissions for user",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::effective_permissions_for_user"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_access_control_surface.py",
+        "tests/test_openapi_final_qa_swagger.py",
+        "tests/test_access_control_policies.py",
+        "tests/test_effective_permissions_target.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=2",
+        "repo_refs broad=9"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/effective-permissions/users/{user_id}",
+        "/aris3/access-control/effective-permissions/users/",
+        "effective_permissions_for_user"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/permission-catalog",
+      "module": "access_control",
+      "purpose": "permission catalog",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::permission_catalog"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_access_control_surface.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=3",
+        "repo_refs broad=3"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/permission-catalog",
+        "/aris3/access-control/permission-catalog",
+        "permission_catalog"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/platform/role-policies/{role_name}",
+      "module": "access_control",
+      "purpose": "get platform role policy",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::get_platform_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=1"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/platform/role-policies/{role_name}",
+        "/aris3/access-control/platform/role-policies/",
+        "get_platform_role_policy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/access-control/platform/role-policies/{role_name}",
+      "module": "access_control",
+      "purpose": "replace platform role policy",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::replace_platform_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=1"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/platform/role-policies/{role_name}",
+        "/aris3/access-control/platform/role-policies/",
+        "replace_platform_role_policy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}",
+      "module": "access_control",
+      "purpose": "get tenant role policy",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::get_tenant_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}",
+        "/aris3/access-control/tenants//role-policies/",
+        "get_tenant_role_policy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}",
+      "module": "access_control",
+      "purpose": "replace tenant role policy",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::replace_tenant_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/role-policies/{role_name}",
+        "/aris3/access-control/tenants//role-policies/",
+        "replace_tenant_role_policy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
+      "module": "access_control",
+      "purpose": "get store role policy",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::get_store_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
+        "/aris3/access-control/tenants//stores//role-policies/",
+        "get_store_role_policy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
+      "module": "access_control",
+      "purpose": "replace store role policy",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::replace_store_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/role-policies/{role_name}",
+        "/aris3/access-control/tenants//stores//role-policies/",
+        "replace_store_role_policy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions",
+      "module": "access_control",
+      "purpose": "effective permissions for store user",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::effective_permissions_for_store_user"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/stores/{store_id}/users/{user_id}/effective-permissions",
+        "/aris3/access-control/tenants//stores//users//effective-permissions",
+        "effective_permissions_for_store_user"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides",
+      "module": "access_control",
+      "purpose": "get user permission overrides",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::get_user_permission_overrides"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides",
+        "/aris3/access-control/tenants//users//permission-overrides",
+        "get_user_permission_overrides"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides",
+      "module": "access_control",
+      "purpose": "replace user permission overrides",
+      "implemented_in": [
+        "app/aris3/routers/access_control.py::replace_user_permission_overrides"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService"
+      ],
+      "related_models": [
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride",
+        "RoleTemplate"
+      ],
+      "tests": [
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "ORPHAN_BACKEND_ONLY",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "HIDE_FROM_OPENAPI",
+      "grep_keys_for_external_apps": [
+        "/aris3/access-control/tenants/{tenant_id}/users/{user_id}/permission-overrides",
+        "/aris3/access-control/tenants//users//permission-overrides",
+        "replace_user_permission_overrides"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/access-control/effective-permissions",
+      "module": "admin",
+      "purpose": "admin effective permissions",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_effective_permissions"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_access_control_surface.py",
+        "tests/test_access_control_hierarchy.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=2",
+        "repo_refs broad=2"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/effective-permissions",
+        "/aris3/admin/access-control/effective-permissions",
+        "admin_effective_permissions"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/access-control/permission-catalog",
+      "module": "admin",
+      "purpose": "admin permission catalog",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_permission_catalog"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_access_control_surface.py",
+        "tests/test_openapi_final_qa_swagger.py",
+        "tests/integration/test_api_contract_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=5",
+        "repo_refs broad=5"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/permission-catalog",
+        "/aris3/admin/access-control/permission-catalog",
+        "admin_permission_catalog"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/access-control/role-templates/{role_name}",
+      "module": "admin",
+      "purpose": "admin get role template",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_get_role_template"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [],
+      "repo_consumers": [],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "LOW",
+      "recommended_next_step": "DOCUMENT",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/role-templates/{role_name}",
+        "/aris3/admin/access-control/role-templates/",
+        "admin_get_role_template"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/admin/access-control/role-templates/{role_name}",
+      "module": "admin",
+      "purpose": "admin replace role template",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_replace_role_template"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [],
+      "repo_consumers": [],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "LOW",
+      "recommended_next_step": "DOCUMENT",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/role-templates/{role_name}",
+        "/aris3/admin/access-control/role-templates/",
+        "admin_replace_role_template"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/access-control/store-role-policies/{store_id}/{role_name}",
+      "module": "admin",
+      "purpose": "admin get store role policy",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_get_store_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [],
+      "repo_consumers": [],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "LOW",
+      "recommended_next_step": "DOCUMENT",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/store-role-policies/{store_id}/{role_name}",
+        "/aris3/admin/access-control/store-role-policies//",
+        "admin_get_store_role_policy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/admin/access-control/store-role-policies/{store_id}/{role_name}",
+      "module": "admin",
+      "purpose": "admin replace store role policy",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_replace_store_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [],
+      "repo_consumers": [],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "LOW",
+      "recommended_next_step": "DOCUMENT",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/store-role-policies/{store_id}/{role_name}",
+        "/aris3/admin/access-control/store-role-policies//",
+        "admin_replace_store_role_policy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/access-control/tenant-role-policies/{role_name}",
+      "module": "admin",
+      "purpose": "admin get tenant role policy",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_get_tenant_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_access_control_boundaries.py",
+        "tests/test_access_control_idempotency_audit.py",
+        "tests/test_access_control_hierarchy.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=3",
+        "repo_refs broad=8"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/tenant-role-policies/{role_name}",
+        "/aris3/admin/access-control/tenant-role-policies/",
+        "admin_get_tenant_role_policy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/aris3/admin/access-control/tenant-role-policies/{role_name}",
+      "module": "admin",
+      "purpose": "admin replace tenant role policy",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_replace_tenant_role_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_access_control_boundaries.py",
+        "tests/test_access_control_idempotency_audit.py",
+        "tests/test_access_control_hierarchy.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=3",
+        "repo_refs broad=8"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/tenant-role-policies/{role_name}",
+        "/aris3/admin/access-control/tenant-role-policies/",
+        "admin_replace_tenant_role_policy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/access-control/user-overrides/{user_id}",
+      "module": "admin",
+      "purpose": "admin get user overrides",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_get_user_overrides"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_access_control_boundaries.py",
+        "tests/test_access_control_hierarchy.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=2"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/user-overrides/{user_id}",
+        "/aris3/admin/access-control/user-overrides/",
+        "admin_get_user_overrides"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/admin/access-control/user-overrides/{user_id}",
+      "module": "admin",
+      "purpose": "admin patch user overrides",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::admin_patch_user_overrides"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_access_control_boundaries.py",
+        "tests/test_access_control_hierarchy.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=2"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/access-control/user-overrides/{user_id}",
+        "/aris3/admin/access-control/user-overrides/",
+        "admin_patch_user_overrides"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/settings/return-policy",
+      "module": "admin",
+      "purpose": "get return policy",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::get_return_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_settings_scope.py",
+        "tests/pos_sales_helpers.py",
+        "tests/integration/test_api_contract_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=5",
+        "repo_refs broad=5"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/settings/return-policy",
+        "/aris3/admin/settings/return-policy",
+        "get_return_policy"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/admin/settings/return-policy",
+      "module": "admin",
+      "purpose": "patch return policy",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::patch_return_policy"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_settings_scope.py",
+        "tests/pos_sales_helpers.py",
+        "tests/integration/test_api_contract_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=5",
+        "repo_refs broad=5"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/settings/return-policy",
+        "/aris3/admin/settings/return-policy",
+        "patch_return_policy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/settings/variant-fields",
+      "module": "admin",
+      "purpose": "get variant fields",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::get_variant_fields"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_audit_trace_admin.py",
+        "tests/test_settings_boundary.py",
+        "tests/smoke/test_go_live_validation.py",
+        "tests/smoke/test_post_go_live_stability.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=24",
+        "repo_refs broad=24"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/settings/variant-fields",
+        "/aris3/admin/settings/variant-fields",
+        "get_variant_fields"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/admin/settings/variant-fields",
+      "module": "admin",
+      "purpose": "patch variant fields",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::patch_variant_fields"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_audit_trace_admin.py",
+        "tests/test_settings_boundary.py",
+        "tests/smoke/test_go_live_validation.py",
+        "tests/smoke/test_post_go_live_stability.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=24",
+        "repo_refs broad=24"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/settings/variant-fields",
+        "/aris3/admin/settings/variant-fields",
+        "patch_variant_fields"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/stores",
+      "module": "admin",
+      "purpose": "list stores",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::list_stores"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_openapi_contract_consistency.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_list_filters.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=42",
+        "repo_refs broad=42"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/stores",
+        "/aris3/admin/stores",
+        "list_stores"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/admin/stores",
+      "module": "admin",
+      "purpose": "create store",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::create_store"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_openapi_contract_consistency.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_list_filters.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=42",
+        "repo_refs broad=42"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/stores",
+        "/aris3/admin/stores",
+        "create_store"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/aris3/admin/stores/{store_id}",
+      "module": "admin",
+      "purpose": "delete store",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::delete_store"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=9"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/stores/{store_id}",
+        "/aris3/admin/stores/",
+        "delete_store"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/stores/{store_id}",
+      "module": "admin",
+      "purpose": "get store",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::get_store"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=9"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/stores/{store_id}",
+        "/aris3/admin/stores/",
+        "get_store"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/admin/stores/{store_id}",
+      "module": "admin",
+      "purpose": "update store",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::update_store"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=9"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/stores/{store_id}",
+        "/aris3/admin/stores/",
+        "update_store"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/tenants",
+      "module": "admin",
+      "purpose": "list tenants",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::list_tenants"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_list_filters.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=32",
+        "repo_refs broad=32"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/tenants",
+        "/aris3/admin/tenants",
+        "list_tenants"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/admin/tenants",
+      "module": "admin",
+      "purpose": "create tenant",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::create_tenant"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_list_filters.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=32",
+        "repo_refs broad=32"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/tenants",
+        "/aris3/admin/tenants",
+        "create_tenant"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/aris3/admin/tenants/{tenant_id}",
+      "module": "admin",
+      "purpose": "delete tenant",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::delete_tenant"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_final_qa_swagger.py",
+        "tests/test_superadmin_tenants.py",
+        "tests/integration/test_api_contract_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=7",
+        "repo_refs broad=16"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/tenants/{tenant_id}",
+        "/aris3/admin/tenants/",
+        "delete_tenant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/tenants/{tenant_id}",
+      "module": "admin",
+      "purpose": "get tenant",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::get_tenant"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_final_qa_swagger.py",
+        "tests/test_superadmin_tenants.py",
+        "tests/integration/test_api_contract_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=7",
+        "repo_refs broad=16"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/tenants/{tenant_id}",
+        "/aris3/admin/tenants/",
+        "get_tenant"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/admin/tenants/{tenant_id}",
+      "module": "admin",
+      "purpose": "update tenant",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::update_tenant"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_final_qa_swagger.py",
+        "tests/test_superadmin_tenants.py",
+        "tests/integration/test_api_contract_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=7",
+        "repo_refs broad=16"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/tenants/{tenant_id}",
+        "/aris3/admin/tenants/",
+        "update_tenant"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/admin/tenants/{tenant_id}/actions",
+      "module": "admin",
+      "purpose": "tenant actions",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::tenant_actions"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_error_contract_alignment.py",
+        "tests/test_superadmin_tenants.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=2",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/tenants/{tenant_id}/actions",
+        "/aris3/admin/tenants//actions",
+        "tenant_actions"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/users",
+      "module": "admin",
+      "purpose": "list users",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::list_users"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_client_data_access_day3.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=53",
+        "repo_refs broad=53"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/users",
+        "/aris3/admin/users",
+        "list_users"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/admin/users",
+      "module": "admin",
+      "purpose": "create user",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::create_user"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_client_data_access_day3.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=53",
+        "repo_refs broad=53"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/users",
+        "/aris3/admin/users",
+        "create_user"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/aris3/admin/users/{user_id}",
+      "module": "admin",
+      "purpose": "delete user",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::delete_user"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=30"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/users/{user_id}",
+        "/aris3/admin/users/",
+        "delete_user"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/admin/users/{user_id}",
+      "module": "admin",
+      "purpose": "get user",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::get_user"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=30"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/users/{user_id}",
+        "/aris3/admin/users/",
+        "get_user"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/admin/users/{user_id}",
+      "module": "admin",
+      "purpose": "update user",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::update_user"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_error_contract_alignment.py",
+        "tests/test_admin_core.py",
+        "tests/test_openapi_admin_polish.py",
+        "tests/test_openapi_final_qa_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=30"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/users/{user_id}",
+        "/aris3/admin/users/",
+        "update_user"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/admin/users/{user_id}/actions",
+      "module": "admin",
+      "purpose": "user actions",
+      "implemented_in": [
+        "app/aris3/routers/admin.py::user_actions"
+      ],
+      "main_service": [
+        "AccessControlService",
+        "AccessControlPolicyService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Tenant",
+        "Store",
+        "User",
+        "VariantFieldSettings",
+        "ReturnPolicySettings",
+        "RoleTemplate",
+        "TenantRolePolicy",
+        "StoreRolePolicy",
+        "UserPermissionOverride"
+      ],
+      "tests": [
+        "tests/test_openapi_admin_polish.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/admin/users/{user_id}/actions",
+        "/aris3/admin/users//actions",
+        "user_actions"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/assets/upload-image",
+      "module": "assets_images",
+      "purpose": "upload image",
+      "implemented_in": [
+        "app/aris3/routers/assets_images.py::upload_image"
+      ],
+      "main_service": [
+        "SpacesImagesService"
+      ],
+      "related_models": [
+        "ImageAsset"
+      ],
+      "tests": [
+        "tests/test_rbac_stock_assets.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=3",
+        "repo_refs broad=3"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/assets/upload-image",
+        "/aris3/assets/upload-image",
+        "upload_image"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/auth/change-password",
+      "module": "auth",
+      "purpose": "change password",
+      "implemented_in": [
+        "app/aris3/routers/auth.py::change_password"
+      ],
+      "main_service": [
+        "AuthService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "User",
+        "AuditLog",
+        "IdempotencyRecord"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_auth_flow.py",
+        "tests/test_idempotency_audit.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=19",
+        "repo_refs broad=19"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/auth/change-password",
+        "/aris3/auth/change-password",
+        "change_password"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/auth/change-password",
+      "module": "auth",
+      "purpose": "change password",
+      "implemented_in": [
+        "app/aris3/routers/auth.py::change_password"
+      ],
+      "main_service": [
+        "AuthService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "User",
+        "AuditLog",
+        "IdempotencyRecord"
+      ],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_auth_flow.py",
+        "tests/test_idempotency_audit.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=19",
+        "repo_refs broad=19"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "DEPRECATED_ALIAS",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/auth/change-password",
+        "/aris3/auth/change-password",
+        "change_password"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/auth/login",
+      "module": "auth",
+      "purpose": "login",
+      "implemented_in": [
+        "app/aris3/routers/auth.py::login"
+      ],
+      "main_service": [
+        "AuthService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "User",
+        "AuditLog",
+        "IdempotencyRecord"
+      ],
+      "tests": [
+        "tests/test_transfers_epc_flow_regression.py",
+        "tests/test_transfers_day4_security_boundaries.py",
+        "tests/test_stock_query_filters.py",
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_transfers_conflict_hardening.py",
+        "tests/test_transfers_day5_idempotency_audit.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=66",
+        "repo_refs broad=66"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/auth/login",
+        "/aris3/auth/login",
+        "login"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/auth/token",
+      "module": "auth",
+      "purpose": "oauth2 token",
+      "implemented_in": [
+        "app/aris3/routers/auth.py::oauth2_token"
+      ],
+      "main_service": [
+        "AuthService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "User",
+        "AuditLog",
+        "IdempotencyRecord"
+      ],
+      "tests": [
+        "tests/test_auth_flow.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=3",
+        "repo_refs broad=3"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "DEPRECATED_ALIAS",
+      "confidence": "HIGH",
+      "recommended_next_step": "DEPRECATE",
+      "grep_keys_for_external_apps": [
+        "/aris3/auth/token",
+        "/aris3/auth/token",
+        "oauth2_token"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/exports",
+      "module": "exports",
+      "purpose": "list exports",
+      "implemented_in": [
+        "app/aris3/routers/exports.py::list_exports"
+      ],
+      "main_service": [
+        "ExportService"
+      ],
+      "related_models": [
+        "ExportRecord"
+      ],
+      "tests": [
+        "tests/test_exports_day5_limits_and_failures.py",
+        "tests/test_reports_exports_stabilization.py",
+        "tests/test_exports_day4_create_list_detail.py",
+        "tests/test_exports_day4_security_boundaries.py",
+        "tests/test_reports_exports_day5_observability.py",
+        "tests/test_reports_day5_limits_validation.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=38",
+        "repo_refs broad=38"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/exports",
+        "/aris3/exports",
+        "list_exports"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/exports",
+      "module": "exports",
+      "purpose": "create export",
+      "implemented_in": [
+        "app/aris3/routers/exports.py::create_export"
+      ],
+      "main_service": [
+        "ExportService"
+      ],
+      "related_models": [
+        "ExportRecord"
+      ],
+      "tests": [
+        "tests/test_exports_day5_limits_and_failures.py",
+        "tests/test_reports_exports_stabilization.py",
+        "tests/test_exports_day4_create_list_detail.py",
+        "tests/test_exports_day4_security_boundaries.py",
+        "tests/test_reports_exports_day5_observability.py",
+        "tests/test_reports_day5_limits_validation.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=38",
+        "repo_refs broad=38"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/exports",
+        "/aris3/exports",
+        "create_export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/exports/{export_id}",
+      "module": "exports",
+      "purpose": "get export",
+      "implemented_in": [
+        "app/aris3/routers/exports.py::get_export"
+      ],
+      "main_service": [
+        "ExportService"
+      ],
+      "related_models": [
+        "ExportRecord"
+      ],
+      "tests": [
+        "tests/test_reports_exports_stabilization.py",
+        "tests/test_exports_day4_create_list_detail.py",
+        "tests/test_exports_day4_security_boundaries.py",
+        "tests/test_exports_day4_audit.py",
+        "tests/test_exports_day4_parity_reports.py",
+        "tests/test_openapi_reports_exports_contract.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=9",
+        "repo_refs broad=12"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/exports/{export_id}",
+        "/aris3/exports/",
+        "get_export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/exports/{export_id}/download",
+      "module": "exports",
+      "purpose": "download export",
+      "implemented_in": [
+        "app/aris3/routers/exports.py::download_export"
+      ],
+      "main_service": [
+        "ExportService"
+      ],
+      "related_models": [
+        "ExportRecord"
+      ],
+      "tests": [
+        "tests/test_exports_day4_security_boundaries.py",
+        "tests/test_exports_day4_audit.py",
+        "tests/test_exports_day4_parity_reports.py",
+        "tests/test_openapi_reports_exports_contract.py",
+        "tests/test_reports_exports_contract_hardening.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=7",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/exports/{export_id}/download",
+        "/aris3/exports//download",
+        "download_export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/me",
+      "module": "users",
+      "purpose": "me",
+      "implemented_in": [
+        "app/aris3/routers/users.py::me"
+      ],
+      "main_service": [
+        "require_active_user"
+      ],
+      "related_models": [
+        "User"
+      ],
+      "tests": [
+        "tests/test_error_contract_alignment.py",
+        "tests/test_auth_flow.py",
+        "tests/smoke/test_post_merge_readiness.py",
+        "tests/smoke/test_go_live_validation.py",
+        "tests/smoke/test_post_go_live_stability.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=10",
+        "repo_refs broad=10"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/me",
+        "/aris3/me",
+        "me"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/ops/metrics",
+      "module": "metrics",
+      "purpose": "get metrics",
+      "implemented_in": [
+        "app/aris3/routers/metrics.py::get_metrics"
+      ],
+      "main_service": [
+        "prometheus_client"
+      ],
+      "related_models": [],
+      "tests": [],
+      "repo_consumers": [],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "DOCUMENT",
+      "grep_keys_for_external_apps": [
+        "/aris3/ops/metrics",
+        "/aris3/ops/metrics",
+        "get_metrics"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/cash/day-close/actions",
+      "module": "pos_cash",
+      "purpose": "close day",
+      "implemented_in": [
+        "app/aris3/routers/pos_cash.py::close_day"
+      ],
+      "main_service": [
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosCashSession",
+        "PosCashMovement",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_pos_cash_day2_close_day_uniqueness.py",
+        "tests/test_openapi_contract_hardening.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py",
+        "tests/test_openapi_pos_swagger.py",
+        "tests/test_pos_cash_day1_idempotency_audit.py",
+        "tests/test_pos_post_merge_alignment.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=16",
+        "repo_refs broad=16"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/cash/day-close/actions",
+        "/aris3/pos/cash/day-close/actions",
+        "close_day"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/cash/day-close/summary",
+      "module": "pos_cash",
+      "purpose": "list day close summary",
+      "implemented_in": [
+        "app/aris3/routers/pos_cash.py::list_day_close_summary"
+      ],
+      "main_service": [
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosCashSession",
+        "PosCashMovement",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_pos_cash_day2_security_boundaries.py",
+        "tests/test_openapi_pos_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=2",
+        "repo_refs broad=2"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/cash/day-close/summary",
+        "/aris3/pos/cash/day-close/summary",
+        "list_day_close_summary"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/cash/movements",
+      "module": "pos_cash",
+      "purpose": "list cash movements",
+      "implemented_in": [
+        "app/aris3/routers/pos_cash.py::list_cash_movements"
+      ],
+      "main_service": [
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosCashSession",
+        "PosCashMovement",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_openapi_pos_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=1"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/cash/movements",
+        "/aris3/pos/cash/movements",
+        "list_cash_movements"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/cash/reconciliation/breakdown",
+      "module": "pos_cash",
+      "purpose": "reconciliation breakdown",
+      "implemented_in": [
+        "app/aris3/routers/pos_cash.py::reconciliation_breakdown"
+      ],
+      "main_service": [
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosCashSession",
+        "PosCashMovement",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_pos_cash_day2_security_boundaries.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py",
+        "tests/test_openapi_pos_swagger.py",
+        "tests/test_pos_cash_day2_no_double_count_idempotency.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=4",
+        "repo_refs broad=4"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/cash/reconciliation/breakdown",
+        "/aris3/pos/cash/reconciliation/breakdown",
+        "reconciliation_breakdown"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/cash/session/actions",
+      "module": "pos_cash",
+      "purpose": "cash session action",
+      "implemented_in": [
+        "app/aris3/routers/pos_cash.py::cash_session_action"
+      ],
+      "main_service": [
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosCashSession",
+        "PosCashMovement",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_consistency.py",
+        "tests/test_pos_cash_day2_close_day_uniqueness.py",
+        "tests/test_pos_cash_day1_security_boundaries.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py",
+        "tests/test_pos_cash_day1_close.py",
+        "tests/test_pos_cash_day1_session_open.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=45",
+        "repo_refs broad=45"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/cash/session/actions",
+        "/aris3/pos/cash/session/actions",
+        "cash_session_action"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/cash/session/current",
+      "module": "pos_cash",
+      "purpose": "get current session",
+      "implemented_in": [
+        "app/aris3/routers/pos_cash.py::get_current_session"
+      ],
+      "main_service": [
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosCashSession",
+        "PosCashMovement",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_openapi_pos_swagger.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=1"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/cash/session/current",
+        "/aris3/pos/cash/session/current",
+        "get_current_session"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/returns",
+      "module": "pos_returns",
+      "purpose": "list returns",
+      "implemented_in": [
+        "app/aris3/routers/pos_returns.py::list_returns"
+      ],
+      "main_service": [
+        "PosReturnService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosReturn",
+        "PosReturnLine",
+        "PosReturnEvent",
+        "PosSale",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_consistency.py",
+        "tests/test_openapi_pos_polish_final.py",
+        "tests/integration/test_pos_returns_contract.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=5",
+        "repo_refs broad=5"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/returns",
+        "/aris3/pos/returns",
+        "list_returns"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/returns",
+      "module": "pos_returns",
+      "purpose": "create return",
+      "implemented_in": [
+        "app/aris3/routers/pos_returns.py::create_return"
+      ],
+      "main_service": [
+        "PosReturnService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosReturn",
+        "PosReturnLine",
+        "PosReturnEvent",
+        "PosSale",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_consistency.py",
+        "tests/test_openapi_pos_polish_final.py",
+        "tests/integration/test_pos_returns_contract.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=5",
+        "repo_refs broad=5"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/returns",
+        "/aris3/pos/returns",
+        "create_return"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/returns/eligibility",
+      "module": "pos_returns",
+      "purpose": "get eligibility",
+      "implemented_in": [
+        "app/aris3/routers/pos_returns.py::get_eligibility"
+      ],
+      "main_service": [
+        "PosReturnService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosReturn",
+        "PosReturnLine",
+        "PosReturnEvent",
+        "PosSale",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_consistency.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=1"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/returns/eligibility",
+        "/aris3/pos/returns/eligibility",
+        "get_eligibility"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/returns/quote",
+      "module": "pos_returns",
+      "purpose": "quote return",
+      "implemented_in": [
+        "app/aris3/routers/pos_returns.py::quote_return"
+      ],
+      "main_service": [
+        "PosReturnService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosReturn",
+        "PosReturnLine",
+        "PosReturnEvent",
+        "PosSale",
+        "StockItem"
+      ],
+      "tests": [],
+      "repo_consumers": [],
+      "evidence": [
+        "repo_refs exact=0",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "NEEDS_EXTERNAL_VALIDATION",
+      "confidence": "LOW",
+      "recommended_next_step": "DOCUMENT",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/returns/quote",
+        "/aris3/pos/returns/quote",
+        "quote_return"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/returns/{return_id}",
+      "module": "pos_returns",
+      "purpose": "get return",
+      "implemented_in": [
+        "app/aris3/routers/pos_returns.py::get_return"
+      ],
+      "main_service": [
+        "PosReturnService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosReturn",
+        "PosReturnLine",
+        "PosReturnEvent",
+        "PosSale",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_contract_consistency.py",
+        "tests/test_openapi_pos_polish_final.py",
+        "tests/integration/test_pos_returns_contract.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=2",
+        "repo_refs broad=4"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/returns/{return_id}",
+        "/aris3/pos/returns/",
+        "get_return"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/returns/{return_id}/actions",
+      "module": "pos_returns",
+      "purpose": "action return",
+      "implemented_in": [
+        "app/aris3/routers/pos_returns.py::action_return"
+      ],
+      "main_service": [
+        "PosReturnService",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosReturn",
+        "PosReturnLine",
+        "PosReturnEvent",
+        "PosSale",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_pos_polish_final.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/returns/{return_id}/actions",
+        "/aris3/pos/returns//actions",
+        "action_return"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/sales",
+      "module": "pos_sales",
+      "purpose": "list sales",
+      "implemented_in": [
+        "app/aris3/routers/pos_sales.py::list_sales"
+      ],
+      "main_service": [
+        "PosSaleRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosSaleLine",
+        "PosPayment",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_pos_returns_day7_refund_policy.py",
+        "tests/test_pos_sales_day7_returns_search.py",
+        "tests/test_reports_day3_exchange_netting.py",
+        "tests/test_pos_returns_day7_boundaries.py",
+        "tests/test_pos_returns_day7_idempotency_audit.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=100",
+        "repo_refs broad=100"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/sales",
+        "/aris3/pos/sales",
+        "list_sales"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/sales",
+      "module": "pos_sales",
+      "purpose": "create sale",
+      "implemented_in": [
+        "app/aris3/routers/pos_sales.py::create_sale"
+      ],
+      "main_service": [
+        "PosSaleRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosSaleLine",
+        "PosPayment",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_pos_returns_day7_refund_policy.py",
+        "tests/test_pos_sales_day7_returns_search.py",
+        "tests/test_reports_day3_exchange_netting.py",
+        "tests/test_pos_returns_day7_boundaries.py",
+        "tests/test_pos_returns_day7_idempotency_audit.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=100",
+        "repo_refs broad=100"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/sales",
+        "/aris3/pos/sales",
+        "create_sale"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/pos/sales/{sale_id}",
+      "module": "pos_sales",
+      "purpose": "get sale",
+      "implemented_in": [
+        "app/aris3/routers/pos_sales.py::get_sale"
+      ],
+      "main_service": [
+        "PosSaleRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosSaleLine",
+        "PosPayment",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_pos_returns_day7_refund_policy.py",
+        "tests/test_pos_sales_day7_returns_search.py",
+        "tests/test_reports_day3_exchange_netting.py",
+        "tests/test_pos_returns_day7_boundaries.py",
+        "tests/test_pos_returns_day7_idempotency_audit.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=39",
+        "repo_refs broad=70"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/sales/{sale_id}",
+        "/aris3/pos/sales/",
+        "get_sale"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/pos/sales/{sale_id}",
+      "module": "pos_sales",
+      "purpose": "update sale",
+      "implemented_in": [
+        "app/aris3/routers/pos_sales.py::update_sale"
+      ],
+      "main_service": [
+        "PosSaleRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosSaleLine",
+        "PosPayment",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_pos_returns_day7_refund_policy.py",
+        "tests/test_pos_sales_day7_returns_search.py",
+        "tests/test_reports_day3_exchange_netting.py",
+        "tests/test_pos_returns_day7_boundaries.py",
+        "tests/test_pos_returns_day7_idempotency_audit.py",
+        "tests/test_pos_cash_day2_reconciliation_formula.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=39",
+        "repo_refs broad=70"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/sales/{sale_id}",
+        "/aris3/pos/sales/",
+        "update_sale"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/pos/sales/{sale_id}/actions",
+      "module": "pos_sales",
+      "purpose": "sale action",
+      "implemented_in": [
+        "app/aris3/routers/pos_sales.py::sale_action"
+      ],
+      "main_service": [
+        "PosSaleRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosSaleLine",
+        "PosPayment",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_pos_sales_actions_contract.py",
+        "tests/test_pos_sales_day6_stock_deduction.py",
+        "tests/test_openapi_pos_swagger.py",
+        "tests/test_pos_sales_day6_cancel.py",
+        "tests/test_pos_post_merge_alignment.py",
+        "tests/test_openapi_pos_polish_final.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=31",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/pos/sales/{sale_id}/actions",
+        "/aris3/pos/sales//actions",
+        "sale_action"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/reports/calendar",
+      "module": "reports",
+      "purpose": "report calendar",
+      "implemented_in": [
+        "app/aris3/routers/reports.py::report_calendar"
+      ],
+      "main_service": [
+        "ReportsService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosReturn",
+        "Transfer",
+        "StockItem",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_reports_day3_calendar.py",
+        "tests/test_reports_exports_contract_hardening.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=2",
+        "repo_refs broad=2"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/reports/calendar",
+        "/aris3/reports/calendar",
+        "report_calendar"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/reports/daily",
+      "module": "reports",
+      "purpose": "report daily",
+      "implemented_in": [
+        "app/aris3/routers/reports.py::report_daily"
+      ],
+      "main_service": [
+        "ReportsService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosReturn",
+        "Transfer",
+        "StockItem",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_reports_day3_calendar.py",
+        "tests/test_reports_day5_performance_shape.py",
+        "tests/test_reports_day3_daily_timezone.py",
+        "tests/test_reports_day5_limits_validation.py",
+        "tests/test_reports_exports_day5_security_boundaries.py",
+        "tests/test_exports_day4_parity_reports.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=9",
+        "repo_refs broad=9"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/reports/daily",
+        "/aris3/reports/daily",
+        "report_daily"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/reports/overview",
+      "module": "reports",
+      "purpose": "report overview",
+      "implemented_in": [
+        "app/aris3/routers/reports.py::report_overview"
+      ],
+      "main_service": [
+        "ReportsService"
+      ],
+      "related_models": [
+        "PosSale",
+        "PosReturn",
+        "Transfer",
+        "StockItem",
+        "PosCashDayClose"
+      ],
+      "tests": [
+        "tests/test_reports_day3_security_boundaries.py",
+        "tests/test_reports_exports_stabilization.py",
+        "tests/test_reports_day3_exchange_netting.py",
+        "tests/test_reports_exports_day5_observability.py",
+        "tests/test_reports_exports_day5_security_boundaries.py",
+        "tests/test_exports_day4_parity_reports.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=14",
+        "repo_refs broad=14"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/reports/overview",
+        "/aris3/reports/overview",
+        "report_overview"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/stock",
+      "module": "stock",
+      "purpose": "list stock",
+      "implemented_in": [
+        "app/aris3/routers/stock.py::list_stock"
+      ],
+      "main_service": [
+        "StockRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "StockItem",
+        "StockImportBatch"
+      ],
+      "tests": [
+        "tests/test_stock_query_filters.py",
+        "tests/test_stock_write_endpoints.py",
+        "tests/test_rbac_stock_assets.py",
+        "tests/test_stock_query_contract.py",
+        "tests/test_stock_query_tenant_scope.py",
+        "tests/test_stock_query_totals.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=86",
+        "repo_refs broad=86"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/stock",
+        "/aris3/stock",
+        "list_stock"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/stock/actions",
+      "module": "stock",
+      "purpose": "stock actions",
+      "implemented_in": [
+        "app/aris3/routers/stock.py::stock_actions"
+      ],
+      "main_service": [
+        "StockRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "StockItem",
+        "StockImportBatch"
+      ],
+      "tests": [
+        "tests/test_stock_actions.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=14",
+        "repo_refs broad=14"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/stock/actions",
+        "/aris3/stock/actions",
+        "stock_actions"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/stock/import-epc",
+      "module": "stock",
+      "purpose": "import stock epc",
+      "implemented_in": [
+        "app/aris3/routers/stock.py::import_stock_epc"
+      ],
+      "main_service": [
+        "StockRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "StockItem",
+        "StockImportBatch"
+      ],
+      "tests": [
+        "tests/test_stock_write_endpoints.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=8",
+        "repo_refs broad=8"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/stock/import-epc",
+        "/aris3/stock/import-epc",
+        "import_stock_epc"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/stock/import-sku",
+      "module": "stock",
+      "purpose": "import stock sku",
+      "implemented_in": [
+        "app/aris3/routers/stock.py::import_stock_sku"
+      ],
+      "main_service": [
+        "StockRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "StockItem",
+        "StockImportBatch"
+      ],
+      "tests": [
+        "tests/test_stock_write_endpoints.py",
+        "tests/test_rbac_stock_assets.py",
+        "tests/smoke/test_post_merge_readiness.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=25",
+        "repo_refs broad=25"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/stock/import-sku",
+        "/aris3/stock/import-sku",
+        "import_stock_sku"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/stock/migrate-sku-to-epc",
+      "module": "stock",
+      "purpose": "migrate stock sku to epc",
+      "implemented_in": [
+        "app/aris3/routers/stock.py::migrate_stock_sku_to_epc"
+      ],
+      "main_service": [
+        "StockRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "StockItem",
+        "StockImportBatch"
+      ],
+      "tests": [
+        "tests/test_stock_write_endpoints.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=9",
+        "repo_refs broad=9"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/stock/migrate-sku-to-epc",
+        "/aris3/stock/migrate-sku-to-epc",
+        "migrate_stock_sku_to_epc"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/stores",
+      "module": "transfers",
+      "purpose": "list tenant stores",
+      "implemented_in": [
+        "app/aris3/routers/transfers.py::list_tenant_stores"
+      ],
+      "main_service": [
+        "TransferRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Transfer",
+        "TransferLine",
+        "TransferMovement",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_transfers_hardening.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=1",
+        "repo_refs broad=1"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/stores",
+        "/aris3/stores",
+        "list_tenant_stores"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/transfers",
+      "module": "transfers",
+      "purpose": "list transfers",
+      "implemented_in": [
+        "app/aris3/routers/transfers.py::list_transfers"
+      ],
+      "main_service": [
+        "TransferRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Transfer",
+        "TransferLine",
+        "TransferMovement",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_transfers_swagger.py",
+        "tests/test_transfers_epc_flow_regression.py",
+        "tests/test_transfers_day4_security_boundaries.py",
+        "tests/test_transfers_conflict_hardening.py",
+        "tests/test_transfers_day5_idempotency_audit.py",
+        "tests/test_transfers_day5_receive.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=163",
+        "repo_refs broad=163"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/transfers",
+        "/aris3/transfers",
+        "list_transfers"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/transfers",
+      "module": "transfers",
+      "purpose": "create transfer",
+      "implemented_in": [
+        "app/aris3/routers/transfers.py::create_transfer"
+      ],
+      "main_service": [
+        "TransferRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Transfer",
+        "TransferLine",
+        "TransferMovement",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_transfers_swagger.py",
+        "tests/test_transfers_epc_flow_regression.py",
+        "tests/test_transfers_day4_security_boundaries.py",
+        "tests/test_transfers_conflict_hardening.py",
+        "tests/test_transfers_day5_idempotency_audit.py",
+        "tests/test_transfers_day5_receive.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=163",
+        "repo_refs broad=163"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/transfers",
+        "/aris3/transfers",
+        "create_transfer"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/aris3/transfers/{transfer_id}",
+      "module": "transfers",
+      "purpose": "get transfer detail",
+      "implemented_in": [
+        "app/aris3/routers/transfers.py::get_transfer_detail"
+      ],
+      "main_service": [
+        "TransferRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Transfer",
+        "TransferLine",
+        "TransferMovement",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_transfers_swagger.py",
+        "tests/test_transfers_epc_flow_regression.py",
+        "tests/test_transfers_conflict_hardening.py",
+        "tests/test_transfers_day5_idempotency_audit.py",
+        "tests/test_transfers_day5_receive.py",
+        "tests/test_transfers_backend_regressions.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=79",
+        "repo_refs broad=80"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/transfers/{transfer_id}",
+        "/aris3/transfers/",
+        "get_transfer_detail"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/aris3/transfers/{transfer_id}",
+      "module": "transfers",
+      "purpose": "update transfer",
+      "implemented_in": [
+        "app/aris3/routers/transfers.py::update_transfer"
+      ],
+      "main_service": [
+        "TransferRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Transfer",
+        "TransferLine",
+        "TransferMovement",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_transfers_swagger.py",
+        "tests/test_transfers_epc_flow_regression.py",
+        "tests/test_transfers_conflict_hardening.py",
+        "tests/test_transfers_day5_idempotency_audit.py",
+        "tests/test_transfers_day5_receive.py",
+        "tests/test_transfers_backend_regressions.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=79",
+        "repo_refs broad=80"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/transfers/{transfer_id}",
+        "/aris3/transfers/",
+        "update_transfer"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/aris3/transfers/{transfer_id}/actions",
+      "module": "transfers",
+      "purpose": "transfer actions",
+      "implemented_in": [
+        "app/aris3/routers/transfers.py::transfer_actions"
+      ],
+      "main_service": [
+        "TransferRepository",
+        "AuditService",
+        "IdempotencyService"
+      ],
+      "related_models": [
+        "Transfer",
+        "TransferLine",
+        "TransferMovement",
+        "StockItem"
+      ],
+      "tests": [
+        "tests/test_openapi_transfers_swagger.py",
+        "tests/test_transfers_epc_flow_regression.py",
+        "tests/test_transfers_conflict_hardening.py",
+        "tests/test_transfers_day5_idempotency_audit.py",
+        "tests/test_transfers_day5_receive.py",
+        "tests/test_transfers_backend_regressions.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=71",
+        "repo_refs broad=0"
+      ],
+      "business_criticality": "MEDIUM",
+      "assessment": "KEEP",
+      "confidence": "MEDIUM",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/aris3/transfers/{transfer_id}/actions",
+        "/aris3/transfers//actions",
+        "transfer_actions"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "module": "health",
+      "purpose": "health",
+      "implemented_in": [
+        "app/aris3/routers/health.py::health"
+      ],
+      "main_service": [
+        "DB session"
+      ],
+      "related_models": [],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_client_data_access_day3.py",
+        "tests/test_admin_pagination_scope.py",
+        "tests/test_health.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=5",
+        "repo_refs broad=5"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/health",
+        "/health",
+        "health"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "module": "health",
+      "purpose": "ready",
+      "implemented_in": [
+        "app/aris3/routers/health.py::ready"
+      ],
+      "main_service": [
+        "DB session"
+      ],
+      "related_models": [],
+      "tests": [
+        "tests/test_admin_auth_contract_hardening.py",
+        "tests/test_ready.py"
+      ],
+      "repo_consumers": [
+        "tests",
+        "README"
+      ],
+      "evidence": [
+        "repo_refs exact=3",
+        "repo_refs broad=3"
+      ],
+      "business_criticality": "HIGH",
+      "assessment": "KEEP",
+      "confidence": "HIGH",
+      "recommended_next_step": "NONE",
+      "grep_keys_for_external_apps": [
+        "/ready",
+        "/ready",
+        "ready"
+      ]
+    }
+  ],
+  "orphan_code": [
+    {
+      "type": "endpoint",
+      "name": "GET /aris3/ops/metrics",
+      "location": "app/aris3/routers/metrics.py",
+      "evidence": [
+        "0 referencias en tests/README por ruta exacta"
+      ],
+      "confidence": "MEDIUM",
+      "recommended_next_step": "REQUIERE VALIDACIÓN EXTERNA"
+    },
+    {
+      "type": "endpoint",
+      "name": "POST /aris3/pos/returns/quote",
+      "location": "app/aris3/routers/pos_returns.py",
+      "evidence": [
+        "0 referencias en tests/README por ruta exacta"
+      ],
+      "confidence": "MEDIUM",
+      "recommended_next_step": "REQUIERE VALIDACIÓN EXTERNA"
+    },
+    {
+      "type": "endpoint",
+      "name": "GET/PUT /aris3/access-control/platform/role-policies/{role_name}",
+      "location": "app/aris3/routers/access_control.py",
+      "evidence": [
+        "include_in_schema=False",
+        "sin consumo visible interno salvo pruebas puntuales"
+      ],
+      "confidence": "MEDIUM",
+      "recommended_next_step": "DOCUMENTAR/HIDE_FROM_OPENAPI"
+    }
+  ],
+  "duplicates": [
+    {
+      "item_a": "POST /aris3/auth/change-password",
+      "item_b": "PATCH /aris3/auth/change-password",
+      "reason": "Mismo handler change_password; POST marcado alias temporal",
+      "canonical_candidate": "PATCH /aris3/auth/change-password",
+      "risk": "LOW"
+    },
+    {
+      "item_a": "POST /aris3/auth/login",
+      "item_b": "POST /aris3/auth/token",
+      "reason": "Ambos autentican y emiten token; token usa form-data OAuth2 para Swagger",
+      "canonical_candidate": "POST /aris3/auth/login para clientes JSON",
+      "risk": "MEDIUM"
+    },
+    {
+      "item_a": "POST /aris3/stock/actions",
+      "item_b": "PATCH /aris3/transfers/{transfer_id} o POST /aris3/transfers/{id}/actions",
+      "reason": "Patrón action endpoint genérico potencialmente solapa cambios de estado específicos",
+      "canonical_candidate": "endpoints de dominio específicos",
+      "risk": "MEDIUM"
+    }
+  ],
+  "external_validation": [
+    {
+      "target": "/aris3/auth/token",
+      "why": "posible dependencia de Swagger/clients OAuth2 legacy",
+      "what_to_search_in_clients": [
+        "/aris3/auth/token",
+        "grant_type=password",
+        "application/x-www-form-urlencoded"
+      ],
+      "confidence": "HIGH"
+    },
+    {
+      "target": "/aris3/ops/metrics",
+      "why": "sin consumidor interno, típicamente scrape externo (Prometheus)",
+      "what_to_search_in_clients": [
+        "/aris3/ops/metrics",
+        "prometheus scrape_configs",
+        "METRICS_ENABLED"
+      ],
+      "confidence": "HIGH"
+    },
+    {
+      "target": "/aris3/assets/upload-image",
+      "why": "consumo probablemente desde app desktop/frontend fuera de este repo",
+      "what_to_search_in_clients": [
+        "/aris3/assets/upload-image",
+        "multipart/form-data",
+        "image_url"
+      ],
+      "confidence": "MEDIUM"
+    },
+    {
+      "target": "/aris3/stock/import-epc|import-sku|migrate-sku-to-epc",
+      "why": "flujos batch/migración pueden vivir fuera del repo",
+      "what_to_search_in_clients": [
+        "import-epc",
+        "import-sku",
+        "migrate-sku-to-epc",
+        "sku_to_epc"
+      ],
+      "confidence": "MEDIUM"
+    }
+  ]
+}

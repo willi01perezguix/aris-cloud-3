@@ -76,6 +76,8 @@ def test_openapi_summaries_use_consistent_sentence_case_for_core_admin_crud():
     assert paths["/aris3/admin/users/{user_id}"]["patch"]["summary"] == "Update user"
     assert paths["/aris3/admin/users/{user_id}"]["delete"]["summary"] == "Delete user"
     assert paths["/aris3/admin/tenants/{tenant_id}/purge"]["post"]["summary"] == "Purge tenant"
+    assert paths["/aris3/admin/stores/{store_id}/purge"]["post"]["summary"] == "Purge store"
+    assert paths["/aris3/admin/users/{user_id}/purge"]["post"]["summary"] == "Purge user"
 
 
 def test_tenant_purge_openapi_contract_describes_safe_delete_vs_purge():
@@ -85,6 +87,42 @@ def test_tenant_purge_openapi_contract_describes_safe_delete_vs_purge():
     assert "safe delete" in description
     assert operation["requestBody"]["required"] is True
     assert operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/TenantPurgeResponse"
+
+
+def test_store_and_user_purge_openapi_contract_describes_safe_delete_and_special_behavior():
+    openapi = app.openapi()
+    paths = openapi["paths"]
+
+    store_operation = paths["/aris3/admin/stores/{store_id}/purge"]["post"]
+    store_description = store_operation.get("description") or ""
+    assert "Destructive hard-delete workflow" in store_description
+    assert "safe delete" in store_description
+
+    user_operation = paths["/aris3/admin/users/{user_id}/purge"]["post"]
+    user_description = user_operation.get("description") or ""
+    assert "Transfer actor references are safely nullified" in user_description
+    assert "safe delete" in user_description
+
+    store_counts_schema_ref = openapi["components"]["schemas"]["StorePurgeCounts"]
+    expected_store_count_keys = {
+        "transfer_movements",
+        "transfer_lines",
+        "users",
+        "user_permission_overrides",
+        "sale_lines",
+        "payments",
+        "transfers",
+        "sales",
+        "returns",
+        "cash_sessions",
+        "cash_movements",
+        "cash_day_closes",
+        "exports",
+        "store_role_policies",
+        "stock_items",
+        "stores",
+    }
+    assert expected_store_count_keys.issubset(set(store_counts_schema_ref["properties"].keys()))
 
 
 def test_self_permission_catalog_description_is_clear_and_canonical():

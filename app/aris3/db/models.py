@@ -317,6 +317,15 @@ class IdempotencyRecord(Base):
     )
 
 
+class TenantPurgeLock(Base):
+    __tablename__ = "tenant_purge_locks"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, unique=True, index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class ExportRecord(Base):
     __tablename__ = "export_records"
 

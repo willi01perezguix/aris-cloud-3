@@ -75,6 +75,16 @@ def test_openapi_summaries_use_consistent_sentence_case_for_core_admin_crud():
     assert paths["/aris3/admin/users/{user_id}"]["get"]["summary"] == "Get user"
     assert paths["/aris3/admin/users/{user_id}"]["patch"]["summary"] == "Update user"
     assert paths["/aris3/admin/users/{user_id}"]["delete"]["summary"] == "Delete user"
+    assert paths["/aris3/admin/tenants/{tenant_id}/purge"]["post"]["summary"] == "Purge tenant"
+
+
+def test_tenant_purge_openapi_contract_describes_safe_delete_vs_purge():
+    operation = app.openapi()["paths"]["/aris3/admin/tenants/{tenant_id}/purge"]["post"]
+    description = operation.get("description") or ""
+    assert "Destructive hard-delete workflow" in description
+    assert "safe delete" in description
+    assert operation["requestBody"]["required"] is True
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/TenantPurgeResponse"
 
 
 def test_self_permission_catalog_description_is_clear_and_canonical():

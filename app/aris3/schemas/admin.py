@@ -106,6 +106,48 @@ class TenantActionResponse(BaseModel):
     trace_id: str
 
 
+class TenantPurgeRequest(BaseModel):
+    confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `PURGE <tenant_id>`.")
+    dry_run: bool = Field(default=True, description="If true, computes exact counts but does not delete data.")
+    preserve_audit_events: bool = Field(
+        default=True,
+        description="If true, tenant audit events are preserved. Recommended mode.",
+    )
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class TenantPurgeCounts(BaseModel):
+    transfer_movements: int
+    transfer_lines: int
+    transfers: int
+    sale_lines: int
+    payments: int
+    returns: int
+    sales: int
+    cash_movements: int
+    cash_sessions: int
+    cash_day_closes: int
+    exports: int
+    stock_items: int
+    user_permission_overrides: int
+    store_role_policies: int
+    tenant_role_policies: int
+    users: int
+    stores: int
+    tenants: int
+
+
+class TenantPurgeResponse(BaseModel):
+    resource: Literal["tenant"] = "tenant"
+    resource_id: str
+    dry_run: bool
+    status: Literal["DRY_RUN", "COMPLETED"]
+    would_delete_counts: TenantPurgeCounts | None = None
+    deleted_counts: TenantPurgeCounts | None = None
+    preserve_audit_events: bool
+    trace_id: str
+
+
 class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=150)
     email: str = Field(..., min_length=3, max_length=255)

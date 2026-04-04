@@ -53,6 +53,9 @@ from app.aris3.schemas.admin import (
     StoreUpdateRequest,
     TenantActionRequest,
     TenantActionResponse,
+    TenantPurgeCounts,
+    TenantPurgeRequest,
+    TenantPurgeResponse,
     TenantCreateRequest,
     TenantListResponse,
     TenantResponse,
@@ -93,6 +96,7 @@ from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.access_control_policies import AccessControlPolicyService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.tenant_purge import TenantPurgeService
 
 
 router = APIRouter()
@@ -438,6 +442,29 @@ async def admin_permission_catalog(
             PermissionCatalogEntry(code=perm.code, description=perm.description) for perm in permissions
         ],
         trace_id=getattr(request.state, "trace_id", ""),
+        )
+
+
+def _tenant_purge_counts_payload(counts: dict[str, int]) -> TenantPurgeCounts:
+    return TenantPurgeCounts(
+        transfer_movements=counts.get("transfer_movements", 0),
+        transfer_lines=counts.get("transfer_lines", 0),
+        transfers=counts.get("transfers", 0),
+        sale_lines=counts.get("sale_lines", 0),
+        payments=counts.get("payments", 0),
+        returns=counts.get("returns", 0),
+        sales=counts.get("sales", 0),
+        cash_movements=counts.get("cash_movements", 0),
+        cash_sessions=counts.get("cash_sessions", 0),
+        cash_day_closes=counts.get("cash_day_closes", 0),
+        exports=counts.get("exports", 0),
+        stock_items=counts.get("stock_items", 0),
+        user_permission_overrides=counts.get("user_permission_overrides", 0),
+        store_role_policies=counts.get("store_role_policies", 0),
+        tenant_role_policies=counts.get("tenant_role_policies", 0),
+        users=counts.get("users", 0),
+        stores=counts.get("stores", 0),
+        tenants=counts.get("tenants", 0),
     )
 
 
@@ -1494,6 +1521,92 @@ async def delete_tenant(
         )
     )
     return response
+
+
+@router.post(
+    "/tenants/{tenant_id}/purge",
+    response_model=TenantPurgeResponse,
+    summary="Purge tenant",
+    description=(
+        "Destructive hard-delete workflow for a tenant and related operational data.\n\n"
+        "Use this endpoint only for explicit decommissioning flows. "
+        "`DELETE /aris3/admin/tenants/{tenant_id}` remains a safe delete guarded by dependency checks."
+    ),
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
+async def purge_tenant(
+    request: Request,
+    tenant_id: str,
+    payload: TenantPurgeRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    if payload.confirm != f"PURGE {tenant_id}":
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "confirm must match the exact value `PURGE <tenant_id>`"},
+        )
+
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint({"tenant_id": tenant_id, **payload.model_dump(mode="json")})
+    idempotency_service = IdempotencyService(db)
+    context, replay = idempotency_service.start(
+        tenant_id=tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(
+            status_code=replay.status_code,
+            content=replay.response_body,
+            headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
+        )
+    request.state.idempotency = context
+
+    try:
+        result = TenantPurgeService(db).execute(
+            tenant_id=tenant_id,
+            actor=current_user,
+            reason=payload.reason,
+            dry_run=payload.dry_run,
+            preserve_audit_events=payload.preserve_audit_events,
+            trace_id=getattr(request.state, "trace_id", ""),
+        )
+        counts = _tenant_purge_counts_payload(result.counts)
+        response = TenantPurgeResponse(
+            resource="tenant",
+            resource_id=tenant_id,
+            dry_run=result.dry_run,
+            status=result.status,
+            would_delete_counts=counts if result.dry_run else None,
+            deleted_counts=counts if not result.dry_run else None,
+            preserve_audit_events=payload.preserve_audit_events,
+            trace_id=getattr(request.state, "trace_id", ""),
+        )
+        context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+        return response
+    except AppError as exc:
+        error_response = {
+            "code": exc.error.code,
+            "message": exc.error.message,
+            "details": exc.details,
+            "trace_id": getattr(request.state, "trace_id", ""),
+        }
+        context.record_failure(status_code=exc.error.status_code, response_body=error_response)
+        raise
+    except Exception as exc:
+        error_response = {
+            "code": ErrorCatalog.INTERNAL_ERROR.code,
+            "message": ErrorCatalog.INTERNAL_ERROR.message,
+            "details": None,
+            "trace_id": getattr(request.state, "trace_id", ""),
+        }
+        context.record_failure(status_code=500, response_body=error_response)
+        raise AppError(ErrorCatalog.INTERNAL_ERROR) from exc
 
 
 @router.post("/tenants/{tenant_id}/actions", response_model=TenantActionResponse)

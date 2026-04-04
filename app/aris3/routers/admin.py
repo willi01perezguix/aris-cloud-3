@@ -2162,6 +2162,7 @@ async def list_users(
     status: str | None = Query(default=None, description="Canonical lifecycle status filter (active/suspended/canceled)."),
     is_active: bool | None = Query(
         default=None,
+        deprecated=True,
         description="Deprecated compatibility filter derived from status (ACTIVE=true, others=false).",
     ),
     search: str | None = Query(default=None, description="Case-insensitive search by username or email."),

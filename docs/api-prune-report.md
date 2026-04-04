@@ -35,15 +35,11 @@
 
 ### Compatibilidad legacy removida en schemas
 - `AdminUserStatus` ya no acepta lowercase (`active/suspended/canceled`), solo canonical uppercase.
-- `PosSaleActionRequest` queda canónico con acciones `CHECKOUT` y `CANCEL` (se elimina exposición de `REFUND_ITEMS`/`EXCHANGE_ITEMS` en el contrato OpenAPI).
+- `PosSaleActionRequest` mantiene el union completo canónico (`CHECKOUT`, `CANCEL`, `REFUND_ITEMS`, `EXCHANGE_ITEMS`) para evitar drift entre runtime y Swagger.
 
-## Schemas removidos / simplificados
-- Removidos del union de acciones POS:
-  - `RefundItemsSaleActionRequest`
-  - `ExchangeItemsSaleActionRequest`
-
-## OpenAPI final reducido
-- Artefacto generado: `docs/openapi-pruned.json`.
+## OpenAPI final (canónico)
+- Fuente de verdad: runtime OpenAPI exportado en `artifacts/release_candidate/openapi.json`.
+- `docs/openapi-pruned.json` se retiró por ser no canónico y propenso a drift.
 
 ## Breaking changes reales
 1. Clientes que usen `POST /aris3/auth/change-password` deben migrar a `PATCH`.
@@ -51,7 +47,7 @@
 3. Clientes que filtren users por `is_active` deben migrar a `status` (`ACTIVE|SUSPENDED|CANCELED`).
 4. Clientes que usen `from_date/to_date` en ventas deben migrar a `checked_out_from/checked_out_to`.
 5. Clientes que envíen `tenant_id` en payloads de POS sales deben dejar de enviarlo.
-6. Swagger/clientes generados ya no verán `REFUND_ITEMS`/`EXCHANGE_ITEMS` en el discriminador de acciones POS.
+6. Swagger/clientes generados deben consumir el discriminador completo de acciones POS (`CHECKOUT`, `CANCEL`, `REFUND_ITEMS`, `EXCHANGE_ITEMS`).
 
 ## Módulos completos eliminados
 - Ninguno en esta iteración (poda enfocada en contratos/aliases legacy de auth/admin/pos sales).

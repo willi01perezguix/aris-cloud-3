@@ -115,7 +115,10 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
     "/token",
     response_model=OAuth2TokenResponse,
     summary="OAuth2 Token (Swagger/Auth)",
-    description="OAuth2 Password Flow endpoint for Swagger Authorize using form-data username/password.",
+    description=(
+        "Compatibility endpoint for OAuth2 Password Flow tools (for example Swagger Authorize). "
+        "Product/API clients should prefer POST `/aris3/auth/login` for the canonical JSON contract."
+    ),
 )
 async def oauth2_token(
     request: Request,

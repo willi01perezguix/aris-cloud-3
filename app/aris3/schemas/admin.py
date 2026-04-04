@@ -141,9 +141,68 @@ class TenantPurgeResponse(BaseModel):
     resource: Literal["tenant"] = "tenant"
     resource_id: str
     dry_run: bool
-    status: Literal["DRY_RUN", "COMPLETED"]
+    status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
     would_delete_counts: TenantPurgeCounts | None = None
     deleted_counts: TenantPurgeCounts | None = None
+    preserve_audit_events: bool
+    trace_id: str
+
+
+class StorePurgeRequest(BaseModel):
+    confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `PURGE <store_id>`.")
+    dry_run: bool = Field(default=True)
+    preserve_audit_events: bool = Field(default=True)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class StorePurgeCounts(BaseModel):
+    users: int
+    transfers: int
+    sales: int
+    returns: int
+    cash_sessions: int
+    cash_movements: int
+    cash_day_closes: int
+    exports: int
+    store_role_policies: int
+    stock_items: int
+    stores: int
+
+
+class StorePurgeResponse(BaseModel):
+    resource: Literal["store"] = "store"
+    resource_id: str
+    dry_run: bool
+    status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
+    would_delete_counts: StorePurgeCounts | None = None
+    deleted_counts: StorePurgeCounts | None = None
+    preserve_audit_events: bool
+    trace_id: str
+
+
+class UserPurgeRequest(BaseModel):
+    confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `PURGE <user_id>`.")
+    dry_run: bool = Field(default=True)
+    preserve_audit_events: bool = Field(default=True)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class UserPurgeCounts(BaseModel):
+    user_permission_overrides: int
+    transfers_as_creator: int
+    transfers_as_editor: int
+    transfers_as_dispatcher: int
+    transfers_as_canceler: int
+    users: int
+
+
+class UserPurgeResponse(BaseModel):
+    resource: Literal["user"] = "user"
+    resource_id: str
+    dry_run: bool
+    status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
+    would_delete_counts: UserPurgeCounts | None = None
+    deleted_counts: UserPurgeCounts | None = None
     preserve_audit_events: bool
     trace_id: str
 

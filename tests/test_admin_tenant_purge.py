@@ -143,6 +143,22 @@ def _purge_request(client, token: str, tenant_id: str, idempotency_key: str, *, 
     )
 
 
+def _store_purge_request(client, token: str, store_id: str, idempotency_key: str, *, dry_run: bool, preserve_audit_events: bool = True):
+    return client.post(
+        f"/aris3/admin/stores/{store_id}/purge",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": idempotency_key},
+        json={"confirm": f"PURGE {store_id}", "dry_run": dry_run, "preserve_audit_events": preserve_audit_events, "reason": "cleanup store"},
+    )
+
+
+def _user_purge_request(client, token: str, user_id: str, idempotency_key: str, *, dry_run: bool, preserve_audit_events: bool = True):
+    return client.post(
+        f"/aris3/admin/users/{user_id}/purge",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": idempotency_key},
+        json={"confirm": f"PURGE {user_id}", "dry_run": dry_run, "preserve_audit_events": preserve_audit_events, "reason": "cleanup user"},
+    )
+
+
 def test_tenant_purge_dry_run_reports_exact_counts_without_deleting(client, db_session):
     run_seed(db_session)
     token = _login(client, "superadmin", "change-me")
@@ -318,7 +334,7 @@ def test_tenant_purge_failure_releases_lock_and_allows_retry(client, db_session,
     tenant_id = str(tenant.id)
     _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
 
-    original_delete = TenantPurgeService._delete_in_order
+    original_delete = TenantPurgeService._delete_tenant_in_order
     state = {"failed": False}
 
     def _boom_once(self, *, tenant_id: str, preserve_audit_events: bool):
@@ -327,7 +343,7 @@ def test_tenant_purge_failure_releases_lock_and_allows_retry(client, db_session,
             raise RuntimeError("simulated purge failure")
         return original_delete(self, tenant_id=tenant_id, preserve_audit_events=preserve_audit_events)
 
-    monkeypatch.setattr(TenantPurgeService, "_delete_in_order", _boom_once)
+    monkeypatch.setattr(TenantPurgeService, "_delete_tenant_in_order", _boom_once)
 
     first = _purge_request(client, token, tenant_id, "purge-retry-1", dry_run=False)
     assert first.status_code == 500
@@ -335,3 +351,132 @@ def test_tenant_purge_failure_releases_lock_and_allows_retry(client, db_session,
     second = _purge_request(client, token, tenant_id, "purge-retry-2", dry_run=False)
     assert second.status_code == 200
     assert second.json()["status"] == "COMPLETED"
+
+
+def test_store_purge_dry_run_reports_counts(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="store-dry")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+    response = _store_purge_request(client, token, str(store.id), "store-purge-dry-1", dry_run=True)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "DRY_RUN"
+    assert body["would_delete_counts"]["stores"] == 1
+    assert body["would_delete_counts"]["transfers"] >= 1
+    assert body["deleted_counts"] is None
+
+
+def test_user_purge_dry_run_reports_counts(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="user-dry")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+    response = _user_purge_request(client, token, str(user.id), "user-purge-dry-1", dry_run=True)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "DRY_RUN"
+    assert body["would_delete_counts"]["users"] == 1
+    assert body["would_delete_counts"]["transfers_as_creator"] >= 1
+
+
+def test_store_purge_invalid_confirm_returns_422(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    _tenant, store, _user = _create_tenant_store_user(db_session, suffix="store-confirm")
+    response = client.post(
+        f"/aris3/admin/stores/{store.id}/purge",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "store-confirm-1"},
+        json={"confirm": "PURGE WRONG", "dry_run": True, "preserve_audit_events": True},
+    )
+    assert response.status_code == 422
+
+
+def test_store_purge_requires_idempotency_key(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    _tenant, store, _user = _create_tenant_store_user(db_session, suffix="store-idem-required")
+    response = client.post(
+        f"/aris3/admin/stores/{store.id}/purge",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"confirm": f"PURGE {store.id}", "dry_run": True, "preserve_audit_events": True},
+    )
+    assert response.status_code == 422
+
+
+def test_store_purge_idempotency_replay_and_conflict(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    _tenant, store, _user = _create_tenant_store_user(db_session, suffix="store-idem")
+    first = _store_purge_request(client, token, str(store.id), "store-idem-1", dry_run=True)
+    second = _store_purge_request(client, token, str(store.id), "store-idem-1", dry_run=True)
+    third = _store_purge_request(client, token, str(store.id), "store-idem-1", dry_run=False)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.headers.get("X-Idempotency-Result") == "IDEMPOTENCY_REPLAY"
+    assert third.status_code == 409
+
+
+def test_store_purge_real_delete_works_with_historical_terminal_data(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="store-real")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+    store_id = str(store.id)
+    response = _store_purge_request(client, token, store_id, "store-real-1", dry_run=False)
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETED"
+    db_session.expire_all()
+    assert db_session.get(Store, store_id) is None
+
+
+def test_user_purge_real_delete_nullifies_transfer_actor_refs(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="user-real")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+    user_id = str(user.id)
+    response = _user_purge_request(client, token, user_id, "user-real-1", dry_run=False)
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETED"
+    db_session.expire_all()
+    assert db_session.get(User, user_id) is None
+    transfers = db_session.query(Transfer).filter(Transfer.tenant_id == tenant.id).all()
+    assert transfers
+    assert all(t.created_by_user_id is None for t in transfers)
+
+
+def test_purge_response_contains_trace_and_audit_events(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    _tenant, store, _user = _create_tenant_store_user(db_session, suffix="trace-audit")
+    response = _store_purge_request(client, token, str(store.id), "store-trace-1", dry_run=True, preserve_audit_events=True)
+    assert response.status_code == 200
+    trace_id = response.json()["trace_id"]
+    assert trace_id
+    events = db_session.query(AuditEvent).filter(AuditEvent.trace_id == trace_id, AuditEvent.action.like("admin.store.purge.%")).all()
+    assert any(e.action.endswith(".started") for e in events)
+    assert any(e.action.endswith(".completed") for e in events)
+
+
+def test_user_purge_preserve_audit_events_respected(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="user-audit")
+    db_session.add(
+        AuditEvent(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            actor="seed",
+            action="manual.user.audit",
+            entity="user",
+            entity_type="user",
+            entity_id=str(user.id),
+            result="success",
+        )
+    )
+    db_session.commit()
+    response = _user_purge_request(client, token, str(user.id), "user-audit-1", dry_run=False, preserve_audit_events=False)
+    assert response.status_code == 200
+    remaining = db_session.query(AuditEvent).filter(AuditEvent.user_id == user.id).all()
+    assert all(ev.action.startswith("admin.user.purge.") for ev in remaining)

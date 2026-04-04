@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
@@ -16,6 +16,7 @@ from app.aris3.db.models import (
     PosReturnEvent,
     PosSale,
     PosSaleLine,
+    PurgeLock,
     ReturnPolicySettings,
     RoleTemplate,
     RoleTemplatePermission,
@@ -23,7 +24,6 @@ from app.aris3.db.models import (
     Store,
     StoreRolePolicy,
     Tenant,
-    TenantPurgeLock,
     TenantRolePolicy,
     Transfer,
     TransferLine,
@@ -35,7 +35,7 @@ from app.aris3.db.models import (
 from app.aris3.services.audit import AuditEventPayload, AuditService
 
 
-PURGE_ORDER = (
+TENANT_PURGE_ORDER = (
     ("transfer_movements", TransferMovement),
     ("transfer_lines", TransferLine),
     ("transfers", Transfer),
@@ -64,6 +64,14 @@ class TenantPurgeResult:
     counts: dict[str, int]
 
 
+@dataclass
+class PurgeResult:
+    dry_run: bool
+    status: str
+    would_delete_counts: dict[str, int]
+    deleted_counts: dict[str, int] | None
+
+
 class TenantPurgeService:
     def __init__(self, db):
         self.db = db
@@ -79,75 +87,177 @@ class TenantPurgeService:
         preserve_audit_events: bool,
         trace_id: str | None,
     ) -> TenantPurgeResult:
+        result = self.execute_tenant(
+            tenant_id=tenant_id,
+            actor=actor,
+            reason=reason,
+            dry_run=dry_run,
+            preserve_audit_events=preserve_audit_events,
+            trace_id=trace_id,
+        )
+        counts = result.would_delete_counts if result.dry_run else (result.deleted_counts or {})
+        return TenantPurgeResult(dry_run=result.dry_run, status=result.status, counts=counts)
+
+    def execute_tenant(
+        self,
+        *,
+        tenant_id: str,
+        actor,
+        reason: str | None,
+        dry_run: bool,
+        preserve_audit_events: bool,
+        trace_id: str | None,
+    ) -> PurgeResult:
         tenant = self.db.get(Tenant, tenant_id)
         if tenant is None:
             raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
+        return self._execute_resource(
+            resource="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            actor=actor,
+            reason=reason,
+            dry_run=dry_run,
+            preserve_audit_events=preserve_audit_events,
+            trace_id=trace_id,
+            count_fn=lambda: self._tenant_counts(tenant_id=tenant_id),
+            delete_fn=lambda: self._delete_tenant_in_order(tenant_id=tenant_id, preserve_audit_events=preserve_audit_events),
+        )
 
-        lock = self._acquire_lock(tenant_id=tenant_id, trace_id=trace_id)
+    def execute_store(
+        self,
+        *,
+        store_id: str,
+        actor,
+        reason: str | None,
+        dry_run: bool,
+        preserve_audit_events: bool,
+        trace_id: str | None,
+    ) -> PurgeResult:
+        store = self.db.get(Store, store_id)
+        if store is None:
+            raise AppError(ErrorCatalog.STORE_NOT_FOUND)
+        return self._execute_resource(
+            resource="store",
+            resource_id=store_id,
+            tenant_id=str(store.tenant_id),
+            actor=actor,
+            reason=reason,
+            dry_run=dry_run,
+            preserve_audit_events=preserve_audit_events,
+            trace_id=trace_id,
+            count_fn=lambda: self._store_counts(store_id=store_id),
+            delete_fn=lambda: self._delete_store_in_order(store_id=store_id, preserve_audit_events=preserve_audit_events),
+        )
+
+    def execute_user(
+        self,
+        *,
+        user_id: str,
+        actor,
+        reason: str | None,
+        dry_run: bool,
+        preserve_audit_events: bool,
+        trace_id: str | None,
+    ) -> PurgeResult:
+        user = self.db.get(User, user_id)
+        if user is None:
+            raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "User not found"})
+        return self._execute_resource(
+            resource="user",
+            resource_id=user_id,
+            tenant_id=str(user.tenant_id),
+            actor=actor,
+            reason=reason,
+            dry_run=dry_run,
+            preserve_audit_events=preserve_audit_events,
+            trace_id=trace_id,
+            count_fn=lambda: self._user_counts(user_id=user_id),
+            delete_fn=lambda: self._delete_user_in_order(user_id=user_id, preserve_audit_events=preserve_audit_events),
+        )
+
+    def _execute_resource(
+        self,
+        *,
+        resource: str,
+        resource_id: str,
+        tenant_id: str,
+        actor,
+        reason: str | None,
+        dry_run: bool,
+        preserve_audit_events: bool,
+        trace_id: str | None,
+        count_fn,
+        delete_fn,
+    ) -> PurgeResult:
+        lock = self._acquire_lock(resource=resource, resource_id=resource_id, trace_id=trace_id)
+        would_delete_counts = count_fn()
         try:
-            self._audit_started(
+            self._audit_event(
+                action=f"admin.{resource}.purge.started",
                 tenant_id=tenant_id,
+                resource=resource,
+                resource_id=resource_id,
                 actor=actor,
                 reason=reason,
                 dry_run=dry_run,
                 preserve_audit_events=preserve_audit_events,
                 trace_id=trace_id,
+                counts=would_delete_counts,
+                result="success",
             )
-            counts = self._counts(tenant_id=tenant_id)
-            counts["tenants"] = 1
             if dry_run:
-                self._audit_completed(
+                self._audit_event(
+                    action=f"admin.{resource}.purge.completed",
                     tenant_id=tenant_id,
+                    resource=resource,
+                    resource_id=resource_id,
                     actor=actor,
                     reason=reason,
                     dry_run=True,
                     preserve_audit_events=preserve_audit_events,
-                    counts=counts,
                     trace_id=trace_id,
+                    counts=would_delete_counts,
+                    result="success",
                 )
-                return TenantPurgeResult(dry_run=True, status="DRY_RUN", counts=counts)
+                return PurgeResult(dry_run=True, status="DRY_RUN", would_delete_counts=would_delete_counts, deleted_counts=None)
 
-            locked_tenant = (
-                self.db.execute(
-                    select(Tenant).where(Tenant.id == tenant_id).with_for_update(nowait=True),
-                )
-                .scalar_one_or_none()
-            )
-            if locked_tenant is None:
-                raise AppError(ErrorCatalog.TENANT_NOT_FOUND)
-
-            if (locked_tenant.status or "").upper() != "SUSPENDED":
-                locked_tenant.status = "SUSPENDED"
-                self.db.flush()
-                self.db.commit()
-
-            deleted_counts = self._delete_in_order(tenant_id=tenant_id, preserve_audit_events=preserve_audit_events)
-            self._audit_completed(
+            deleted_counts = delete_fn()
+            self._audit_event(
+                action=f"admin.{resource}.purge.completed",
                 tenant_id=tenant_id,
+                resource=resource,
+                resource_id=resource_id,
                 actor=actor,
                 reason=reason,
                 dry_run=False,
                 preserve_audit_events=preserve_audit_events,
-                counts=deleted_counts,
                 trace_id=trace_id,
+                counts=deleted_counts,
+                result="success",
             )
-            return TenantPurgeResult(dry_run=False, status="COMPLETED", counts=deleted_counts)
+            return PurgeResult(dry_run=False, status="COMPLETED", would_delete_counts=would_delete_counts, deleted_counts=deleted_counts)
         except Exception:
             self.db.rollback()
-            self._audit_failed(
+            self._audit_event(
+                action=f"admin.{resource}.purge.failed",
                 tenant_id=tenant_id,
+                resource=resource,
+                resource_id=resource_id,
                 actor=actor,
                 reason=reason,
                 dry_run=dry_run,
                 preserve_audit_events=preserve_audit_events,
                 trace_id=trace_id,
+                counts=would_delete_counts,
+                result="failure",
             )
             raise
         finally:
             self._release_lock(lock)
 
-    def _acquire_lock(self, *, tenant_id: str, trace_id: str | None) -> TenantPurgeLock:
-        lock = TenantPurgeLock(tenant_id=tenant_id, trace_id=trace_id)
+    def _acquire_lock(self, *, resource: str, resource_id: str, trace_id: str | None) -> PurgeLock:
+        lock = PurgeLock(resource_type=resource, resource_id=resource_id, trace_id=trace_id)
         self.db.add(lock)
         try:
             self.db.commit()
@@ -157,39 +267,35 @@ class TenantPurgeService:
             self.db.rollback()
             raise AppError(
                 ErrorCatalog.BUSINESS_CONFLICT,
-                details={"message": "Tenant purge already in progress", "tenant_id": tenant_id},
+                details={"message": f"{resource.capitalize()} purge already in progress", "resource": resource, "resource_id": resource_id},
             ) from exc
         except OperationalError as exc:
             self.db.rollback()
             raise AppError(ErrorCatalog.LOCK_TIMEOUT) from exc
 
-    def _release_lock(self, lock: TenantPurgeLock) -> None:
+    def _release_lock(self, lock: PurgeLock) -> None:
         try:
             self.db.delete(lock)
             self.db.commit()
         except Exception:
             self.db.rollback()
 
-    def _counts(self, *, tenant_id: str) -> dict[str, int]:
+    def _tenant_counts(self, *, tenant_id: str) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for name, model in PURGE_ORDER[:-1]:
+        for name, model in TENANT_PURGE_ORDER[:-1]:
             counts[name] = int(
-                self.db.execute(select(func.count()).select_from(model).where(model.tenant_id == tenant_id)).scalar_one()
-                or 0
+                self.db.execute(select(func.count()).select_from(model).where(model.tenant_id == tenant_id)).scalar_one() or 0
             )
+        counts["tenants"] = 1
         return counts
 
-    def _delete_in_order(self, *, tenant_id: str, preserve_audit_events: bool) -> dict[str, int]:
+    def _delete_tenant_in_order(self, *, tenant_id: str, preserve_audit_events: bool) -> dict[str, int]:
         deleted_counts: dict[str, int] = {}
-
-        for name, model in PURGE_ORDER[:-1]:
+        for name, model in TENANT_PURGE_ORDER[:-1]:
             result = self.db.execute(delete(model).where(model.tenant_id == tenant_id))
             deleted_counts[name] = int(result.rowcount or 0)
 
-        # Additional tenant FK dependencies outside the requested list.
-        role_template_ids = list(
-            self.db.execute(select(RoleTemplate.id).where(RoleTemplate.tenant_id == tenant_id)).scalars().all()
-        )
+        role_template_ids = list(self.db.execute(select(RoleTemplate.id).where(RoleTemplate.tenant_id == tenant_id)).scalars().all())
         if role_template_ids:
             self.db.execute(delete(RoleTemplatePermission).where(RoleTemplatePermission.role_template_id.in_(role_template_ids)))
             self.db.execute(delete(RoleTemplate).where(RoleTemplate.id.in_(role_template_ids)))
@@ -215,26 +321,140 @@ class TenantPurgeService:
         self.db.commit()
         return deleted_counts
 
-    def _audit_started(self, *, tenant_id: str, actor, reason: str | None, dry_run: bool, preserve_audit_events: bool, trace_id: str | None) -> None:
-        self.audit.record_event(
-            AuditEventPayload(
-                tenant_id=tenant_id,
-                user_id=str(actor.id),
-                store_id=str(actor.store_id) if actor.store_id else None,
-                trace_id=trace_id,
-                actor=actor.username,
-                actor_role=actor.role,
-                action="admin.tenant.purge.started",
-                entity_type="tenant",
-                entity_id=tenant_id,
-                before=None,
-                after=None,
-                metadata={"reason": reason, "dry_run": dry_run, "preserve_audit_events": preserve_audit_events},
-                result="success",
+    def _store_counts(self, *, store_id: str) -> dict[str, int]:
+        transfer_filter = or_(Transfer.origin_store_id == store_id, Transfer.destination_store_id == store_id)
+        return {
+            "users": int(self.db.execute(select(func.count()).select_from(User).where(User.store_id == store_id)).scalar_one() or 0),
+            "transfers": int(self.db.execute(select(func.count()).select_from(Transfer).where(transfer_filter)).scalar_one() or 0),
+            "sales": int(self.db.execute(select(func.count()).select_from(PosSale).where(PosSale.store_id == store_id)).scalar_one() or 0),
+            "returns": int(self.db.execute(select(func.count()).select_from(PosReturnEvent).where(PosReturnEvent.store_id == store_id)).scalar_one() or 0),
+            "cash_sessions": int(self.db.execute(select(func.count()).select_from(PosCashSession).where(PosCashSession.store_id == store_id)).scalar_one() or 0),
+            "cash_movements": int(self.db.execute(select(func.count()).select_from(PosCashMovement).where(PosCashMovement.store_id == store_id)).scalar_one() or 0),
+            "cash_day_closes": int(self.db.execute(select(func.count()).select_from(PosCashDayClose).where(PosCashDayClose.store_id == store_id)).scalar_one() or 0),
+            "exports": int(self.db.execute(select(func.count()).select_from(ExportRecord).where(ExportRecord.store_id == store_id)).scalar_one() or 0),
+            "store_role_policies": int(self.db.execute(select(func.count()).select_from(StoreRolePolicy).where(StoreRolePolicy.store_id == store_id)).scalar_one() or 0),
+            "stock_items": int(self.db.execute(select(func.count()).select_from(StockItem).where(StockItem.store_id == store_id)).scalar_one() or 0),
+            "stores": 1,
+        }
+
+    def _delete_store_in_order(self, *, store_id: str, preserve_audit_events: bool) -> dict[str, int]:
+        deleted_counts = {k: 0 for k in self._store_counts(store_id=store_id).keys()}
+
+        transfer_ids = list(
+            self.db.execute(select(Transfer.id).where(or_(Transfer.origin_store_id == store_id, Transfer.destination_store_id == store_id))).scalars().all()
+        )
+        if transfer_ids:
+            self.db.execute(delete(TransferMovement).where(TransferMovement.transfer_id.in_(transfer_ids)))
+            self.db.execute(delete(TransferLine).where(TransferLine.transfer_id.in_(transfer_ids)))
+            deleted_counts["transfers"] = int(self.db.execute(delete(Transfer).where(Transfer.id.in_(transfer_ids))).rowcount or 0)
+
+        sale_ids = list(self.db.execute(select(PosSale.id).where(PosSale.store_id == store_id)).scalars().all())
+        if sale_ids:
+            self.db.execute(delete(PosSaleLine).where(PosSaleLine.sale_id.in_(sale_ids)))
+            self.db.execute(delete(PosPayment).where(PosPayment.sale_id.in_(sale_ids)))
+
+        deleted_counts["returns"] = int(self.db.execute(delete(PosReturnEvent).where(PosReturnEvent.store_id == store_id)).rowcount or 0)
+        deleted_counts["sales"] = int(self.db.execute(delete(PosSale).where(PosSale.store_id == store_id)).rowcount or 0)
+        deleted_counts["cash_movements"] = int(self.db.execute(delete(PosCashMovement).where(PosCashMovement.store_id == store_id)).rowcount or 0)
+        deleted_counts["cash_sessions"] = int(self.db.execute(delete(PosCashSession).where(PosCashSession.store_id == store_id)).rowcount or 0)
+        deleted_counts["cash_day_closes"] = int(self.db.execute(delete(PosCashDayClose).where(PosCashDayClose.store_id == store_id)).rowcount or 0)
+        deleted_counts["exports"] = int(self.db.execute(delete(ExportRecord).where(ExportRecord.store_id == store_id)).rowcount or 0)
+        deleted_counts["store_role_policies"] = int(self.db.execute(delete(StoreRolePolicy).where(StoreRolePolicy.store_id == store_id)).rowcount or 0)
+        deleted_counts["stock_items"] = int(self.db.execute(delete(StockItem).where(StockItem.store_id == store_id)).rowcount or 0)
+
+        user_ids = list(self.db.execute(select(User.id).where(User.store_id == store_id)).scalars().all())
+        if user_ids:
+            for actor_col in (
+                Transfer.created_by_user_id,
+                Transfer.updated_by_user_id,
+                Transfer.dispatched_by_user_id,
+                Transfer.canceled_by_user_id,
+            ):
+                self.db.execute(
+                    Transfer.__table__.update().where(actor_col.in_(user_ids)).values({actor_col.key: None})
+                )
+            self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id.in_(user_ids)))
+            deleted_counts["users"] = int(self.db.execute(delete(User).where(User.id.in_(user_ids))).rowcount or 0)
+
+        if not preserve_audit_events:
+            self.db.execute(
+                delete(AuditEvent).where(
+                    AuditEvent.store_id == store_id,
+                    AuditEvent.action.notin_([
+                        "admin.store.purge.started",
+                        "admin.store.purge.completed",
+                        "admin.store.purge.failed",
+                    ]),
+                )
             )
+
+        deleted_counts["stores"] = int(self.db.execute(delete(Store).where(Store.id == store_id)).rowcount or 0)
+        self.db.commit()
+        return deleted_counts
+
+    def _user_counts(self, *, user_id: str) -> dict[str, int]:
+        return {
+            "user_permission_overrides": int(self.db.execute(select(func.count()).select_from(UserPermissionOverride).where(UserPermissionOverride.user_id == user_id)).scalar_one() or 0),
+            "transfers_as_creator": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.created_by_user_id == user_id)).scalar_one() or 0),
+            "transfers_as_editor": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.updated_by_user_id == user_id)).scalar_one() or 0),
+            "transfers_as_dispatcher": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.dispatched_by_user_id == user_id)).scalar_one() or 0),
+            "transfers_as_canceler": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.canceled_by_user_id == user_id)).scalar_one() or 0),
+            "users": 1,
+        }
+
+    def _delete_user_in_order(self, *, user_id: str, preserve_audit_events: bool) -> dict[str, int]:
+        deleted_counts = {k: 0 for k in self._user_counts(user_id=user_id).keys()}
+        deleted_counts["transfers_as_creator"] = int(
+            self.db.execute(Transfer.__table__.update().where(Transfer.created_by_user_id == user_id).values(created_by_user_id=None)).rowcount or 0
+        )
+        deleted_counts["transfers_as_editor"] = int(
+            self.db.execute(Transfer.__table__.update().where(Transfer.updated_by_user_id == user_id).values(updated_by_user_id=None)).rowcount or 0
+        )
+        deleted_counts["transfers_as_dispatcher"] = int(
+            self.db.execute(Transfer.__table__.update().where(Transfer.dispatched_by_user_id == user_id).values(dispatched_by_user_id=None)).rowcount or 0
+        )
+        deleted_counts["transfers_as_canceler"] = int(
+            self.db.execute(Transfer.__table__.update().where(Transfer.canceled_by_user_id == user_id).values(canceled_by_user_id=None)).rowcount or 0
+        )
+        deleted_counts["user_permission_overrides"] = int(
+            self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id == user_id)).rowcount or 0
         )
 
-    def _audit_completed(self, *, tenant_id: str, actor, reason: str | None, dry_run: bool, preserve_audit_events: bool, counts: dict[str, int], trace_id: str | None) -> None:
+        if not preserve_audit_events:
+            self.db.execute(
+                delete(AuditEvent).where(
+                    AuditEvent.user_id == user_id,
+                    AuditEvent.action.notin_([
+                        "admin.user.purge.started",
+                        "admin.user.purge.completed",
+                        "admin.user.purge.failed",
+                    ]),
+                )
+            )
+
+        deleted_counts["users"] = int(self.db.execute(delete(User).where(User.id == user_id)).rowcount or 0)
+        self.db.commit()
+        return deleted_counts
+
+    # Backward compatible hook for existing tests.
+    def _delete_in_order(self, *, tenant_id: str, preserve_audit_events: bool) -> dict[str, int]:
+        return self._delete_tenant_in_order(tenant_id=tenant_id, preserve_audit_events=preserve_audit_events)
+
+    def _audit_event(
+        self,
+        *,
+        action: str,
+        tenant_id: str,
+        resource: str,
+        resource_id: str,
+        actor,
+        reason: str | None,
+        dry_run: bool,
+        preserve_audit_events: bool,
+        trace_id: str | None,
+        counts: dict[str, int],
+        result: str,
+    ) -> None:
         self.audit.record_event(
             AuditEventPayload(
                 tenant_id=tenant_id,
@@ -243,9 +463,9 @@ class TenantPurgeService:
                 trace_id=trace_id,
                 actor=actor.username,
                 actor_role=actor.role,
-                action="admin.tenant.purge.completed",
-                entity_type="tenant",
-                entity_id=tenant_id,
+                action=action,
+                entity_type=resource,
+                entity_id=resource_id,
                 before=None,
                 after=None,
                 metadata={
@@ -254,25 +474,6 @@ class TenantPurgeService:
                     "preserve_audit_events": preserve_audit_events,
                     "counts": counts,
                 },
-                result="success",
-            )
-        )
-
-    def _audit_failed(self, *, tenant_id: str, actor, reason: str | None, dry_run: bool, preserve_audit_events: bool, trace_id: str | None) -> None:
-        self.audit.record_event(
-            AuditEventPayload(
-                tenant_id=tenant_id,
-                user_id=str(actor.id),
-                store_id=str(actor.store_id) if actor.store_id else None,
-                trace_id=trace_id,
-                actor=actor.username,
-                actor_role=actor.role,
-                action="admin.tenant.purge.failed",
-                entity_type="tenant",
-                entity_id=tenant_id,
-                before=None,
-                after=None,
-                metadata={"reason": reason, "dry_run": dry_run, "preserve_audit_events": preserve_audit_events},
-                result="failure",
+                result=result,
             )
         )

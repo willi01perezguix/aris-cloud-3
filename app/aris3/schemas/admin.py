@@ -156,7 +156,12 @@ class StorePurgeRequest(BaseModel):
 
 
 class StorePurgeCounts(BaseModel):
+    transfer_movements: int
+    transfer_lines: int
     users: int
+    user_permission_overrides: int
+    sale_lines: int
+    payments: int
     transfers: int
     sales: int
     returns: int

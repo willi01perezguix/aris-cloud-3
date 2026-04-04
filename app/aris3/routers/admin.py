@@ -476,7 +476,12 @@ def _tenant_purge_counts_payload(counts: dict[str, int]) -> TenantPurgeCounts:
 
 def _store_purge_counts_payload(counts: dict[str, int]) -> StorePurgeCounts:
     return StorePurgeCounts(
+        transfer_movements=counts.get("transfer_movements", 0),
+        transfer_lines=counts.get("transfer_lines", 0),
         users=counts.get("users", 0),
+        user_permission_overrides=counts.get("user_permission_overrides", 0),
+        sale_lines=counts.get("sale_lines", 0),
+        payments=counts.get("payments", 0),
         transfers=counts.get("transfers", 0),
         sales=counts.get("sales", 0),
         returns=counts.get("returns", 0),

@@ -323,8 +323,22 @@ class TenantPurgeService:
 
     def _store_counts(self, *, store_id: str) -> dict[str, int]:
         transfer_filter = or_(Transfer.origin_store_id == store_id, Transfer.destination_store_id == store_id)
+        transfer_ids_subq = select(Transfer.id).where(transfer_filter)
+        sale_ids_subq = select(PosSale.id).where(PosSale.store_id == store_id)
+        user_ids_subq = select(User.id).where(User.store_id == store_id)
         return {
+            "transfer_movements": int(
+                self.db.execute(select(func.count()).select_from(TransferMovement).where(TransferMovement.transfer_id.in_(transfer_ids_subq))).scalar_one() or 0
+            ),
+            "transfer_lines": int(
+                self.db.execute(select(func.count()).select_from(TransferLine).where(TransferLine.transfer_id.in_(transfer_ids_subq))).scalar_one() or 0
+            ),
+            "sale_lines": int(self.db.execute(select(func.count()).select_from(PosSaleLine).where(PosSaleLine.sale_id.in_(sale_ids_subq))).scalar_one() or 0),
+            "payments": int(self.db.execute(select(func.count()).select_from(PosPayment).where(PosPayment.sale_id.in_(sale_ids_subq))).scalar_one() or 0),
             "users": int(self.db.execute(select(func.count()).select_from(User).where(User.store_id == store_id)).scalar_one() or 0),
+            "user_permission_overrides": int(
+                self.db.execute(select(func.count()).select_from(UserPermissionOverride).where(UserPermissionOverride.user_id.in_(user_ids_subq))).scalar_one() or 0
+            ),
             "transfers": int(self.db.execute(select(func.count()).select_from(Transfer).where(transfer_filter)).scalar_one() or 0),
             "sales": int(self.db.execute(select(func.count()).select_from(PosSale).where(PosSale.store_id == store_id)).scalar_one() or 0),
             "returns": int(self.db.execute(select(func.count()).select_from(PosReturnEvent).where(PosReturnEvent.store_id == store_id)).scalar_one() or 0),
@@ -344,36 +358,32 @@ class TenantPurgeService:
             self.db.execute(select(Transfer.id).where(or_(Transfer.origin_store_id == store_id, Transfer.destination_store_id == store_id))).scalars().all()
         )
         if transfer_ids:
-            self.db.execute(delete(TransferMovement).where(TransferMovement.transfer_id.in_(transfer_ids)))
-            self.db.execute(delete(TransferLine).where(TransferLine.transfer_id.in_(transfer_ids)))
+            deleted_counts["transfer_movements"] = int(
+                self.db.execute(delete(TransferMovement).where(TransferMovement.transfer_id.in_(transfer_ids))).rowcount or 0
+            )
+            deleted_counts["transfer_lines"] = int(self.db.execute(delete(TransferLine).where(TransferLine.transfer_id.in_(transfer_ids))).rowcount or 0)
             deleted_counts["transfers"] = int(self.db.execute(delete(Transfer).where(Transfer.id.in_(transfer_ids))).rowcount or 0)
 
         sale_ids = list(self.db.execute(select(PosSale.id).where(PosSale.store_id == store_id)).scalars().all())
         if sale_ids:
-            self.db.execute(delete(PosSaleLine).where(PosSaleLine.sale_id.in_(sale_ids)))
-            self.db.execute(delete(PosPayment).where(PosPayment.sale_id.in_(sale_ids)))
+            deleted_counts["payments"] = int(self.db.execute(delete(PosPayment).where(PosPayment.sale_id.in_(sale_ids))).rowcount or 0)
+            deleted_counts["sale_lines"] = int(self.db.execute(delete(PosSaleLine).where(PosSaleLine.sale_id.in_(sale_ids))).rowcount or 0)
 
         deleted_counts["returns"] = int(self.db.execute(delete(PosReturnEvent).where(PosReturnEvent.store_id == store_id)).rowcount or 0)
         deleted_counts["sales"] = int(self.db.execute(delete(PosSale).where(PosSale.store_id == store_id)).rowcount or 0)
+        deleted_counts["cash_day_closes"] = int(self.db.execute(delete(PosCashDayClose).where(PosCashDayClose.store_id == store_id)).rowcount or 0)
         deleted_counts["cash_movements"] = int(self.db.execute(delete(PosCashMovement).where(PosCashMovement.store_id == store_id)).rowcount or 0)
         deleted_counts["cash_sessions"] = int(self.db.execute(delete(PosCashSession).where(PosCashSession.store_id == store_id)).rowcount or 0)
-        deleted_counts["cash_day_closes"] = int(self.db.execute(delete(PosCashDayClose).where(PosCashDayClose.store_id == store_id)).rowcount or 0)
         deleted_counts["exports"] = int(self.db.execute(delete(ExportRecord).where(ExportRecord.store_id == store_id)).rowcount or 0)
         deleted_counts["store_role_policies"] = int(self.db.execute(delete(StoreRolePolicy).where(StoreRolePolicy.store_id == store_id)).rowcount or 0)
         deleted_counts["stock_items"] = int(self.db.execute(delete(StockItem).where(StockItem.store_id == store_id)).rowcount or 0)
 
         user_ids = list(self.db.execute(select(User.id).where(User.store_id == store_id)).scalars().all())
         if user_ids:
-            for actor_col in (
-                Transfer.created_by_user_id,
-                Transfer.updated_by_user_id,
-                Transfer.dispatched_by_user_id,
-                Transfer.canceled_by_user_id,
-            ):
-                self.db.execute(
-                    Transfer.__table__.update().where(actor_col.in_(user_ids)).values({actor_col.key: None})
-                )
-            self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id.in_(user_ids)))
+            self._nullify_transfer_actor_refs_for_users(user_ids=user_ids)
+            deleted_counts["user_permission_overrides"] = int(
+                self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id.in_(user_ids))).rowcount or 0
+            )
             deleted_counts["users"] = int(self.db.execute(delete(User).where(User.id.in_(user_ids))).rowcount or 0)
 
         if not preserve_audit_events:
@@ -404,18 +414,11 @@ class TenantPurgeService:
 
     def _delete_user_in_order(self, *, user_id: str, preserve_audit_events: bool) -> dict[str, int]:
         deleted_counts = {k: 0 for k in self._user_counts(user_id=user_id).keys()}
-        deleted_counts["transfers_as_creator"] = int(
-            self.db.execute(Transfer.__table__.update().where(Transfer.created_by_user_id == user_id).values(created_by_user_id=None)).rowcount or 0
-        )
-        deleted_counts["transfers_as_editor"] = int(
-            self.db.execute(Transfer.__table__.update().where(Transfer.updated_by_user_id == user_id).values(updated_by_user_id=None)).rowcount or 0
-        )
-        deleted_counts["transfers_as_dispatcher"] = int(
-            self.db.execute(Transfer.__table__.update().where(Transfer.dispatched_by_user_id == user_id).values(dispatched_by_user_id=None)).rowcount or 0
-        )
-        deleted_counts["transfers_as_canceler"] = int(
-            self.db.execute(Transfer.__table__.update().where(Transfer.canceled_by_user_id == user_id).values(canceled_by_user_id=None)).rowcount or 0
-        )
+        actor_updates = self._nullify_transfer_actor_refs_for_users(user_ids=[user_id])
+        deleted_counts["transfers_as_creator"] = actor_updates["transfers_as_creator"]
+        deleted_counts["transfers_as_editor"] = actor_updates["transfers_as_editor"]
+        deleted_counts["transfers_as_dispatcher"] = actor_updates["transfers_as_dispatcher"]
+        deleted_counts["transfers_as_canceler"] = actor_updates["transfers_as_canceler"]
         deleted_counts["user_permission_overrides"] = int(
             self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id == user_id)).rowcount or 0
         )
@@ -435,6 +438,29 @@ class TenantPurgeService:
         deleted_counts["users"] = int(self.db.execute(delete(User).where(User.id == user_id)).rowcount or 0)
         self.db.commit()
         return deleted_counts
+
+    def _nullify_transfer_actor_refs_for_users(self, *, user_ids: list[str]) -> dict[str, int]:
+        if not user_ids:
+            return {
+                "transfers_as_creator": 0,
+                "transfers_as_editor": 0,
+                "transfers_as_dispatcher": 0,
+                "transfers_as_canceler": 0,
+            }
+        return {
+            "transfers_as_creator": int(
+                self.db.execute(Transfer.__table__.update().where(Transfer.created_by_user_id.in_(user_ids)).values(created_by_user_id=None)).rowcount or 0
+            ),
+            "transfers_as_editor": int(
+                self.db.execute(Transfer.__table__.update().where(Transfer.updated_by_user_id.in_(user_ids)).values(updated_by_user_id=None)).rowcount or 0
+            ),
+            "transfers_as_dispatcher": int(
+                self.db.execute(Transfer.__table__.update().where(Transfer.dispatched_by_user_id.in_(user_ids)).values(dispatched_by_user_id=None)).rowcount or 0
+            ),
+            "transfers_as_canceler": int(
+                self.db.execute(Transfer.__table__.update().where(Transfer.canceled_by_user_id.in_(user_ids)).values(canceled_by_user_id=None)).rowcount or 0
+            ),
+        }
 
     # Backward compatible hook for existing tests.
     def _delete_in_order(self, *, tenant_id: str, preserve_audit_events: bool) -> dict[str, int]:

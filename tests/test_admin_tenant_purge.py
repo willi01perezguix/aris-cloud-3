@@ -363,6 +363,11 @@ def test_store_purge_dry_run_reports_counts(client, db_session):
     body = response.json()
     assert body["status"] == "DRY_RUN"
     assert body["would_delete_counts"]["stores"] == 1
+    assert body["would_delete_counts"]["transfer_movements"] >= 1
+    assert body["would_delete_counts"]["transfer_lines"] >= 1
+    assert body["would_delete_counts"]["sale_lines"] >= 1
+    assert body["would_delete_counts"]["payments"] >= 1
+    assert body["would_delete_counts"]["user_permission_overrides"] >= 0
     assert body["would_delete_counts"]["transfers"] >= 1
     assert body["deleted_counts"] is None
 
@@ -426,8 +431,35 @@ def test_store_purge_real_delete_works_with_historical_terminal_data(client, db_
     response = _store_purge_request(client, token, store_id, "store-real-1", dry_run=False)
     assert response.status_code == 200
     assert response.json()["status"] == "COMPLETED"
+    assert response.json()["deleted_counts"]["transfer_movements"] >= 1
+    assert response.json()["deleted_counts"]["transfer_lines"] >= 1
+    assert response.json()["deleted_counts"]["sale_lines"] >= 1
+    assert response.json()["deleted_counts"]["payments"] >= 1
     db_session.expire_all()
     assert db_session.get(Store, store_id) is None
+
+
+def test_store_purge_preserve_audit_events_true_keeps_store_audit_history(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="store-audit")
+    db_session.add(
+        AuditEvent(
+            tenant_id=tenant.id,
+            store_id=store.id,
+            actor="seed",
+            action="manual.store.audit",
+            entity="store",
+            entity_type="store",
+            entity_id=str(store.id),
+            result="success",
+        )
+    )
+    db_session.commit()
+    response = _store_purge_request(client, token, str(store.id), "store-audit-keep-1", dry_run=False, preserve_audit_events=True)
+    assert response.status_code == 200
+    remaining = db_session.query(AuditEvent).filter(AuditEvent.store_id == store.id).all()
+    assert any(ev.action == "manual.store.audit" for ev in remaining)
 
 
 def test_user_purge_real_delete_nullifies_transfer_actor_refs(client, db_session):

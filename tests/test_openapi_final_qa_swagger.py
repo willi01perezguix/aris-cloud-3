@@ -250,3 +250,31 @@ def test_error_code_guidance_documents_canonical_and_compatibility_vocab():
     assert "FORBIDDEN" in description
     assert "NOT_FOUND" in description
     assert "BUSINESS_CONFLICT" in description
+
+
+def test_admin_stores_list_query_tenant_id_is_explicitly_deprecated_alias():
+    get_operation = app.openapi()["paths"]["/aris3/admin/stores"]["get"]
+    params = {param["name"]: param for param in get_operation.get("parameters", [])}
+
+    assert "query_tenant_id" in params
+    legacy_param = params["query_tenant_id"]
+    assert legacy_param.get("deprecated") is True
+    assert "Deprecated alias for tenant_id" in (legacy_param.get("description") or "")
+
+
+def test_ready_openapi_documents_503_database_unavailable_contract():
+    get_operation = app.openapi()["paths"]["/ready"]["get"]
+    response_503 = get_operation["responses"]["503"]
+    schema = _response_schema(response_503)
+
+    assert "Dependency unavailable" in (response_503.get("description") or "")
+    assert schema == {"$ref": "#/components/schemas/ApiErrorResponse"}
+
+
+def test_variant_fields_endpoint_is_persona_labeled_as_admin_internal_surface():
+    paths = app.openapi()["paths"]
+    get_operation = paths["/aris3/admin/settings/variant-fields"]["get"]
+    patch_operation = paths["/aris3/admin/settings/variant-fields"]["patch"]
+
+    assert "Administrative/internal settings endpoint" in (get_operation.get("description") or "")
+    assert "Administrative/internal settings endpoint" in (patch_operation.get("description") or "")

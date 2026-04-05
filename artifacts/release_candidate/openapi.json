@@ -98,8 +98,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "OAuth2 token helper (compatibility)",
-        "description": "Compatibility endpoint for OAuth2 Password tooling (for example Swagger Authorize). Use canonical `POST /aris3/auth/login` for product/client integrations.",
+        "summary": "OAuth2 token helper (Swagger/tooling compatibility)",
+        "description": "Compatibility endpoint for OAuth2 Password Flow tooling (for example Swagger Authorize). Use canonical `POST /aris3/auth/login` for product/client integrations.",
         "operationId": "post_aris3_auth_token",
         "responses": {
           "200": {
@@ -184,7 +184,7 @@
           "auth"
         ],
         "summary": "Change password",
-        "description": "Canonical authenticated password change endpoint.",
+        "description": "Canonical authenticated password change endpoint (`PATCH /aris3/auth/change-password`).",
         "operationId": "patch_aris3_auth_change-password",
         "requestBody": {
           "content": {
@@ -6655,10 +6655,10 @@
                 "discriminator": {
                   "propertyName": "action",
                   "mapping": {
-                    "CHECKOUT": "#/components/schemas/CheckoutSaleActionRequest",
                     "CANCEL": "#/components/schemas/CancelSaleActionRequest",
-                    "REFUND_ITEMS": "#/components/schemas/RefundItemsSaleActionRequest",
-                    "EXCHANGE_ITEMS": "#/components/schemas/ExchangeItemsSaleActionRequest"
+                    "CHECKOUT": "#/components/schemas/CheckoutSaleActionRequest",
+                    "EXCHANGE_ITEMS": "#/components/schemas/ExchangeItemsSaleActionRequest",
+                    "REFUND_ITEMS": "#/components/schemas/RefundItemsSaleActionRequest"
                   }
                 },
                 "title": "Payload"
@@ -8080,10 +8080,10 @@
                 "discriminator": {
                   "propertyName": "action",
                   "mapping": {
-                    "OPEN": "#/components/schemas/OpenCashSessionRequest",
                     "CASH_IN": "#/components/schemas/CashInRequest",
                     "CASH_OUT": "#/components/schemas/CashOutRequest",
-                    "CLOSE": "#/components/schemas/CloseCashSessionRequest"
+                    "CLOSE": "#/components/schemas/CloseCashSessionRequest",
+                    "OPEN": "#/components/schemas/OpenCashSessionRequest"
                   }
                 }
               }

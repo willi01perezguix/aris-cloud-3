@@ -34,15 +34,15 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
         "description": "Canonical authentication endpoint for product/API clients using JSON payloads.",
     },
     ("/aris3/auth/token", "post"): {
-        "summary": "OAuth2 token helper (compatibility)",
+        "summary": "OAuth2 token helper (Swagger/tooling compatibility)",
         "description": (
-            "Compatibility endpoint for OAuth2 Password tooling (for example Swagger Authorize). "
+            "Compatibility endpoint for OAuth2 Password Flow tooling (for example Swagger Authorize). "
             "Use canonical `POST /aris3/auth/login` for product/client integrations."
         ),
     },
     ("/aris3/auth/change-password", "patch"): {
         "summary": "Change password",
-        "description": "Canonical authenticated password change endpoint.",
+        "description": "Canonical authenticated password change endpoint (`PATCH /aris3/auth/change-password`).",
     },
     ("/aris3/auth/change-password", "post"): {
         "summary": "Change password (deprecated alias)",
@@ -818,6 +818,7 @@ def _normalize_admin_user_actions_request_schema(schema: dict) -> None:
 
 def _normalize_pos_action_discriminators(schema: dict) -> None:
     paths = schema.get("paths", {})
+    components = schema.get("components", {}).get("schemas", {})
     action_paths = (
         ("/aris3/pos/sales/{sale_id}/actions", "post"),
         ("/aris3/pos/returns/{return_id}/actions", "post"),
@@ -835,10 +836,25 @@ def _normalize_pos_action_discriminators(schema: dict) -> None:
         mapping = discriminator.get("mapping")
         if not isinstance(mapping, dict):
             continue
-        normalized_mapping = {
-            key: value for key, value in mapping.items() if isinstance(key, str) and key.upper() == key
-        }
-        discriminator["mapping"] = normalized_mapping
+
+        normalized_mapping: dict[str, str] = {}
+        for action, ref in mapping.items():
+            if not isinstance(action, str):
+                raise ValueError(f"Invalid discriminator action key for {method.upper()} {path}: {action}")
+            canonical_action = action.upper()
+            if not isinstance(ref, str) or not ref.startswith("#/components/schemas/"):
+                raise ValueError(f"Invalid discriminator mapping ref for {method.upper()} {path}: {ref}")
+            schema_name = ref.rsplit("/", 1)[-1]
+            if schema_name not in components:
+                raise ValueError(f"Missing discriminator schema `{schema_name}` for {method.upper()} {path}")
+            existing_ref = normalized_mapping.get(canonical_action)
+            if existing_ref and existing_ref != ref:
+                raise ValueError(
+                    f"Conflicting discriminator refs for action `{canonical_action}` on {method.upper()} {path}"
+                )
+            normalized_mapping[canonical_action] = ref
+
+        discriminator["mapping"] = {key: normalized_mapping[key] for key in sorted(normalized_mapping)}
 
 
 def harden_openapi_schema(app: FastAPI):

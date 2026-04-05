@@ -66,3 +66,25 @@ def test_action_request_schemas_for_sales_transfers_returns_and_cash_are_resolva
 def test_release_artifact_is_semantically_valid():
     artifact = json.loads(Path("artifacts/release_candidate/openapi.json").read_text(encoding="utf-8"))
     assert_semantically_valid_openapi(artifact)
+
+
+def test_action_discriminator_mappings_resolve_local_components_for_pos_actions():
+    spec = create_app().openapi()
+    components = spec["components"]["schemas"]
+
+    action_operations = [
+        ("/aris3/pos/sales/{sale_id}/actions", "post"),
+        ("/aris3/pos/returns/{return_id}/actions", "post"),
+        ("/aris3/pos/cash/session/actions", "post"),
+    ]
+
+    for path, method in action_operations:
+        body_schema = spec["paths"][path][method]["requestBody"]["content"]["application/json"]["schema"]
+        discriminator = body_schema.get("discriminator") or {}
+        mapping = discriminator.get("mapping") or {}
+        assert mapping, f"{method.upper()} {path} discriminator mapping should not be empty"
+        for action, ref in mapping.items():
+            assert action.upper() == action
+            assert ref.startswith("#/components/schemas/")
+            schema_name = ref.rsplit("/", 1)[-1]
+            assert schema_name in components

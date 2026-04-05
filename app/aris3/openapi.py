@@ -196,9 +196,17 @@ _ERROR_PROPS = {
 _ERROR_CODE_DESCRIPTION = (
     "Machine-readable error code. Canonical vocabulary for new clients: "
     "`INVALID_TOKEN`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`. "
+    "OpenAPI examples and shared schemas use canonical values for consistency. "
     "Compatibility aliases may still appear in legacy/public POS responses "
     "(`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_CONFLICT`)."
 )
+
+_ERROR_CODE_CANONICAL_ALIASES = {
+    "UNAUTHORIZED": "INVALID_TOKEN",
+    "FORBIDDEN": "PERMISSION_DENIED",
+    "NOT_FOUND": "RESOURCE_NOT_FOUND",
+    "BUSINESS_CONFLICT": "CONFLICT",
+}
 
 ERROR_RESPONSE_SCHEMAS = {
     "ApiError": {
@@ -771,6 +779,37 @@ def _set_endpoint_error_examples(schema: dict) -> None:
         media["example"] = example
 
 
+def _canonicalize_error_examples(schema: dict) -> None:
+    for path_item in schema.get("paths", {}).values():
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            for response in operation.get("responses", {}).values():
+                if not isinstance(response, dict):
+                    continue
+                app_json = response.get("content", {}).get("application/json")
+                if not isinstance(app_json, dict):
+                    continue
+                example = app_json.get("example")
+                if isinstance(example, dict):
+                    code = example.get("code")
+                    if isinstance(code, str) and code in _ERROR_CODE_CANONICAL_ALIASES:
+                        example["code"] = _ERROR_CODE_CANONICAL_ALIASES[code]
+
+                examples = app_json.get("examples")
+                if not isinstance(examples, dict):
+                    continue
+                for value in examples.values():
+                    if not isinstance(value, dict):
+                        continue
+                    payload = value.get("value")
+                    if not isinstance(payload, dict):
+                        continue
+                    code = payload.get("code")
+                    if isinstance(code, str) and code in _ERROR_CODE_CANONICAL_ALIASES:
+                        payload["code"] = _ERROR_CODE_CANONICAL_ALIASES[code]
+
+
 def _normalize_admin_user_actions_request_schema(schema: dict) -> None:
     operation = schema.get("paths", {}).get("/aris3/admin/users/{user_id}/actions", {}).get("post", {})
     body_schema = (
@@ -902,6 +941,7 @@ def harden_openapi_schema(app: FastAPI):
     _prune_public_legacy_contract(schema)
     _enforce_public_request_contracts(schema)
     _set_endpoint_error_examples(schema)
+    _canonicalize_error_examples(schema)
     _normalize_admin_user_actions_request_schema(schema)
     _normalize_pos_action_discriminators(schema)
 

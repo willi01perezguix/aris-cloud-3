@@ -56,8 +56,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "Login (JSON)",
-        "description": "Login for JSON clients (UI/admin/scripts) using email or username_or_email.",
+        "summary": "Login",
+        "description": "Canonical authentication endpoint for product/API clients using JSON payloads.",
         "operationId": "post_aris3_auth_login",
         "requestBody": {
           "content": {
@@ -98,8 +98,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "OAuth2 Token (Swagger/Auth)",
-        "description": "Compatibility endpoint for OAuth2 Password Flow tools (for example Swagger Authorize). Product/API clients should prefer POST `/aris3/auth/login` for the canonical JSON contract.",
+        "summary": "OAuth2 token helper (compatibility)",
+        "description": "Compatibility endpoint for OAuth2 Password tooling (for example Swagger Authorize). Use canonical `POST /aris3/auth/login` for product/client integrations.",
         "operationId": "post_aris3_auth_token",
         "responses": {
           "200": {
@@ -111,8 +111,19 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/aris3/auth/change-password": {
@@ -120,8 +131,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "Change Password (Deprecated Alias)",
-        "description": "Deprecated alias; use PATCH /change-password.",
+        "summary": "Change password (deprecated alias)",
+        "description": "Deprecated compatibility alias; use canonical `PATCH /aris3/auth/change-password`.",
         "operationId": "post_aris3_auth_change-password",
         "requestBody": {
           "content": {
@@ -172,8 +183,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "Change Password (Authenticated User)",
-        "description": "Canonical endpoint for authenticated password changes.",
+        "summary": "Change password",
+        "description": "Canonical authenticated password change endpoint.",
         "operationId": "patch_aris3_auth_change-password",
         "requestBody": {
           "content": {
@@ -1954,7 +1965,7 @@
             "$ref": "#/components/responses/ForbiddenError"
           }
         },
-        "description": "Deletes a tenant after dependency safeguards are validated."
+        "description": "Safe delete: blocks when dependencies exist. Use `POST /aris3/admin/tenants/{tenant_id}/purge` for destructive cleanup."
       }
     },
     "/aris3/admin/tenants/{tenant_id}/purge": {
@@ -2758,7 +2769,7 @@
             "$ref": "#/components/responses/ForbiddenError"
           }
         },
-        "description": "Deletes a store after dependency safeguards are validated."
+        "description": "Safe delete: blocks when dependencies exist. Use `POST /aris3/admin/stores/{store_id}/purge` for destructive cleanup."
       }
     },
     "/aris3/admin/stores/{store_id}/purge": {
@@ -3532,7 +3543,7 @@
             "$ref": "#/components/responses/ForbiddenError"
           }
         },
-        "description": "Deletes a user after dependency safeguards are validated."
+        "description": "Safe delete: blocks when dependencies exist. Use `POST /aris3/admin/users/{user_id}/purge` for destructive cleanup."
       }
     },
     "/aris3/admin/users/{user_id}/purge": {
@@ -4648,9 +4659,11 @@
                   "type": "null"
                 }
               ],
+              "description": "Deprecated compatibility tenant scope filter; resolve tenant from JWT context when possible.",
               "deprecated": true,
               "title": "Tenant Id"
             },
+            "description": "Deprecated compatibility tenant scope filter; resolve tenant from JWT context when possible.",
             "deprecated": true
           },
           {
@@ -7590,7 +7603,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": null,
                   "trace_id": "trace-returns-quote-401"
@@ -7606,7 +7619,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "Permission denied",
                   "details": {
                     "required_permission": "POS_RETURN_MANAGE"
@@ -7775,7 +7788,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": null,
                   "trace_id": "trace-returns-actions-401"
@@ -7791,7 +7804,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "Permission denied",
                   "details": {
                     "required_permission": "POS_RETURN_MANAGE"
@@ -8343,7 +8356,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": null,
                   "trace_id": "trace-cash-movements-401"
@@ -8359,7 +8372,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "Permission denied",
                   "details": {
                     "required_permission": "POS_CASH_VIEW"
@@ -8451,7 +8464,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": null,
                   "trace_id": "trace-day-close-401"
@@ -8467,7 +8480,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "Permission denied",
                   "details": {
                     "required_permission": "POS_CASH_MANAGE"
@@ -8651,7 +8664,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": null,
                   "trace_id": "trace-day-close-summary-401"
@@ -8667,7 +8680,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "Permission denied",
                   "details": {
                     "required_permission": "POS_CASH_VIEW"
@@ -8784,7 +8797,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": null,
                   "trace_id": "trace-reconciliation-401"
@@ -8800,7 +8813,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "Permission denied",
                   "details": {
                     "required_permission": "POS_CASH_VIEW"
@@ -9736,7 +9749,8 @@
         "tags": [
           "ops"
         ],
-        "summary": "Get Metrics",
+        "summary": "Operations metrics (internal)",
+        "description": "Operational Prometheus metrics endpoint for infrastructure/observability tooling. Not a product workflow endpoint.",
         "operationId": "get_aris3_ops_metrics",
         "responses": {
           "200": {
@@ -17023,11 +17037,13 @@
           "dry_run": {
             "type": "boolean",
             "title": "Dry Run",
+            "description": "If true, computes exact counts but does not delete data.",
             "default": true
           },
           "preserve_audit_events": {
             "type": "boolean",
             "title": "Preserve Audit Events",
+            "description": "If true, purge operational data while preserving audit history.",
             "default": true
           },
           "reason": {
@@ -17041,7 +17057,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reason"
+            "title": "Reason",
+            "description": "Optional operator reason for audit/context."
           }
         },
         "type": "object",
@@ -17064,7 +17081,8 @@
           },
           "dry_run": {
             "type": "boolean",
-            "title": "Dry Run"
+            "title": "Dry Run",
+            "description": "Echoes request mode: true for preview-only dry run, false for destructive execution."
           },
           "status": {
             "type": "string",
@@ -17083,7 +17101,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Returned for dry runs with projected deletion counts."
           },
           "deleted_counts": {
             "anyOf": [
@@ -17093,15 +17112,18 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Returned for real purge executions with actual deletion counts."
           },
           "preserve_audit_events": {
             "type": "boolean",
-            "title": "Preserve Audit Events"
+            "title": "Preserve Audit Events",
+            "description": "Echoes whether audit history was preserved."
           },
           "trace_id": {
             "type": "string",
-            "title": "Trace Id"
+            "title": "Trace Id",
+            "description": "Trace identifier for logs/support correlation."
           }
         },
         "type": "object",
@@ -17488,7 +17510,8 @@
           },
           "dry_run": {
             "type": "boolean",
-            "title": "Dry Run"
+            "title": "Dry Run",
+            "description": "Echoes request mode: true for preview-only dry run, false for destructive execution."
           },
           "status": {
             "type": "string",
@@ -17507,7 +17530,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Returned for dry runs with projected deletion counts."
           },
           "deleted_counts": {
             "anyOf": [
@@ -17517,15 +17541,18 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Returned for real purge executions with actual deletion counts."
           },
           "preserve_audit_events": {
             "type": "boolean",
-            "title": "Preserve Audit Events"
+            "title": "Preserve Audit Events",
+            "description": "Echoes whether audit history was preserved."
           },
           "trace_id": {
             "type": "string",
-            "title": "Trace Id"
+            "title": "Trace Id",
+            "description": "Trace identifier for logs/support correlation."
           }
         },
         "type": "object",
@@ -19084,11 +19111,13 @@
           "dry_run": {
             "type": "boolean",
             "title": "Dry Run",
+            "description": "If true, computes exact counts but does not delete data.",
             "default": true
           },
           "preserve_audit_events": {
             "type": "boolean",
             "title": "Preserve Audit Events",
+            "description": "If true, purge operational data while preserving audit history.",
             "default": true
           },
           "reason": {
@@ -19102,7 +19131,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reason"
+            "title": "Reason",
+            "description": "Optional operator reason for audit/context."
           }
         },
         "type": "object",
@@ -19125,7 +19155,8 @@
           },
           "dry_run": {
             "type": "boolean",
-            "title": "Dry Run"
+            "title": "Dry Run",
+            "description": "Echoes request mode: true for preview-only dry run, false for destructive execution."
           },
           "status": {
             "type": "string",
@@ -19144,7 +19175,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Returned for dry runs with projected deletion counts."
           },
           "deleted_counts": {
             "anyOf": [
@@ -19154,15 +19186,18 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Returned for real purge executions with actual deletion counts."
           },
           "preserve_audit_events": {
             "type": "boolean",
-            "title": "Preserve Audit Events"
+            "title": "Preserve Audit Events",
+            "description": "Echoes whether audit history was preserved."
           },
           "trace_id": {
             "type": "string",
-            "title": "Trace Id"
+            "title": "Trace Id",
+            "description": "Trace identifier for logs/support correlation."
           }
         },
         "type": "object",

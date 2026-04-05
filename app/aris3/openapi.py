@@ -29,6 +29,25 @@ _STATUS_CANONICAL_DESCRIPTION = (
 
 
 _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
+    ("/aris3/auth/login", "post"): {
+        "summary": "Login",
+        "description": "Canonical authentication endpoint for product/API clients using JSON payloads.",
+    },
+    ("/aris3/auth/token", "post"): {
+        "summary": "OAuth2 token helper (compatibility)",
+        "description": (
+            "Compatibility endpoint for OAuth2 Password tooling (for example Swagger Authorize). "
+            "Use canonical `POST /aris3/auth/login` for product/client integrations."
+        ),
+    },
+    ("/aris3/auth/change-password", "patch"): {
+        "summary": "Change password",
+        "description": "Canonical authenticated password change endpoint.",
+    },
+    ("/aris3/auth/change-password", "post"): {
+        "summary": "Change password (deprecated alias)",
+        "description": "Deprecated compatibility alias; use canonical `PATCH /aris3/auth/change-password`.",
+    },
     ("/aris3/admin/tenants", "get"): {
         "summary": "List tenants",
         "description": "Lists tenants with optional filters and pagination for platform administration.",
@@ -68,7 +87,7 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     },
     ("/aris3/admin/stores/{store_id}", "delete"): {
         "summary": "Delete store",
-        "description": "Deletes a store after dependency safeguards are validated.",
+        "description": "Safe delete: blocks when dependencies exist. Use `POST /aris3/admin/stores/{store_id}/purge` for destructive cleanup.",
     },
     ("/aris3/admin/users", "get"): {
         "summary": "List users",
@@ -92,11 +111,11 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     },
     ("/aris3/admin/users/{user_id}", "delete"): {
         "summary": "Delete user",
-        "description": "Deletes a user after dependency safeguards are validated.",
+        "description": "Safe delete: blocks when dependencies exist. Use `POST /aris3/admin/users/{user_id}/purge` for destructive cleanup.",
     },
     ("/aris3/admin/tenants/{tenant_id}", "delete"): {
         "summary": "Delete tenant",
-        "description": "Deletes a tenant after dependency safeguards are validated.",
+        "description": "Safe delete: blocks when dependencies exist. Use `POST /aris3/admin/tenants/{tenant_id}/purge` for destructive cleanup.",
     },
     ("/aris3/admin/settings/return-policy", "get"): {
         "summary": "Get return policy settings",
@@ -322,6 +341,7 @@ PUBLIC_ENDPOINTS_WITHOUT_AUTH_ERRORS = {
 AUTH_ENDPOINTS_WITH_VALIDATION = {
     "/aris3/auth/login",
     "/aris3/auth/change-password",
+    "/aris3/auth/token",
 }
 
 
@@ -695,31 +715,31 @@ def _set_endpoint_error_examples(schema: dict) -> None:
             "details": {"reason": "sale state is not return-eligible"},
             "trace_id": "trace-returns-eligibility-409",
         },
-        ("/aris3/pos/returns/quote", "post", "401"): {"code": "UNAUTHORIZED", "message": "Authentication required", "details": None, "trace_id": "trace-returns-quote-401"},
-        ("/aris3/pos/returns/quote", "post", "403"): {"code": "FORBIDDEN", "message": "Permission denied", "details": {"required_permission": "POS_RETURN_MANAGE"}, "trace_id": "trace-returns-quote-403"},
+        ("/aris3/pos/returns/quote", "post", "401"): {"code": "INVALID_TOKEN", "message": "Authentication required", "details": None, "trace_id": "trace-returns-quote-401"},
+        ("/aris3/pos/returns/quote", "post", "403"): {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": {"required_permission": "POS_RETURN_MANAGE"}, "trace_id": "trace-returns-quote-403"},
         ("/aris3/pos/returns/quote", "post", "404"): {"code": "RESOURCE_NOT_FOUND", "message": "Resource not found", "details": {"resource": "sale"}, "trace_id": "trace-returns-quote-404"},
         ("/aris3/pos/returns/quote", "post", "409"): {"code": "BUSINESS_CONFLICT", "message": "Quote cannot be computed", "details": {"reason": "business rule conflict"}, "trace_id": "trace-returns-quote-409"},
-        ("/aris3/pos/returns/{return_id}/actions", "post", "401"): {"code": "UNAUTHORIZED", "message": "Authentication required", "details": None, "trace_id": "trace-returns-actions-401"},
-        ("/aris3/pos/returns/{return_id}/actions", "post", "403"): {"code": "FORBIDDEN", "message": "Permission denied", "details": {"required_permission": "POS_RETURN_MANAGE"}, "trace_id": "trace-returns-actions-403"},
+        ("/aris3/pos/returns/{return_id}/actions", "post", "401"): {"code": "INVALID_TOKEN", "message": "Authentication required", "details": None, "trace_id": "trace-returns-actions-401"},
+        ("/aris3/pos/returns/{return_id}/actions", "post", "403"): {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": {"required_permission": "POS_RETURN_MANAGE"}, "trace_id": "trace-returns-actions-403"},
         ("/aris3/pos/returns/{return_id}/actions", "post", "404"): {"code": "RESOURCE_NOT_FOUND", "message": "Return not found", "details": {"resource": "return"}, "trace_id": "trace-returns-actions-404"},
         ("/aris3/pos/returns/{return_id}/actions", "post", "409"): {"code": "BUSINESS_CONFLICT", "message": "Action cannot be executed for current return state", "details": {"reason": "state transition not allowed"}, "trace_id": "trace-returns-actions-409"},
         ("/aris3/pos/returns/{return_id}", "get", "422"): {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "return_id", "message": "Invalid identifier format", "type": "value_error"}]}, "trace_id": "trace-returns-detail-422"},
         ("/aris3/pos/cash/session/current", "get", "409"): {"code": "BUSINESS_CONFLICT", "message": "Current cash session cannot be resolved", "details": {"reason": "multiple open sessions detected"}, "trace_id": "trace-cash-current-409"},
         ("/aris3/pos/cash/session/current", "get", "422"): {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "store_id", "message": "store_id is required for this role", "type": "value_error"}]}, "trace_id": "trace-cash-current-422"},
-        ("/aris3/pos/cash/movements", "get", "401"): {"code": "UNAUTHORIZED", "message": "Authentication required", "details": None, "trace_id": "trace-cash-movements-401"},
-        ("/aris3/pos/cash/movements", "get", "403"): {"code": "FORBIDDEN", "message": "Permission denied", "details": {"required_permission": "POS_CASH_VIEW"}, "trace_id": "trace-cash-movements-403"},
+        ("/aris3/pos/cash/movements", "get", "401"): {"code": "INVALID_TOKEN", "message": "Authentication required", "details": None, "trace_id": "trace-cash-movements-401"},
+        ("/aris3/pos/cash/movements", "get", "403"): {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": {"required_permission": "POS_CASH_VIEW"}, "trace_id": "trace-cash-movements-403"},
         ("/aris3/pos/cash/movements", "get", "409"): {"code": "BUSINESS_CONFLICT", "message": "Movements cannot be listed for current context", "details": {"reason": "cash day close in progress"}, "trace_id": "trace-cash-movements-409"},
         ("/aris3/pos/cash/movements", "get", "422"): {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "business_date_from", "message": "business_date_from must be <= business_date_to", "type": "value_error"}]}, "trace_id": "trace-cash-movements-422"},
-        ("/aris3/pos/cash/day-close/actions", "post", "401"): {"code": "UNAUTHORIZED", "message": "Authentication required", "details": None, "trace_id": "trace-day-close-401"},
-        ("/aris3/pos/cash/day-close/actions", "post", "403"): {"code": "FORBIDDEN", "message": "Permission denied", "details": {"required_permission": "POS_CASH_MANAGE"}, "trace_id": "trace-day-close-403"},
+        ("/aris3/pos/cash/day-close/actions", "post", "401"): {"code": "INVALID_TOKEN", "message": "Authentication required", "details": None, "trace_id": "trace-day-close-401"},
+        ("/aris3/pos/cash/day-close/actions", "post", "403"): {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": {"required_permission": "POS_CASH_MANAGE"}, "trace_id": "trace-day-close-403"},
         ("/aris3/pos/cash/day-close/actions", "post", "404"): {"code": "RESOURCE_NOT_FOUND", "message": "Resource not found", "details": {"resource": "cash_session"}, "trace_id": "trace-day-close-404"},
         ("/aris3/pos/cash/day-close/actions", "post", "409"): {"code": "BUSINESS_CONFLICT", "message": "Day close cannot be executed", "details": {"reason": "cash session is still open"}, "trace_id": "trace-day-close-409"},
-        ("/aris3/pos/cash/day-close/summary", "get", "401"): {"code": "UNAUTHORIZED", "message": "Authentication required", "details": None, "trace_id": "trace-day-close-summary-401"},
-        ("/aris3/pos/cash/day-close/summary", "get", "403"): {"code": "FORBIDDEN", "message": "Permission denied", "details": {"required_permission": "POS_CASH_VIEW"}, "trace_id": "trace-day-close-summary-403"},
+        ("/aris3/pos/cash/day-close/summary", "get", "401"): {"code": "INVALID_TOKEN", "message": "Authentication required", "details": None, "trace_id": "trace-day-close-summary-401"},
+        ("/aris3/pos/cash/day-close/summary", "get", "403"): {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": {"required_permission": "POS_CASH_VIEW"}, "trace_id": "trace-day-close-summary-403"},
         ("/aris3/pos/cash/day-close/summary", "get", "409"): {"code": "BUSINESS_CONFLICT", "message": "Summary cannot be generated", "details": {"reason": "day close in inconsistent state"}, "trace_id": "trace-day-close-summary-409"},
         ("/aris3/pos/cash/day-close/summary", "get", "422"): {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "business_date_from", "message": "business_date_from must be <= business_date_to", "type": "value_error"}]}, "trace_id": "trace-day-close-summary-422"},
-        ("/aris3/pos/cash/reconciliation/breakdown", "get", "401"): {"code": "UNAUTHORIZED", "message": "Authentication required", "details": None, "trace_id": "trace-reconciliation-401"},
-        ("/aris3/pos/cash/reconciliation/breakdown", "get", "403"): {"code": "FORBIDDEN", "message": "Permission denied", "details": {"required_permission": "POS_CASH_VIEW"}, "trace_id": "trace-reconciliation-403"},
+        ("/aris3/pos/cash/reconciliation/breakdown", "get", "401"): {"code": "INVALID_TOKEN", "message": "Authentication required", "details": None, "trace_id": "trace-reconciliation-401"},
+        ("/aris3/pos/cash/reconciliation/breakdown", "get", "403"): {"code": "PERMISSION_DENIED", "message": "Permission denied", "details": {"required_permission": "POS_CASH_VIEW"}, "trace_id": "trace-reconciliation-403"},
         ("/aris3/pos/cash/reconciliation/breakdown", "get", "404"): {"code": "RESOURCE_NOT_FOUND", "message": "Day close not found", "details": {"resource": "day_close"}, "trace_id": "trace-reconciliation-404"},
         ("/aris3/pos/cash/reconciliation/breakdown", "get", "409"): {"code": "BUSINESS_CONFLICT", "message": "Reconciliation cannot be computed", "details": {"reason": "cash session still open"}, "trace_id": "trace-reconciliation-409"},
         ("/aris3/pos/sales/{sale_id}/actions", "post", "409"): {

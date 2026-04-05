@@ -785,7 +785,7 @@ def list_transfers(
     status: str | None = Query(default=None),
     origin_store_id: str | None = Query(default=None),
     destination_store_id: str | None = Query(default=None),
-    tenant_id: str | None = Query(default=None, deprecated=True),
+    tenant_id: str | None = Query(default=None, deprecated=True, description="Deprecated compatibility tenant scope filter; resolve tenant from JWT context when possible."),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     sort_by: str = Query(default="created_at"),

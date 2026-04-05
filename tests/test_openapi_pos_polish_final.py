@@ -22,7 +22,13 @@ def test_pos_action_endpoints_expose_discriminators_in_openapi():
     cash_actions = paths["/aris3/pos/cash/session/actions"]["post"]["requestBody"]["content"]["application/json"]["schema"]
 
     assert sales_actions["discriminator"]["propertyName"] == "action"
-    assert sales_actions["discriminator"]["mapping"].keys() == {"CHECKOUT", "CANCEL"}
+    assert sales_actions["discriminator"]["mapping"].keys() == {
+        "CHECKOUT",
+        "CANCEL",
+        "REFUND_ITEMS",
+        "EXCHANGE_ITEMS",
+    }
+    assert "$ref" not in sales_actions
     assert returns_actions["discriminator"]["propertyName"] == "action"
     assert cash_actions["discriminator"]["propertyName"] == "action"
 

@@ -7,6 +7,7 @@ from app.aris3.core.config import settings
 from app.aris3.core.error_catalog import ErrorCatalog
 from app.aris3.core.errors import error_response
 from app.aris3.db.session import get_db
+from app.aris3.schemas.errors import ApiErrorResponse
 from app.aris3.schemas.health import ServiceHealthResponse
 
 router = APIRouter()
@@ -28,7 +29,17 @@ async def health(request: Request):
     return _health_payload(request, readiness="live")
 
 
-@router.get("/ready", response_model=ServiceHealthResponse, summary="Readiness probe")
+@router.get(
+    "/ready",
+    response_model=ServiceHealthResponse,
+    summary="Readiness probe",
+    responses={
+        503: {
+            "description": "Dependency unavailable (database readiness check failed).",
+            "model": ApiErrorResponse,
+        }
+    },
+)
 async def ready(request: Request, db=Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))

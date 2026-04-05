@@ -10,7 +10,7 @@ class ApiErrorResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "code": "RESOURCE_CONFLICT",
+                "code": "CONFLICT",
                 "message": "Operation could not be completed",
                 "details": {"reason": "business rule violation"},
                 "trace_id": "trace-generic-001",

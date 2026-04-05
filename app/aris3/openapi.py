@@ -163,13 +163,24 @@ _ERROR_PROPS = {
     "trace_id": {"type": "string", "example": "trace-123"},
 }
 
+_ERROR_CODE_DESCRIPTION = (
+    "Machine-readable error code. Canonical vocabulary for new clients: "
+    "`INVALID_TOKEN`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`. "
+    "Compatibility aliases may still appear in legacy/public POS responses "
+    "(`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_CONFLICT`)."
+)
+
 ERROR_RESPONSE_SCHEMAS = {
     "ApiError": {
         "type": "object",
         "required": ["code", "message", "details", "trace_id"],
         "properties": {
             **_ERROR_PROPS,
-            "code": {"type": "string", "example": "RESOURCE_NOT_FOUND"},
+            "code": {
+                "type": "string",
+                "description": _ERROR_CODE_DESCRIPTION,
+                "example": "RESOURCE_NOT_FOUND",
+            },
             "message": {"type": "string", "example": "Resource not found"},
         },
     },
@@ -796,11 +807,30 @@ def _normalize_pos_action_discriminators(schema: dict) -> None:
         normalized_mapping = {
             key: value for key, value in mapping.items() if isinstance(key, str) and key.upper() == key
         }
-        if path == "/aris3/pos/sales/{sale_id}/actions":
-            normalized_mapping = {
-                key: value for key, value in normalized_mapping.items() if key in {"CHECKOUT", "CANCEL"}
-            }
         discriminator["mapping"] = normalized_mapping
+
+
+def _remove_broken_request_body_refs(schema: dict) -> None:
+    for path_item in schema.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            body_schema = (
+                operation.get("requestBody", {})
+                .get("content", {})
+                .get("application/json", {})
+                .get("schema", {})
+            )
+            if not isinstance(body_schema, dict):
+                continue
+            ref = body_schema.get("$ref")
+            if not (isinstance(ref, str) and ref.startswith("#/components/schemas/")):
+                continue
+            schema_name = ref.rsplit("/", 1)[-1]
+            if schema_name not in schema.get("components", {}).get("schemas", {}):
+                body_schema.pop("$ref", None)
 
 
 def harden_openapi_schema(app: FastAPI):
@@ -850,6 +880,7 @@ def harden_openapi_schema(app: FastAPI):
     _set_endpoint_error_examples(schema)
     _normalize_admin_user_actions_request_schema(schema)
     _normalize_pos_action_discriminators(schema)
+    _remove_broken_request_body_refs(schema)
 
     generated_schemas = schema.get("components", {}).get("schemas", {})
     generated_schemas.pop("HTTPValidationError", None)

@@ -37,6 +37,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Dependency unavailable (database readiness check failed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -89,7 +99,7 @@
           "auth"
         ],
         "summary": "OAuth2 Token (Swagger/Auth)",
-        "description": "OAuth2 Password Flow endpoint for Swagger Authorize using form-data username/password.",
+        "description": "Compatibility endpoint for OAuth2 Password Flow tools (for example Swagger Authorize). Product/API clients should prefer POST `/aris3/auth/login` for the canonical JSON contract.",
         "operationId": "post_aris3_auth_token",
         "responses": {
           "200": {
@@ -2961,9 +2971,11 @@
                 }
               ],
               "description": "Deprecated compatibility filter derived from status (ACTIVE=true, others=false).",
+              "deprecated": true,
               "title": "Is Active"
             },
-            "description": "Deprecated compatibility filter derived from status (ACTIVE=true, others=false)."
+            "description": "Deprecated compatibility filter derived from status (ACTIVE=true, others=false).",
+            "deprecated": true
           },
           {
             "name": "search",
@@ -6630,11 +6642,12 @@
                   "propertyName": "action",
                   "mapping": {
                     "CHECKOUT": "#/components/schemas/CheckoutSaleActionRequest",
-                    "CANCEL": "#/components/schemas/CancelSaleActionRequest"
+                    "CANCEL": "#/components/schemas/CancelSaleActionRequest",
+                    "REFUND_ITEMS": "#/components/schemas/RefundItemsSaleActionRequest",
+                    "EXCHANGE_ITEMS": "#/components/schemas/ExchangeItemsSaleActionRequest"
                   }
                 },
-                "title": "Payload",
-                "$ref": "#/components/schemas/PosSaleActionRequest"
+                "title": "Payload"
               },
               "examples": {
                 "checkout": {
@@ -9781,7 +9794,7 @@
         ],
         "title": "AdminDeleteConflictResponse",
         "example": {
-          "code": "RESOURCE_CONFLICT",
+          "code": "CONFLICT",
           "details": {
             "reason": "business rule violation"
           },
@@ -9863,7 +9876,7 @@
         ],
         "title": "AdminErrorResponse",
         "example": {
-          "code": "RESOURCE_CONFLICT",
+          "code": "CONFLICT",
           "details": {
             "reason": "business rule violation"
           },
@@ -9970,7 +9983,7 @@
         ],
         "title": "ApiErrorResponse",
         "example": {
-          "code": "RESOURCE_CONFLICT",
+          "code": "CONFLICT",
           "details": {
             "reason": "business rule violation"
           },
@@ -19449,6 +19462,7 @@
         "properties": {
           "code": {
             "type": "string",
+            "description": "Machine-readable error code. Canonical vocabulary for new clients: `INVALID_TOKEN`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`. Compatibility aliases may still appear in legacy/public POS responses (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_CONFLICT`).",
             "example": "RESOURCE_NOT_FOUND"
           },
           "message": {

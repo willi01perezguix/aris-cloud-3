@@ -9,3 +9,7 @@ def test_release_candidate_openapi_artifact_matches_runtime_contract():
     artifact_path = Path("artifacts/release_candidate/openapi.json")
     artifact_spec = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert artifact_spec == runtime_spec
+
+
+def test_non_canonical_pruned_openapi_file_is_not_present():
+    assert not Path("docs/openapi-pruned.json").exists()

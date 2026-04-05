@@ -166,3 +166,12 @@ def test_openapi_stores_docs_and_change_password_deprecation_and_health_ready_co
     ready_schema = schema["paths"]["/ready"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert health_schema["$ref"].endswith("ServiceHealthResponse")
     assert ready_schema["$ref"].endswith("ServiceHealthResponse")
+    ready_503 = schema["paths"]["/ready"]["get"]["responses"]["503"]["content"]["application/json"]["schema"]
+    assert ready_503["$ref"].endswith("ApiErrorResponse")
+
+    users_get = schema["paths"]["/aris3/admin/users"]["get"]
+    users_params = {entry["name"]: entry for entry in users_get["parameters"]}
+    assert users_params["is_active"]["deprecated"] is True
+
+    token_post = schema["paths"]["/aris3/auth/token"]["post"]
+    assert "Compatibility endpoint" in (token_post.get("description") or "")

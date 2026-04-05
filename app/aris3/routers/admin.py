@@ -1629,6 +1629,7 @@ async def purge_tenant(
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         return response
     except AppError as exc:
+        db.rollback()
         error_response = {
             "code": exc.error.code,
             "message": exc.error.message,
@@ -1638,6 +1639,7 @@ async def purge_tenant(
         context.record_failure(status_code=exc.error.status_code, response_body=error_response)
         raise
     except Exception as exc:
+        db.rollback()
         error_response = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,
@@ -2130,10 +2132,12 @@ async def purge_store(
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         return response
     except AppError as exc:
+        db.rollback()
         error_response = {"code": exc.error.code, "message": exc.error.message, "details": exc.details, "trace_id": getattr(request.state, "trace_id", "")}
         context.record_failure(status_code=exc.error.status_code, response_body=error_response)
         raise
     except Exception as exc:
+        db.rollback()
         error_response = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,
@@ -2629,10 +2633,12 @@ async def purge_user(
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         return response
     except AppError as exc:
+        db.rollback()
         error_response = {"code": exc.error.code, "message": exc.error.message, "details": exc.details, "trace_id": getattr(request.state, "trace_id", "")}
         context.record_failure(status_code=exc.error.status_code, response_body=error_response)
         raise
     except Exception as exc:
+        db.rollback()
         error_response = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,

@@ -190,8 +190,10 @@ class TenantPurgeService:
         count_fn,
         delete_fn,
     ) -> PurgeResult:
-        lock = self._acquire_lock(resource=resource, resource_id=resource_id, trace_id=trace_id)
         would_delete_counts = count_fn()
+        lock: PurgeLock | None = None
+        if not dry_run:
+            lock = self._acquire_lock(resource=resource, resource_id=resource_id, trace_id=trace_id)
         try:
             self._audit_event(
                 action=f"admin.{resource}.purge.started",
@@ -254,7 +256,8 @@ class TenantPurgeService:
             )
             raise
         finally:
-            self._release_lock(lock)
+            if lock is not None:
+                self._release_lock(lock)
 
     def _acquire_lock(self, *, resource: str, resource_id: str, trace_id: str | None) -> PurgeLock:
         lock = PurgeLock(resource_type=resource, resource_id=resource_id, trace_id=trace_id)

@@ -114,11 +114,12 @@ async def login(request: Request, payload: LoginRequest, db=Depends(get_db)):
 @router.post(
     "/token",
     response_model=OAuth2TokenResponse,
-    summary="OAuth2 Token (Swagger/Auth)",
+    summary="OAuth2 Token Helper (Deprecated for product clients)",
     description=(
-        "Compatibility endpoint for OAuth2 Password Flow tools (for example Swagger Authorize). "
-        "Product/API clients should prefer POST `/aris3/auth/login` for the canonical JSON contract."
+        "Compatibility endpoint for OAuth2 Password Flow tooling (for example Swagger Authorize). "
+        "Product/API clients should use canonical POST `/aris3/auth/login` (JSON contract) instead."
     ),
+    deprecated=True,
 )
 async def oauth2_token(
     request: Request,
@@ -145,7 +146,7 @@ async def oauth2_token(
     response_model=ChangePasswordResponse,
     deprecated=True,
     summary="Change Password (Deprecated Alias)",
-    description="Deprecated alias; use PATCH /change-password.",
+    description="Deprecated compatibility alias; use canonical PATCH /change-password.",
 )
 async def change_password(
     request: Request,

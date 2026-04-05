@@ -174,4 +174,7 @@ def test_openapi_stores_docs_and_change_password_deprecation_and_health_ready_co
     assert users_params["is_active"]["deprecated"] is True
 
     token_post = schema["paths"]["/aris3/auth/token"]["post"]
-    assert "Compatibility endpoint" in (token_post.get("description") or "")
+    assert token_post.get("deprecated") is True
+    token_description = token_post.get("description") or ""
+    assert "Compatibility endpoint" in token_description
+    assert "POST /aris3/auth/login" in token_description

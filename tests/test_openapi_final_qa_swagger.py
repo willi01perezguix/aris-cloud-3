@@ -193,3 +193,50 @@ def test_admin_error_response_shapes_expose_uniform_envelope_for_404_409_422():
     for component_name in ["NotFoundErrorResponse", "ConflictErrorResponse", "ValidationError"]:
         properties = openapi["components"]["schemas"][component_name]["properties"]
         assert {"code", "message", "details", "trace_id"}.issubset(properties.keys())
+
+
+def test_auth_token_and_change_password_docs_clarify_canonical_contract():
+    paths = app.openapi()["paths"]
+
+    login_post = paths["/aris3/auth/login"]["post"]
+    token_post = paths["/aris3/auth/token"]["post"]
+    patch_change_password = paths["/aris3/auth/change-password"]["patch"]
+    post_change_password = paths["/aris3/auth/change-password"]["post"]
+
+    assert "Canonical authentication endpoint" in (login_post.get("description") or "")
+    assert token_post.get("deprecated") is True
+    assert "compatibility" in (token_post.get("summary") or "").lower()
+    assert "POST /aris3/auth/login" in (token_post.get("description") or "")
+    assert post_change_password.get("deprecated") is True
+    assert patch_change_password.get("deprecated") is not True
+
+
+def test_transfers_tenant_id_query_param_is_deprecated_with_clear_guidance():
+    get_operation = app.openapi()["paths"]["/aris3/transfers"]["get"]
+    params = {param["name"]: param for param in get_operation.get("parameters", [])}
+
+    assert "tenant_id" in params
+    assert params["tenant_id"].get("deprecated") is True
+    assert "Deprecated compatibility tenant scope filter" in (params["tenant_id"].get("description") or "")
+
+
+def test_ops_metrics_endpoint_is_documented_as_internal_operations_surface():
+    get_operation = app.openapi()["paths"]["/aris3/ops/metrics"]["get"]
+    assert "internal" in (get_operation.get("summary") or "").lower()
+    assert "Not a product workflow endpoint" in (get_operation.get("description") or "")
+
+
+def test_error_code_guidance_documents_canonical_and_compatibility_vocab():
+    code_schema = app.openapi()["components"]["schemas"]["ApiError"]["properties"]["code"]
+    description = code_schema.get("description") or ""
+
+    assert "INVALID_TOKEN" in description
+    assert "PERMISSION_DENIED" in description
+    assert "RESOURCE_NOT_FOUND" in description
+    assert "CONFLICT" in description
+    assert "VALIDATION_ERROR" in description
+    assert "Compatibility aliases" in description
+    assert "UNAUTHORIZED" in description
+    assert "FORBIDDEN" in description
+    assert "NOT_FOUND" in description
+    assert "BUSINESS_CONFLICT" in description

@@ -140,19 +140,19 @@ class TenantPurgeCounts(BaseModel):
 class TenantPurgeResponse(BaseModel):
     resource: Literal["tenant"] = "tenant"
     resource_id: str
-    dry_run: bool
+    dry_run: bool = Field(description="Echoes request mode: true for preview-only dry run, false for destructive execution.")
     status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
-    would_delete_counts: TenantPurgeCounts | None = None
-    deleted_counts: TenantPurgeCounts | None = None
-    preserve_audit_events: bool
-    trace_id: str
+    would_delete_counts: TenantPurgeCounts | None = Field(default=None, description="Returned for dry runs with projected deletion counts.")
+    deleted_counts: TenantPurgeCounts | None = Field(default=None, description="Returned for real purge executions with actual deletion counts.")
+    preserve_audit_events: bool = Field(description="Echoes whether audit history was preserved.")
+    trace_id: str = Field(description="Trace identifier for logs/support correlation.")
 
 
 class StorePurgeRequest(BaseModel):
     confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `PURGE <store_id>`.")
-    dry_run: bool = Field(default=True)
-    preserve_audit_events: bool = Field(default=True)
-    reason: str | None = Field(default=None, min_length=1, max_length=500)
+    dry_run: bool = Field(default=True, description="If true, computes exact counts but does not delete data.")
+    preserve_audit_events: bool = Field(default=True, description="If true, purge operational data while preserving audit history.")
+    reason: str | None = Field(default=None, min_length=1, max_length=500, description="Optional operator reason for audit/context.")
 
 
 class StorePurgeCounts(BaseModel):
@@ -177,19 +177,19 @@ class StorePurgeCounts(BaseModel):
 class StorePurgeResponse(BaseModel):
     resource: Literal["store"] = "store"
     resource_id: str
-    dry_run: bool
+    dry_run: bool = Field(description="Echoes request mode: true for preview-only dry run, false for destructive execution.")
     status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
-    would_delete_counts: StorePurgeCounts | None = None
-    deleted_counts: StorePurgeCounts | None = None
-    preserve_audit_events: bool
-    trace_id: str
+    would_delete_counts: StorePurgeCounts | None = Field(default=None, description="Returned for dry runs with projected deletion counts.")
+    deleted_counts: StorePurgeCounts | None = Field(default=None, description="Returned for real purge executions with actual deletion counts.")
+    preserve_audit_events: bool = Field(description="Echoes whether audit history was preserved.")
+    trace_id: str = Field(description="Trace identifier for logs/support correlation.")
 
 
 class UserPurgeRequest(BaseModel):
     confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `PURGE <user_id>`.")
-    dry_run: bool = Field(default=True)
-    preserve_audit_events: bool = Field(default=True)
-    reason: str | None = Field(default=None, min_length=1, max_length=500)
+    dry_run: bool = Field(default=True, description="If true, computes exact counts but does not delete data.")
+    preserve_audit_events: bool = Field(default=True, description="If true, purge operational data while preserving audit history.")
+    reason: str | None = Field(default=None, min_length=1, max_length=500, description="Optional operator reason for audit/context.")
 
 
 class UserPurgeCounts(BaseModel):
@@ -204,12 +204,12 @@ class UserPurgeCounts(BaseModel):
 class UserPurgeResponse(BaseModel):
     resource: Literal["user"] = "user"
     resource_id: str
-    dry_run: bool
+    dry_run: bool = Field(description="Echoes request mode: true for preview-only dry run, false for destructive execution.")
     status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
-    would_delete_counts: UserPurgeCounts | None = None
-    deleted_counts: UserPurgeCounts | None = None
-    preserve_audit_events: bool
-    trace_id: str
+    would_delete_counts: UserPurgeCounts | None = Field(default=None, description="Returned for dry runs with projected deletion counts.")
+    deleted_counts: UserPurgeCounts | None = Field(default=None, description="Returned for real purge executions with actual deletion counts.")
+    preserve_audit_events: bool = Field(description="Echoes whether audit history was preserved.")
+    trace_id: str = Field(description="Trace identifier for logs/support correlation.")
 
 
 class UserCreateRequest(BaseModel):

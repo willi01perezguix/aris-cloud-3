@@ -36,6 +36,33 @@ def test_sales_actions_request_body_is_resolvable_and_swagger_safe():
     }
 
 
+def test_action_request_schemas_for_sales_transfers_returns_and_cash_are_resolvable():
+    spec = create_app().openapi()
+    action_operations = [
+        ("/aris3/pos/sales/{sale_id}/actions", "post"),
+        ("/aris3/transfers/{transfer_id}/actions", "post"),
+        ("/aris3/pos/returns/{return_id}/actions", "post"),
+        ("/aris3/pos/cash/session/actions", "post"),
+        ("/aris3/pos/cash/day-close/actions", "post"),
+    ]
+
+    for path, method in action_operations:
+        body_schema = spec["paths"][path][method]["requestBody"]["content"]["application/json"]["schema"]
+        body_ref = body_schema.get("$ref")
+        if body_ref:
+            assert body_ref.startswith("#/components/schemas/"), f"{method.upper()} {path} request body has non-local $ref"
+            schema_name = body_ref.rsplit("/", 1)[-1]
+            assert schema_name in spec["components"]["schemas"], f"{method.upper()} {path} request body points to missing schema `{schema_name}`"
+            resolved = spec["components"]["schemas"][schema_name]
+            has_union = bool(resolved.get("oneOf"))
+            has_action_discriminator = isinstance(resolved.get("properties", {}).get("action"), dict)
+            assert has_union or has_action_discriminator, (
+                f"{method.upper()} {path} request body must keep action-specific contract"
+            )
+            continue
+        assert body_schema.get("oneOf"), f"{method.upper()} {path} request body must keep action-discriminated contract"
+
+
 def test_release_artifact_is_semantically_valid():
     artifact = json.loads(Path("artifacts/release_candidate/openapi.json").read_text(encoding="utf-8"))
     assert_semantically_valid_openapi(artifact)

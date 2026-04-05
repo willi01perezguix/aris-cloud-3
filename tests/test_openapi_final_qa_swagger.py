@@ -226,6 +226,16 @@ def test_ops_metrics_endpoint_is_documented_as_internal_operations_surface():
     assert "Not a product workflow endpoint" in (get_operation.get("description") or "")
 
 
+def test_stock_actions_and_admin_access_control_are_documented_with_admin_operations_persona():
+    openapi = app.openapi()
+    stock_actions = openapi["paths"]["/aris3/stock/actions"]["post"]
+    assert "operations workflow" in (stock_actions.get("summary") or "").lower()
+    assert "Not intended as a generic public catalog" in (stock_actions.get("description") or "")
+
+    acl_effective = openapi["paths"]["/aris3/admin/access-control/effective-permissions"]["get"]
+    assert "Administrative/internal access-control endpoint" in (acl_effective.get("description") or "")
+
+
 def test_error_code_guidance_documents_canonical_and_compatibility_vocab():
     code_schema = app.openapi()["components"]["schemas"]["ApiError"]["properties"]["code"]
     description = code_schema.get("description") or ""

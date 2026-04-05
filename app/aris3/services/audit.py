@@ -62,6 +62,10 @@ class AuditService:
             )
             self.repo.create(event)
         except Exception:
+            try:
+                self.repo.db.rollback()
+            except Exception:
+                logger.exception("Failed to rollback DB session after audit write failure")
             logger.exception(
                 "Failed to write audit event",
                 extra={

@@ -385,6 +385,21 @@ def test_user_purge_dry_run_reports_counts(client, db_session):
     assert body["would_delete_counts"]["transfers_as_creator"] >= 1
 
 
+def test_user_purge_dry_run_does_not_acquire_db_lock(client, db_session, monkeypatch):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="user-dry-no-lock")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+
+    def _forbidden_lock(*args, **kwargs):  # pragma: no cover - defensive sentinel
+        raise AssertionError("dry_run must not acquire purge DB lock")
+
+    monkeypatch.setattr(TenantPurgeService, "_acquire_lock", _forbidden_lock)
+    response = _user_purge_request(client, token, str(user.id), "user-purge-dry-no-lock-1", dry_run=True)
+    assert response.status_code == 200
+    assert response.json()["status"] == "DRY_RUN"
+
+
 def test_store_purge_invalid_confirm_returns_422(client, db_session):
     run_seed(db_session)
     token = _login(client, "superadmin", "change-me")

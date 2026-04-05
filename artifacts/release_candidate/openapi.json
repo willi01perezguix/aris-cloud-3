@@ -398,7 +398,7 @@
           "Admin Access Control"
         ],
         "summary": "Get admin role template",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "get_aris3_admin_access-control_role-templates_role_name",
         "security": [
           {
@@ -450,7 +450,7 @@
           "Admin Access Control"
         ],
         "summary": "Replace admin role template",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "put_aris3_admin_access-control_role-templates_role_name",
         "security": [
           {
@@ -740,7 +740,7 @@
           "Admin Access Control"
         ],
         "summary": "Get tenant role policy overlay",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "get_aris3_admin_access-control_tenant-role-policies_role_name",
         "security": [
           {
@@ -829,7 +829,7 @@
           "Admin Access Control"
         ],
         "summary": "Replace tenant role policy overlay",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "put_aris3_admin_access-control_tenant-role-policies_role_name",
         "security": [
           {
@@ -939,7 +939,7 @@
           "Admin Access Control"
         ],
         "summary": "Get store role policy overlay",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "get_aris3_admin_access-control_store-role-policies_store_id_role_name",
         "security": [
           {
@@ -1019,7 +1019,7 @@
           "Admin Access Control"
         ],
         "summary": "Replace store role policy overlay",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "put_aris3_admin_access-control_store-role-policies_store_id_role_name",
         "security": [
           {
@@ -1138,7 +1138,7 @@
           "Admin Access Control"
         ],
         "summary": "Get user permission overrides (admin)",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "get_aris3_admin_access-control_user-overrides_user_id",
         "security": [
           {
@@ -1227,7 +1227,7 @@
           "Admin Access Control"
         ],
         "summary": "Patch user overrides (admin)",
-        "description": "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
+        "description": "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it.\n\nPermission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.",
         "operationId": "patch_aris3_admin_access-control_user-overrides_user_id",
         "security": [
           {
@@ -1355,7 +1355,7 @@
           "Admin Access Control"
         ],
         "summary": "Resolve effective permissions (admin)",
-        "description": "Admin endpoint for effective permission resolution for a target user.\n\n- Scope defaults to JWT/context when not explicitly provided.\n- Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.\n- Response includes canonical `subject`, resolved `permissions`, `denies_applied`, `sources_trace`, and `trace_id`.",
+        "description": "Administrative/internal access-control endpoint for effective permission resolution for a target user.\n\n- Scope defaults to JWT/context when not explicitly provided.\n- Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.\n- Response includes canonical `subject`, resolved `permissions`, `denies_applied`, `sources_trace`, and `trace_id`.",
         "operationId": "get_aris3_admin_access-control_effective-permissions",
         "security": [
           {
@@ -3971,14 +3971,14 @@
             "$ref": "#/components/responses/ForbiddenError"
           }
         },
-        "description": "Returns current variant-field labels. Tenant admins use JWT/context scope; superadmin must pass `tenant_id` query param."
+        "description": "Administrative/internal settings endpoint for variant-field labels. Tenant admins use JWT/context scope; superadmin must pass `tenant_id` query param."
       },
       "patch": {
         "tags": [
           "Admin Settings"
         ],
         "summary": "Patch variant field labels",
-        "description": "Partially updates variant-field labels; omitted fields remain unchanged. Tenant admins use JWT/context scope; superadmin must pass `tenant_id` query param.",
+        "description": "Administrative/internal settings endpoint that partially updates variant-field labels; omitted fields remain unchanged. Tenant admins use JWT/context scope; superadmin must pass `tenant_id` query param.",
         "operationId": "patch_aris3_admin_settings_variant-fields",
         "security": [
           {
@@ -4537,7 +4537,7 @@
         "tags": [
           "stock"
         ],
-        "summary": "Stock Actions",
+        "summary": "Execute stock action (operations workflow)",
         "operationId": "post_aris3_stock_actions",
         "requestBody": {
           "content": {
@@ -4581,7 +4581,8 @@
           {
             "OAuth2PasswordBearer": []
           }
-        ]
+        ],
+        "description": "Operational stock mutation endpoint for inventory workflows. Not intended as a generic public catalog/product-discovery endpoint."
       }
     },
     "/aris3/transfers": {

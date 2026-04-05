@@ -128,21 +128,32 @@ _ADMIN_DOC_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     ("/aris3/admin/settings/variant-fields", "get"): {
         "summary": "Get variant field labels",
         "description": (
-            "Returns current variant-field labels. Tenant admins use JWT/context scope; "
+            "Administrative/internal settings endpoint for variant-field labels. Tenant admins use JWT/context scope; "
             "superadmin must pass `tenant_id` query param."
         ),
     },
     ("/aris3/admin/settings/variant-fields", "patch"): {
         "summary": "Patch variant field labels",
         "description": (
-            "Partially updates variant-field labels; omitted fields remain unchanged. "
+            "Administrative/internal settings endpoint that partially updates variant-field labels; omitted fields remain unchanged. "
             "Tenant admins use JWT/context scope; superadmin must pass `tenant_id` query param."
         ),
+    },
+    ("/aris3/stock/actions", "post"): {
+        "summary": "Execute stock action (operations workflow)",
+        "description": (
+            "Operational stock mutation endpoint for inventory workflows. "
+            "Not intended as a generic public catalog/product-discovery endpoint."
+        ),
+    },
+    ("/aris3/ops/metrics", "get"): {
+        "summary": "Operations metrics (internal)",
+        "description": "Operational Prometheus metrics endpoint for infrastructure/observability tooling. Not a product workflow endpoint.",
     },
     ("/aris3/admin/access-control/effective-permissions", "get"): {
         "summary": "Resolve effective permissions (admin)",
         "description": (
-            "Admin endpoint for effective permission resolution for a target user.\n\n"
+            "Administrative/internal access-control endpoint for effective permission resolution for a target user.\n\n"
             "- Scope defaults to JWT/context when not explicitly provided.\n"
             "- Permission hierarchy: 1) Role Template, 2) Tenant/Store overlays (allow/deny), 3) User overrides, 4) Effective permissions.\n"
             "- Response includes canonical `subject`, resolved `permissions`, `denies_applied`, `sources_trace`, and `trace_id`."
@@ -385,7 +396,7 @@ def _apply_access_control_descriptions(path: str, method: str, operation: dict) 
 
     if path.startswith("/aris3/admin/access-control"):
         operation["description"] = (
-            "Admin endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it."
+            "Administrative/internal access-control endpoint: tenant/store/user scope is resolved from JWT/context unless explicit path/query/body parameters override it."
             f"\n\n{hierarchy}"
         )
 
@@ -830,29 +841,6 @@ def _normalize_pos_action_discriminators(schema: dict) -> None:
         discriminator["mapping"] = normalized_mapping
 
 
-def _remove_broken_request_body_refs(schema: dict) -> None:
-    for path_item in schema.get("paths", {}).values():
-        if not isinstance(path_item, dict):
-            continue
-        for operation in path_item.values():
-            if not isinstance(operation, dict):
-                continue
-            body_schema = (
-                operation.get("requestBody", {})
-                .get("content", {})
-                .get("application/json", {})
-                .get("schema", {})
-            )
-            if not isinstance(body_schema, dict):
-                continue
-            ref = body_schema.get("$ref")
-            if not (isinstance(ref, str) and ref.startswith("#/components/schemas/")):
-                continue
-            schema_name = ref.rsplit("/", 1)[-1]
-            if schema_name not in schema.get("components", {}).get("schemas", {}):
-                body_schema.pop("$ref", None)
-
-
 def harden_openapi_schema(app: FastAPI):
     if app.openapi_schema:
         return app.openapi_schema
@@ -900,7 +888,6 @@ def harden_openapi_schema(app: FastAPI):
     _set_endpoint_error_examples(schema)
     _normalize_admin_user_actions_request_schema(schema)
     _normalize_pos_action_discriminators(schema)
-    _remove_broken_request_body_refs(schema)
 
     generated_schemas = schema.get("components", {}).get("schemas", {})
     generated_schemas.pop("HTTPValidationError", None)

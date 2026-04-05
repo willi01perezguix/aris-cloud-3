@@ -1105,7 +1105,6 @@ def get_sale(
         "requestBody": {
             "content": {
                 "application/json": {
-                    "schema": {"$ref": "#/components/schemas/PosSaleActionRequest"},
                     "examples": {
                         "checkout": {
                             "summary": "Checkout sale",

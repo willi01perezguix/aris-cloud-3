@@ -4883,7 +4883,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Business conflict",
                   "details": {
                     "message": "epc is not available in origin_store_id",
@@ -5073,7 +5073,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Business conflict",
                   "details": {
                     "message": "epc is not available in origin_store_id",
@@ -5327,7 +5327,7 @@
                 "examples": {
                   "epc_not_available_in_origin_store": {
                     "value": {
-                      "code": "BUSINESS_CONFLICT",
+                      "code": "CONFLICT",
                       "message": "Business conflict",
                       "details": {
                         "message": "epc is not available in origin_store_id",
@@ -5340,7 +5340,7 @@
                   },
                   "draft_stale": {
                     "value": {
-                      "code": "BUSINESS_CONFLICT",
+                      "code": "CONFLICT",
                       "message": "Business conflict",
                       "details": {
                         "message": "stock location changed since draft snapshot",
@@ -5638,7 +5638,7 @@
                 "examples": {
                   "epc_not_available_in_origin_store": {
                     "value": {
-                      "code": "BUSINESS_CONFLICT",
+                      "code": "CONFLICT",
                       "message": "Business conflict",
                       "details": {
                         "message": "epc is not available in origin_store_id",
@@ -5926,7 +5926,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing or invalid bearer token"
@@ -5944,7 +5944,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "store_id": "00000000-0000-0000-0000-000000000099",
@@ -5963,7 +5963,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Idempotency conflict: transaction_id already used with different payload",
                   "details": {
                     "transaction_id": "txn-checkout-1001"
@@ -6106,7 +6106,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing or invalid bearer token"
@@ -6124,7 +6124,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "store_id": "00000000-0000-0000-0000-000000000099",
@@ -6143,7 +6143,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "sale not found",
                   "details": {
                     "sale_id": "00000000-0000-0000-0000-000000009999"
@@ -6163,7 +6163,7 @@
                 "examples": {
                   "draft_state_conflict": {
                     "value": {
-                      "code": "BUSINESS_CONFLICT",
+                      "code": "CONFLICT",
                       "message": "sale must be DRAFT to update",
                       "details": {
                         "sale_id": "00000000-0000-0000-0000-000000000111",
@@ -6174,7 +6174,7 @@
                   },
                   "idempotency_conflict": {
                     "value": {
-                      "code": "BUSINESS_CONFLICT",
+                      "code": "CONFLICT",
                       "message": "Idempotency conflict: transaction_id already used with different payload",
                       "details": {
                         "transaction_id": "txn-checkout-1001"
@@ -6338,7 +6338,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing or invalid bearer token"
@@ -6356,7 +6356,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "store_id": "00000000-0000-0000-0000-000000000099",
@@ -6375,7 +6375,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "sale not found",
                   "details": {
                     "sale_id": "00000000-0000-0000-0000-000000009999"
@@ -6393,7 +6393,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "sale must be DRAFT to update",
                   "details": {
                     "sale_id": "00000000-0000-0000-0000-000000000111",
@@ -6517,7 +6517,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing or invalid bearer token"
@@ -6535,7 +6535,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "store_id": "00000000-0000-0000-0000-000000000099",
@@ -6554,7 +6554,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "sale not found",
                   "details": {
                     "sale_id": "00000000-0000-0000-0000-000000009999"
@@ -6572,7 +6572,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Idempotency conflict: transaction_id already used with different payload",
                   "details": {
                     "transaction_id": "txn-checkout-1001"
@@ -6792,7 +6792,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing or invalid bearer token"
@@ -6810,7 +6810,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "store_id": "00000000-0000-0000-0000-000000000099",
@@ -6829,7 +6829,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "sale not found",
                   "details": {
                     "sale_id": "00000000-0000-0000-0000-000000009999"
@@ -6847,7 +6847,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Cannot checkout CASH payment without an open cash session",
                   "details": {
                     "action": "CHECKOUT",
@@ -7035,7 +7035,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Bearer token is missing or expired"
@@ -7053,7 +7053,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "required_permission": "POS_RETURN_VIEW"
@@ -7071,7 +7071,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Return list cannot be generated for current filters",
                   "details": {
                     "reason": "business rule conflict"
@@ -7189,7 +7189,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Bearer token is missing or expired"
@@ -7207,7 +7207,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "required_permission": "POS_RETURN_VIEW"
@@ -7225,7 +7225,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "return not found",
                   "details": {
                     "return_id": "00000000-0000-0000-0000-000000009999"
@@ -7243,7 +7243,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "return exceeds returnable_qty",
                   "details": {
                     "sale_line_id": "line-001",
@@ -7319,7 +7319,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Bearer token is missing or expired"
@@ -7337,7 +7337,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "required_permission": "POS_RETURN_VIEW"
@@ -7355,7 +7355,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "return not found",
                   "details": {
                     "return_id": "00000000-0000-0000-0000-000000009999"
@@ -7452,7 +7452,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Bearer token is missing or expired"
@@ -7470,7 +7470,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "required_permission": "POS_RETURN_VIEW"
@@ -7488,7 +7488,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "sale not found",
                   "details": {
                     "sale_id": "00000000-0000-0000-0000-000000009999"
@@ -7506,7 +7506,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Eligibility cannot be resolved for the provided sale",
                   "details": {
                     "reason": "sale state is not return-eligible"
@@ -7656,7 +7656,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Quote cannot be computed",
                   "details": {
                     "reason": "business rule conflict"
@@ -7841,7 +7841,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Action cannot be executed for current return state",
                   "details": {
                     "reason": "state transition not allowed"
@@ -7959,7 +7959,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing bearer token"
@@ -7977,7 +7977,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "required_permission": "POS_CASH_MANAGE"
@@ -7995,7 +7995,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "cash session not found",
                   "details": {
                     "cash_session_id": "00000000-0000-0000-0000-000000009999"
@@ -8013,7 +8013,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Current cash session cannot be resolved",
                   "details": {
                     "reason": "multiple open sessions detected"
@@ -8123,7 +8123,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "UNAUTHORIZED",
+                  "code": "INVALID_TOKEN",
                   "message": "Authentication required",
                   "details": {
                     "message": "Missing bearer token"
@@ -8141,7 +8141,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "FORBIDDEN",
+                  "code": "PERMISSION_DENIED",
                   "message": "You do not have access to this store",
                   "details": {
                     "required_permission": "POS_CASH_MANAGE"
@@ -8159,7 +8159,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "NOT_FOUND",
+                  "code": "RESOURCE_NOT_FOUND",
                   "message": "cash session not found",
                   "details": {
                     "cash_session_id": "00000000-0000-0000-0000-000000009999"
@@ -8177,7 +8177,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "cash session already open",
                   "details": {
                     "store_id": "00000000-0000-0000-0000-000000000001"
@@ -8391,7 +8391,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Movements cannot be listed for current context",
                   "details": {
                     "reason": "cash day close in progress"
@@ -8517,7 +8517,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Day close cannot be executed",
                   "details": {
                     "reason": "cash session is still open"
@@ -8699,7 +8699,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Summary cannot be generated",
                   "details": {
                     "reason": "day close in inconsistent state"
@@ -8850,7 +8850,7 @@
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Reconciliation cannot be computed",
                   "details": {
                     "reason": "cash session still open"
@@ -9648,7 +9648,7 @@
                   "$ref": "#/components/schemas/ConflictErrorResponse"
                 },
                 "example": {
-                  "code": "BUSINESS_CONFLICT",
+                  "code": "CONFLICT",
                   "message": "Business conflict",
                   "details": {
                     "message": "export is not ready for download",
@@ -19498,7 +19498,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "Machine-readable error code. Canonical vocabulary for new clients: `INVALID_TOKEN`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`. Compatibility aliases may still appear in legacy/public POS responses (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_CONFLICT`).",
+            "description": "Machine-readable error code. Canonical vocabulary for new clients: `INVALID_TOKEN`, `PERMISSION_DENIED`, `RESOURCE_NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`. OpenAPI examples and shared schemas use canonical values for consistency. Compatibility aliases may still appear in legacy/public POS responses (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_CONFLICT`).",
             "example": "RESOURCE_NOT_FOUND"
           },
           "message": {

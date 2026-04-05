@@ -252,6 +252,21 @@ def test_error_code_guidance_documents_canonical_and_compatibility_vocab():
     assert "BUSINESS_CONFLICT" in description
 
 
+def test_openapi_error_examples_prefer_canonical_codes_across_admin_and_pos():
+    openapi = app.openapi()
+    paths = openapi["paths"]
+
+    admin_not_found = paths["/aris3/admin/tenants/{tenant_id}"]["get"]["responses"]["404"]["content"]["application/json"]["example"]
+    pos_auth = paths["/aris3/pos/returns"]["get"]["responses"]["401"]["content"]["application/json"]["example"]
+    pos_conflict = paths["/aris3/pos/returns"]["get"]["responses"]["409"]["content"]["application/json"]["example"]
+    transfer_validation = paths["/aris3/transfers"]["get"]["responses"]["422"]["content"]["application/json"]["example"]
+
+    assert admin_not_found["code"] == "RESOURCE_NOT_FOUND"
+    assert pos_auth["code"] == "INVALID_TOKEN"
+    assert pos_conflict["code"] == "CONFLICT"
+    assert transfer_validation["code"] == "VALIDATION_ERROR"
+
+
 def test_admin_stores_list_query_tenant_id_is_explicitly_deprecated_alias():
     get_operation = app.openapi()["paths"]["/aris3/admin/stores"]["get"]
     params = {param["name"]: param for param in get_operation.get("parameters", [])}

@@ -195,11 +195,14 @@ class TenantPurgeService:
         delete_fn,
     ) -> PurgeResult:
         actor_snapshot = self._snapshot_actor(actor)
+        execution_step = "count"
         would_delete_counts = count_fn()
         lock: PurgeLock | None = None
         if not dry_run:
+            execution_step = "acquire_lock"
             lock = self._acquire_lock(resource=resource, resource_id=resource_id, trace_id=trace_id)
         try:
+            execution_step = "audit_started"
             self._audit_event(
                 action=f"admin.{resource}.purge.started",
                 tenant_id=tenant_id,
@@ -214,6 +217,7 @@ class TenantPurgeService:
                 result="success",
             )
             if dry_run:
+                execution_step = "audit_completed_dry_run"
                 self._audit_event(
                     action=f"admin.{resource}.purge.completed",
                     tenant_id=tenant_id,
@@ -229,7 +233,9 @@ class TenantPurgeService:
                 )
                 return PurgeResult(dry_run=True, status="DRY_RUN", would_delete_counts=would_delete_counts, deleted_counts=None)
 
+            execution_step = "delete"
             deleted_counts = delete_fn()
+            execution_step = "audit_completed"
             self._audit_event(
                 action=f"admin.{resource}.purge.completed",
                 tenant_id=tenant_id,
@@ -244,7 +250,7 @@ class TenantPurgeService:
                 result="success",
             )
             return PurgeResult(dry_run=False, status="COMPLETED", would_delete_counts=would_delete_counts, deleted_counts=deleted_counts)
-        except Exception:
+        except Exception as exc:
             self.db.rollback()
             logger.exception(
                 "Purge execution failed",
@@ -255,6 +261,8 @@ class TenantPurgeService:
                     "dry_run": dry_run,
                     "preserve_audit_events": preserve_audit_events,
                     "trace_id": trace_id,
+                    "execution_step": execution_step,
+                    "exception_class": exc.__class__.__name__,
                 },
             )
             self._audit_event(
@@ -304,7 +312,7 @@ class TenantPurgeService:
         try:
             self.db.delete(lock)
             self.db.commit()
-        except Exception:
+        except Exception as exc:
             self.db.rollback()
 
     def _tenant_counts(self, *, tenant_id: str) -> dict[str, int]:

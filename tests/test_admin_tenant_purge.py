@@ -584,7 +584,15 @@ def test_user_purge_real_delete_superadmin_purges_other_user_with_transfer_refs(
         preserve_audit_events=True,
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "COMPLETED"
+    payload = response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["dry_run"] is False
+    assert payload["deleted_counts"]["users"] == 1
+    assert payload["deleted_counts"]["user_permission_overrides"] == 1
+    assert payload["deleted_counts"]["transfers_as_creator"] == 1
+    assert payload["deleted_counts"]["transfers_as_dispatcher"] == 1
+    assert payload["deleted_counts"]["transfers_as_canceler"] == 1
+    assert payload["deleted_counts"]["transfers_as_editor"] == 0
 
     db_session.expire_all()
     transfer_after = db_session.get(Transfer, str(transfer.id))

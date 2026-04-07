@@ -1626,6 +1626,7 @@ async def purge_tenant(
             preserve_audit_events=payload.preserve_audit_events,
             trace_id=getattr(request.state, "trace_id", ""),
         )
+        execution_step = "record_success"
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         return response
     except AppError as exc:
@@ -1640,6 +1641,18 @@ async def purge_tenant(
         raise
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "User purge failed with unhandled exception",
+            extra={
+                "trace_id": getattr(request.state, "trace_id", ""),
+                "user_id": user_id,
+                "actor_user_id": str(getattr(current_user, "id", "")) if current_user else None,
+                "dry_run": payload.dry_run,
+                "preserve_audit_events": payload.preserve_audit_events,
+                "execution_step": execution_step,
+                "exception_class": exc.__class__.__name__,
+            },
+        )
         error_response = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,
@@ -2129,6 +2142,7 @@ async def purge_store(
             preserve_audit_events=payload.preserve_audit_events,
             trace_id=getattr(request.state, "trace_id", ""),
         )
+        execution_step = "record_success"
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         return response
     except AppError as exc:
@@ -2138,6 +2152,18 @@ async def purge_store(
         raise
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "User purge failed with unhandled exception",
+            extra={
+                "trace_id": getattr(request.state, "trace_id", ""),
+                "user_id": user_id,
+                "actor_user_id": str(getattr(current_user, "id", "")) if current_user else None,
+                "dry_run": payload.dry_run,
+                "preserve_audit_events": payload.preserve_audit_events,
+                "execution_step": execution_step,
+                "exception_class": exc.__class__.__name__,
+            },
+        )
         error_response = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,
@@ -2611,6 +2637,7 @@ async def purge_user(
             headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
         )
     request.state.idempotency = context
+    execution_step = "execute_user"
     try:
         result = TenantPurgeService(db).execute_user(
             user_id=user_id,
@@ -2620,6 +2647,7 @@ async def purge_user(
             preserve_audit_events=payload.preserve_audit_events,
             trace_id=getattr(request.state, "trace_id", ""),
         )
+        execution_step = "build_response"
         response = UserPurgeResponse(
             resource="user",
             resource_id=user_id,
@@ -2630,6 +2658,7 @@ async def purge_user(
             preserve_audit_events=payload.preserve_audit_events,
             trace_id=getattr(request.state, "trace_id", ""),
         )
+        execution_step = "record_success"
         context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
         return response
     except AppError as exc:
@@ -2639,6 +2668,18 @@ async def purge_user(
         raise
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "User purge failed with unhandled exception",
+            extra={
+                "trace_id": getattr(request.state, "trace_id", ""),
+                "user_id": user_id,
+                "actor_user_id": str(getattr(current_user, "id", "")) if current_user else None,
+                "dry_run": payload.dry_run,
+                "preserve_audit_events": payload.preserve_audit_events,
+                "execution_step": execution_step,
+                "exception_class": exc.__class__.__name__,
+            },
+        )
         error_response = {
             "code": ErrorCatalog.INTERNAL_ERROR.code,
             "message": ErrorCatalog.INTERNAL_ERROR.message,

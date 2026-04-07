@@ -493,6 +493,55 @@ def test_user_purge_real_delete_nullifies_transfer_actor_refs(client, db_session
     assert all(t.created_by_user_id is None for t in transfers)
 
 
+def test_user_purge_real_delete_succeeds_when_superadmin_purges_self(client, db_session):
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant Self Purge")
+    store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store Self Purge")
+    self_admin = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=store.id,
+        username="self-purge-admin",
+        email="self-purge-admin@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="SUPERADMIN",
+        status="ACTIVE",
+        is_active=True,
+        must_change_password=False,
+    )
+    transfer = Transfer(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        origin_store_id=store.id,
+        destination_store_id=store.id,
+        created_by_user_id=self_admin.id,
+        updated_by_user_id=self_admin.id,
+        dispatched_by_user_id=self_admin.id,
+        status="DISPATCHED",
+    )
+    db_session.add_all([tenant, store, self_admin, transfer])
+    db_session.commit()
+
+    self_admin_id = str(self_admin.id)
+    transfer_id = str(transfer.id)
+    token = _login(client, "self-purge-admin", "Pass1234!")
+    response = _user_purge_request(client, token, self_admin_id, "user-self-real-1", dry_run=False, preserve_audit_events=True)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["deleted_counts"]["users"] == 1
+    assert payload["deleted_counts"]["transfers_as_creator"] == 1
+    assert payload["deleted_counts"]["transfers_as_editor"] == 1
+    assert payload["deleted_counts"]["transfers_as_dispatcher"] == 1
+
+    db_session.expire_all()
+    assert db_session.get(User, self_admin_id) is None
+    transfer_after = db_session.get(Transfer, transfer_id)
+    assert transfer_after is not None
+    assert transfer_after.created_by_user_id is None
+    assert transfer_after.updated_by_user_id is None
+    assert transfer_after.dispatched_by_user_id is None
+
+
 def test_purge_response_contains_trace_and_audit_events(client, db_session):
     run_seed(db_session)
     token = _login(client, "superadmin", "change-me")

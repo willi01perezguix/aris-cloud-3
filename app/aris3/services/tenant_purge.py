@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -33,6 +34,8 @@ from app.aris3.db.models import (
     VariantFieldSettings,
 )
 from app.aris3.services.audit import AuditEventPayload, AuditService
+
+logger = logging.getLogger(__name__)
 
 
 TENANT_PURGE_ORDER = (
@@ -190,6 +193,7 @@ class TenantPurgeService:
         count_fn,
         delete_fn,
     ) -> PurgeResult:
+        actor_snapshot = self._snapshot_actor(actor)
         would_delete_counts = count_fn()
         lock: PurgeLock | None = None
         if not dry_run:
@@ -200,7 +204,7 @@ class TenantPurgeService:
                 tenant_id=tenant_id,
                 resource=resource,
                 resource_id=resource_id,
-                actor=actor,
+                actor_snapshot=actor_snapshot,
                 reason=reason,
                 dry_run=dry_run,
                 preserve_audit_events=preserve_audit_events,
@@ -214,7 +218,7 @@ class TenantPurgeService:
                     tenant_id=tenant_id,
                     resource=resource,
                     resource_id=resource_id,
-                    actor=actor,
+                    actor_snapshot=actor_snapshot,
                     reason=reason,
                     dry_run=True,
                     preserve_audit_events=preserve_audit_events,
@@ -230,7 +234,7 @@ class TenantPurgeService:
                 tenant_id=tenant_id,
                 resource=resource,
                 resource_id=resource_id,
-                actor=actor,
+                actor_snapshot=actor_snapshot,
                 reason=reason,
                 dry_run=False,
                 preserve_audit_events=preserve_audit_events,
@@ -241,12 +245,23 @@ class TenantPurgeService:
             return PurgeResult(dry_run=False, status="COMPLETED", would_delete_counts=would_delete_counts, deleted_counts=deleted_counts)
         except Exception:
             self.db.rollback()
+            logger.exception(
+                "Purge execution failed",
+                extra={
+                    "resource": resource,
+                    "resource_id": resource_id,
+                    "tenant_id": tenant_id,
+                    "dry_run": dry_run,
+                    "preserve_audit_events": preserve_audit_events,
+                    "trace_id": trace_id,
+                },
+            )
             self._audit_event(
                 action=f"admin.{resource}.purge.failed",
                 tenant_id=tenant_id,
                 resource=resource,
                 resource_id=resource_id,
-                actor=actor,
+                actor_snapshot=actor_snapshot,
                 reason=reason,
                 dry_run=dry_run,
                 preserve_audit_events=preserve_audit_events,
@@ -258,6 +273,14 @@ class TenantPurgeService:
         finally:
             if lock is not None:
                 self._release_lock(lock)
+
+    def _snapshot_actor(self, actor) -> dict[str, str | None]:
+        return {
+            "id": str(actor.id),
+            "store_id": str(actor.store_id) if actor.store_id else None,
+            "username": actor.username,
+            "role": actor.role,
+        }
 
     def _acquire_lock(self, *, resource: str, resource_id: str, trace_id: str | None) -> PurgeLock:
         lock = PurgeLock(resource_type=resource, resource_id=resource_id, trace_id=trace_id)
@@ -476,7 +499,7 @@ class TenantPurgeService:
         tenant_id: str,
         resource: str,
         resource_id: str,
-        actor,
+        actor_snapshot: dict[str, str | None],
         reason: str | None,
         dry_run: bool,
         preserve_audit_events: bool,
@@ -487,11 +510,11 @@ class TenantPurgeService:
         self.audit.record_event(
             AuditEventPayload(
                 tenant_id=tenant_id,
-                user_id=str(actor.id),
-                store_id=str(actor.store_id) if actor.store_id else None,
+                user_id=actor_snapshot["id"],
+                store_id=actor_snapshot["store_id"],
                 trace_id=trace_id,
-                actor=actor.username,
-                actor_role=actor.role,
+                actor=actor_snapshot["username"] or "unknown",
+                actor_role=actor_snapshot["role"],
                 action=action,
                 entity_type=resource,
                 entity_id=resource_id,

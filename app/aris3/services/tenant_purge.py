@@ -430,30 +430,43 @@ class TenantPurgeService:
         return deleted_counts
 
     def _user_counts(self, *, user_id: str) -> dict[str, int]:
+        normalized_user_id = uuid.UUID(str(user_id))
         return {
-            "user_permission_overrides": int(self.db.execute(select(func.count()).select_from(UserPermissionOverride).where(UserPermissionOverride.user_id == user_id)).scalar_one() or 0),
-            "transfers_as_creator": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.created_by_user_id == user_id)).scalar_one() or 0),
-            "transfers_as_editor": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.updated_by_user_id == user_id)).scalar_one() or 0),
-            "transfers_as_dispatcher": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.dispatched_by_user_id == user_id)).scalar_one() or 0),
-            "transfers_as_canceler": int(self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.canceled_by_user_id == user_id)).scalar_one() or 0),
+            "user_permission_overrides": int(
+                self.db.execute(select(func.count()).select_from(UserPermissionOverride).where(UserPermissionOverride.user_id == normalized_user_id)).scalar_one()
+                or 0
+            ),
+            "transfers_as_creator": int(
+                self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.created_by_user_id == normalized_user_id)).scalar_one() or 0
+            ),
+            "transfers_as_editor": int(
+                self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.updated_by_user_id == normalized_user_id)).scalar_one() or 0
+            ),
+            "transfers_as_dispatcher": int(
+                self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.dispatched_by_user_id == normalized_user_id)).scalar_one() or 0
+            ),
+            "transfers_as_canceler": int(
+                self.db.execute(select(func.count()).select_from(Transfer).where(Transfer.canceled_by_user_id == normalized_user_id)).scalar_one() or 0
+            ),
             "users": 1,
         }
 
     def _delete_user_in_order(self, *, user_id: str, preserve_audit_events: bool) -> dict[str, int]:
+        normalized_user_id = uuid.UUID(str(user_id))
         deleted_counts = {k: 0 for k in self._user_counts(user_id=user_id).keys()}
-        actor_updates = self._nullify_transfer_actor_refs_for_users(user_ids=[user_id])
+        actor_updates = self._nullify_transfer_actor_refs_for_users(user_ids=[str(normalized_user_id)])
         deleted_counts["transfers_as_creator"] = actor_updates["transfers_as_creator"]
         deleted_counts["transfers_as_editor"] = actor_updates["transfers_as_editor"]
         deleted_counts["transfers_as_dispatcher"] = actor_updates["transfers_as_dispatcher"]
         deleted_counts["transfers_as_canceler"] = actor_updates["transfers_as_canceler"]
         deleted_counts["user_permission_overrides"] = int(
-            self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id == user_id)).rowcount or 0
+            self.db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id == normalized_user_id)).rowcount or 0
         )
 
         if not preserve_audit_events:
             self.db.execute(
                 delete(AuditEvent).where(
-                    AuditEvent.user_id == user_id,
+                    AuditEvent.user_id == normalized_user_id,
                     AuditEvent.action.notin_([
                         "admin.user.purge.started",
                         "admin.user.purge.completed",
@@ -462,7 +475,7 @@ class TenantPurgeService:
                 )
             )
 
-        deleted_counts["users"] = int(self.db.execute(delete(User).where(User.id == user_id)).rowcount or 0)
+        deleted_counts["users"] = int(self.db.execute(delete(User).where(User.id == normalized_user_id)).rowcount or 0)
         self.db.commit()
         return deleted_counts
 

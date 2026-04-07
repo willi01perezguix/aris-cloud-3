@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import uuid
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -473,18 +474,33 @@ class TenantPurgeService:
                 "transfers_as_dispatcher": 0,
                 "transfers_as_canceler": 0,
             }
+        normalized_user_ids = [uuid.UUID(str(user_id)) for user_id in user_ids]
         return {
             "transfers_as_creator": int(
-                self.db.execute(Transfer.__table__.update().where(Transfer.created_by_user_id.in_(user_ids)).values(created_by_user_id=None)).rowcount or 0
+                self.db.execute(
+                    Transfer.__table__.update().where(Transfer.created_by_user_id.in_(normalized_user_ids)).values(created_by_user_id=None)
+                ).rowcount
+                or 0
             ),
             "transfers_as_editor": int(
-                self.db.execute(Transfer.__table__.update().where(Transfer.updated_by_user_id.in_(user_ids)).values(updated_by_user_id=None)).rowcount or 0
+                self.db.execute(
+                    Transfer.__table__.update().where(Transfer.updated_by_user_id.in_(normalized_user_ids)).values(updated_by_user_id=None)
+                ).rowcount
+                or 0
             ),
             "transfers_as_dispatcher": int(
-                self.db.execute(Transfer.__table__.update().where(Transfer.dispatched_by_user_id.in_(user_ids)).values(dispatched_by_user_id=None)).rowcount or 0
+                self.db.execute(
+                    Transfer.__table__.update()
+                    .where(Transfer.dispatched_by_user_id.in_(normalized_user_ids))
+                    .values(dispatched_by_user_id=None)
+                ).rowcount
+                or 0
             ),
             "transfers_as_canceler": int(
-                self.db.execute(Transfer.__table__.update().where(Transfer.canceled_by_user_id.in_(user_ids)).values(canceled_by_user_id=None)).rowcount or 0
+                self.db.execute(
+                    Transfer.__table__.update().where(Transfer.canceled_by_user_id.in_(normalized_user_ids)).values(canceled_by_user_id=None)
+                ).rowcount
+                or 0
             ),
         }
 

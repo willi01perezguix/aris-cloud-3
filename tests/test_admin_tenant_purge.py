@@ -354,6 +354,62 @@ def test_tenant_purge_failure_releases_lock_and_allows_retry(client, db_session,
     assert second.json()["status"] == "COMPLETED"
 
 
+def test_store_purge_failure_returns_internal_error_without_nameerror(client, db_session, monkeypatch):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="store-retry")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+
+    def _boom(self, *, store_id: str, preserve_audit_events: bool):
+        raise RuntimeError("simulated store purge failure")
+
+    monkeypatch.setattr(TenantPurgeService, "_delete_store_in_order", _boom)
+
+    response = _store_purge_request(client, token, str(store.id), "store-purge-fail-1", dry_run=False)
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
+
+
+def test_safe_delete_endpoints_do_not_access_deleted_instances(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant Delete Snapshot")
+    store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store Delete Snapshot")
+    user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=store.id,
+        username=f"delete-user-{uuid.uuid4()}",
+        email=f"delete-user-{uuid.uuid4()}@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="USER",
+        status="ACTIVE",
+        is_active=True,
+        must_change_password=False,
+    )
+    db_session.add_all([tenant, store, user])
+    db_session.commit()
+
+    user_delete = client.delete(
+        f"/aris3/admin/users/{user.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "safe-delete-user-snapshot-1"},
+    )
+    assert user_delete.status_code == 200
+
+    store_delete = client.delete(
+        f"/aris3/admin/stores/{store.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "safe-delete-store-snapshot-1"},
+    )
+    assert store_delete.status_code == 200
+
+    tenant_delete = client.delete(
+        f"/aris3/admin/tenants/{tenant.id}",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "safe-delete-tenant-snapshot-1"},
+    )
+    assert tenant_delete.status_code == 200
+
+
 def test_store_purge_dry_run_reports_counts(client, db_session):
     run_seed(db_session)
     token = _login(client, "superadmin", "change-me")

@@ -1375,7 +1375,7 @@ async def create_tenant(
 
     AuditService(db).record_event(
         AuditEventPayload(
-            tenant_id=str(tenant.id),
+            tenant_id=tenant_snapshot["id"],
             user_id=str(current_user.id),
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
@@ -1530,6 +1530,7 @@ async def delete_tenant(
             },
         )
 
+    tenant_snapshot = {"id": str(tenant.id), "name": tenant.name, "status": tenant.status}
     db.delete(tenant)
     db.commit()
 
@@ -1552,7 +1553,7 @@ async def delete_tenant(
             action="admin.tenant.delete",
             entity_type="tenant",
             entity_id=tenant_id,
-            before={"name": tenant.name, "status": tenant.status},
+            before={"name": tenant_snapshot["name"], "status": tenant_snapshot["status"]},
             after=None,
             metadata={"hard_delete": True, "dependencies_checked": True},
             result="success",
@@ -1605,6 +1606,7 @@ async def purge_tenant(
         )
     request.state.idempotency = context
 
+    execution_step = "execute_tenant"
     try:
         result = TenantPurgeService(db).execute_tenant(
             tenant_id=tenant_id,
@@ -1614,6 +1616,7 @@ async def purge_tenant(
             preserve_audit_events=payload.preserve_audit_events,
             trace_id=getattr(request.state, "trace_id", ""),
         )
+        execution_step = "build_response"
         would_counts = _tenant_purge_counts_payload(result.would_delete_counts)
         deleted_counts = _tenant_purge_counts_payload(result.deleted_counts or {})
         response = TenantPurgeResponse(
@@ -1642,10 +1645,10 @@ async def purge_tenant(
     except Exception as exc:
         db.rollback()
         logger.exception(
-            "User purge failed with unhandled exception",
+            "Tenant purge failed with unhandled exception",
             extra={
                 "trace_id": getattr(request.state, "trace_id", ""),
-                "user_id": user_id,
+                "tenant_id": tenant_id,
                 "actor_user_id": str(getattr(current_user, "id", "")) if current_user else None,
                 "dry_run": payload.dry_run,
                 "preserve_audit_events": payload.preserve_audit_events,
@@ -2054,6 +2057,7 @@ async def delete_store(
             },
         )
 
+    store_snapshot = {"tenant_id": str(store.tenant_id), "name": store.name}
     db.delete(store)
     db.commit()
 
@@ -2067,7 +2071,7 @@ async def delete_store(
 
     AuditService(db).record_event(
         AuditEventPayload(
-            tenant_id=str(store.tenant_id),
+            tenant_id=store_snapshot["tenant_id"],
             user_id=str(current_user.id),
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
@@ -2076,7 +2080,7 @@ async def delete_store(
             action="admin.store.delete",
             entity_type="store",
             entity_id=store_id,
-            before={"name": store.name, "tenant_id": str(store.tenant_id)},
+            before={"name": store_snapshot["name"], "tenant_id": store_snapshot["tenant_id"]},
             after=None,
             metadata={"hard_delete": True, "dependencies_checked": True},
             result="success",
@@ -2123,6 +2127,7 @@ async def purge_store(
             headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code},
         )
     request.state.idempotency = context
+    execution_step = "execute_store"
     try:
         result = TenantPurgeService(db).execute_store(
             store_id=store_id,
@@ -2132,6 +2137,7 @@ async def purge_store(
             preserve_audit_events=payload.preserve_audit_events,
             trace_id=getattr(request.state, "trace_id", ""),
         )
+        execution_step = "build_response"
         response = StorePurgeResponse(
             resource="store",
             resource_id=store_id,
@@ -2153,10 +2159,10 @@ async def purge_store(
     except Exception as exc:
         db.rollback()
         logger.exception(
-            "User purge failed with unhandled exception",
+            "Store purge failed with unhandled exception",
             extra={
                 "trace_id": getattr(request.state, "trace_id", ""),
-                "user_id": user_id,
+                "store_id": store_id,
                 "actor_user_id": str(getattr(current_user, "id", "")) if current_user else None,
                 "dry_run": payload.dry_run,
                 "preserve_audit_events": payload.preserve_audit_events,
@@ -2566,6 +2572,7 @@ async def delete_user(
             },
         )
 
+    user_snapshot = {"tenant_id": str(user.tenant_id), "username": user.username, "email": user.email, "role": user.role}
     db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == user_id).delete(synchronize_session=False)
     db.delete(user)
     db.commit()
@@ -2580,7 +2587,7 @@ async def delete_user(
 
     AuditService(db).record_event(
         AuditEventPayload(
-            tenant_id=str(user.tenant_id),
+            tenant_id=user_snapshot["tenant_id"],
             user_id=str(current_user.id),
             store_id=str(current_user.store_id) if current_user.store_id else None,
             trace_id=getattr(request.state, "trace_id", "") or None,
@@ -2589,7 +2596,7 @@ async def delete_user(
             action="admin.user.delete",
             entity_type="user",
             entity_id=user_id,
-            before={"username": user.username, "email": user.email, "role": user.role},
+            before={"username": user_snapshot["username"], "email": user_snapshot["email"], "role": user_snapshot["role"]},
             after=None,
             metadata={"hard_delete": True, "dependencies_checked": ["transfers"]},
             result="success",

@@ -19,6 +19,7 @@ from app.aris3.db.models import (
     TransferLine,
     TransferMovement,
     User,
+    UserPermissionOverride,
 )
 from app.aris3.db.seed import run_seed
 from app.aris3.services.tenant_purge import TenantPurgeService
@@ -540,6 +541,61 @@ def test_user_purge_real_delete_succeeds_when_superadmin_purges_self(client, db_
     assert transfer_after.created_by_user_id is None
     assert transfer_after.updated_by_user_id is None
     assert transfer_after.dispatched_by_user_id is None
+
+
+def test_user_purge_real_delete_superadmin_purges_other_user_with_transfer_refs(client, db_session):
+    run_seed(db_session)
+    superadmin_token = _login(client, "superadmin", "change-me")
+    superadmin_user = db_session.query(User).filter(User.username == "superadmin").one()
+    tenant, store, target_user = _create_tenant_store_user(db_session, suffix="superadmin-purges-other")
+    target_user_id = str(target_user.id)
+    target_user_uuid = target_user.id
+
+    db_session.add(
+        UserPermissionOverride(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            user_id=target_user.id,
+            permission_code="transfers.manage",
+            effect="allow",
+        )
+    )
+
+    transfer = Transfer(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        origin_store_id=store.id,
+        destination_store_id=store.id,
+        created_by_user_id=target_user.id,
+        updated_by_user_id=superadmin_user.id,
+        dispatched_by_user_id=target_user.id,
+        canceled_by_user_id=target_user.id,
+        status="CANCELED",
+    )
+    db_session.add(transfer)
+    db_session.commit()
+
+    response = _user_purge_request(
+        client,
+        superadmin_token,
+        target_user_id,
+        "user-superadmin-purge-other-1",
+        dry_run=False,
+        preserve_audit_events=True,
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETED"
+
+    db_session.expire_all()
+    transfer_after = db_session.get(Transfer, str(transfer.id))
+    assert transfer_after is not None
+    assert transfer_after.created_by_user_id is None
+    assert transfer_after.dispatched_by_user_id is None
+    assert transfer_after.canceled_by_user_id is None
+    assert str(transfer_after.updated_by_user_id) == str(superadmin_user.id)
+    assert db_session.get(User, target_user_id) is None
+    overrides = db_session.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == target_user_uuid).all()
+    assert overrides == []
 
 
 def test_purge_response_contains_trace_and_audit_events(client, db_session):

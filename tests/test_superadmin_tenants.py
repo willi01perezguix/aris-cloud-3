@@ -138,6 +138,44 @@ def test_tenant_mutations_require_idempotency_key(client, db_session):
     assert action_response.json()["code"] == "VALIDATION_ERROR"
 
 
+def test_superadmin_tenant_creation_is_idempotent_replay(client, db_session):
+    run_seed(db_session)
+    token = _login(client, settings.SUPERADMIN_USERNAME, settings.SUPERADMIN_PASSWORD)
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "tenant-create-replay"}
+
+    first = client.post(
+        "/aris3/admin/tenants",
+        headers=headers,
+        json={"name": "Replay Tenant"},
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/aris3/admin/tenants",
+        headers=headers,
+        json={"name": "Replay Tenant"},
+    )
+    assert second.status_code == 201
+    assert second.headers.get("X-Idempotency-Result") == "IDEMPOTENCY_REPLAY"
+    assert second.json() == first.json()
+
+
+def test_superadmin_tenant_creation_does_not_raise_nameerror(client, db_session):
+    run_seed(db_session)
+    token = _login(client, settings.SUPERADMIN_USERNAME, settings.SUPERADMIN_PASSWORD)
+
+    response = client.post(
+        "/aris3/admin/tenants",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "tenant-create-no-nameerror"},
+        json={"name": "No NameError Tenant"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["tenant"]["name"] == "No NameError Tenant"
+    assert "tenant" in body
+    assert "trace_id" in body
+
+
 def test_superadmin_store_creation_requires_explicit_tenant_and_honors_precedence(client, db_session):
     run_seed(db_session)
     tenant_a, _ = _create_tenant_store(db_session, name_suffix="StoreTargetA")

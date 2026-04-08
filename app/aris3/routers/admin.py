@@ -1420,6 +1420,7 @@ async def create_tenant(
         )
 
     tenant = repo.create(Tenant(name=payload.name, status="ACTIVE"))
+    tenant_snapshot = {"id": str(tenant.id), "name": tenant.name, "status": tenant.status}
     response = TenantResponse(
         tenant=_tenant_item(tenant),
         trace_id=getattr(request.state, "trace_id", ""),

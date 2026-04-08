@@ -3,6 +3,8 @@ from datetime import date
 
 import pytest
 
+from app.aris3.core.deps import get_current_token_data
+from app.aris3.core.security import TokenData
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import (
     AuditEvent,
@@ -676,6 +678,37 @@ def test_purge_response_contains_trace_and_audit_events(client, db_session):
     events = db_session.query(AuditEvent).filter(AuditEvent.trace_id == trace_id, AuditEvent.action.like("admin.store.purge.%")).all()
     assert any(e.action.endswith(".started") for e in events)
     assert any(e.action.endswith(".completed") for e in events)
+
+
+def test_user_purge_superadmin_token_without_tenant_id_uses_valid_idempotency_scope(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    _tenant, _store, user = _create_tenant_store_user(db_session, suffix="super-no-tenant")
+    superadmin = db_session.query(User).filter(User.username == "superadmin").one()
+
+    def _override_token_data() -> TokenData:
+        return TokenData(
+            sub=str(superadmin.id),
+            tenant_id=None,
+            store_id=str(superadmin.store_id) if superadmin.store_id else None,
+            role="SUPERADMIN",
+            status="ACTIVE",
+            is_active=True,
+            must_change_password=False,
+            email=superadmin.email,
+            username=superadmin.username,
+        )
+
+    client.app.dependency_overrides[get_current_token_data] = _override_token_data
+    try:
+        response = _user_purge_request(client, token, str(user.id), "user-super-no-tenant-1", dry_run=True)
+    finally:
+        client.app.dependency_overrides.pop(get_current_token_data, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "DRY_RUN"
+    assert payload["resource"] == "user"
 
 
 def test_user_purge_preserve_audit_events_respected(client, db_session):

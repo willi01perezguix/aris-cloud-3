@@ -260,6 +260,15 @@ def _require_admin(token_data) -> None:
     raise AppError(ErrorCatalog.PERMISSION_DENIED)
 
 
+def _idempotency_tenant_scope(*, token_data, current_user: User | None) -> str:
+    if token_data.tenant_id:
+        return token_data.tenant_id
+    current_user_tenant_id = getattr(current_user, "tenant_id", None)
+    if current_user_tenant_id:
+        return str(current_user_tenant_id)
+    return "00000000-0000-0000-0000-000000000000"
+
+
 def _require_transaction_id(transaction_id: str | None) -> None:
     if not transaction_id:
         raise AppError(
@@ -550,7 +559,7 @@ async def admin_replace_role_template(
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
     context, replay = idempotency_service.start(
-        tenant_id=token_data.tenant_id or "platform",
+        tenant_id=_idempotency_tenant_scope(token_data=token_data, current_user=current_user),
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,
@@ -1344,7 +1353,7 @@ async def create_tenant(
     request_hash = IdempotencyService.fingerprint(payload.model_dump(mode="json"))
     idempotency_service = IdempotencyService(db)
     context, replay = idempotency_service.start(
-        tenant_id=token_data.tenant_id or "platform",
+        tenant_id=_idempotency_tenant_scope(token_data=token_data, current_user=current_user),
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,
@@ -1502,7 +1511,7 @@ async def delete_tenant(
     request_hash = IdempotencyService.fingerprint({"tenant_id": tenant_id})
     idempotency_service = IdempotencyService(db)
     context, replay = idempotency_service.start(
-        tenant_id=token_data.tenant_id or "platform",
+        tenant_id=_idempotency_tenant_scope(token_data=token_data, current_user=current_user),
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,
@@ -2632,7 +2641,7 @@ async def purge_user(
     request_hash = IdempotencyService.fingerprint({"user_id": user_id, **payload.model_dump(mode="json")})
     idempotency_service = IdempotencyService(db)
     context, replay = idempotency_service.start(
-        tenant_id=token_data.tenant_id or "platform",
+        tenant_id=_idempotency_tenant_scope(token_data=token_data, current_user=current_user),
         endpoint=str(request.url.path),
         method=request.method,
         idempotency_key=idempotency_key,

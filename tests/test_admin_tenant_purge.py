@@ -10,6 +10,7 @@ from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import (
     AuditEvent,
     ExportRecord,
+    IdempotencyRecord,
     PosCashDayClose,
     PosCashMovement,
     PosCashSession,
@@ -167,6 +168,37 @@ def _user_purge_request(client, token: str, user_id: str, idempotency_key: str, 
     )
 
 
+def _store_wipe_request(client, token: str, store_id: str, idempotency_key: str, *, dry_run: bool, delete_spaces_objects: bool = False):
+    return client.post(
+        f"/aris3/admin/stores/{store_id}/wipe-content",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": idempotency_key},
+        json={
+            "confirm": f"WIPE CONTENT {store_id}",
+            "dry_run": dry_run,
+            "delete_spaces_objects": delete_spaces_objects,
+            "preserve_audit_events": True,
+            "delete_store_audit_events": False,
+            "reason": "wipe store content",
+        },
+    )
+
+
+def _tenant_wipe_request(client, token: str, tenant_id: str, idempotency_key: str, *, dry_run: bool, delete_spaces_objects: bool = False):
+    return client.post(
+        f"/aris3/admin/tenants/{tenant_id}/wipe-content",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": idempotency_key},
+        json={
+            "confirm": f"WIPE CONTENT {tenant_id}",
+            "dry_run": dry_run,
+            "delete_spaces_objects": delete_spaces_objects,
+            "preserve_audit_events": True,
+            "delete_tenant_audit_events": False,
+            "delete_tenant_idempotency_records": False,
+            "reason": "wipe tenant content",
+        },
+    )
+
+
 def test_tenant_purge_dry_run_reports_exact_counts_without_deleting(client, db_session):
     run_seed(db_session)
     token = _login(client, "superadmin", "change-me")
@@ -256,6 +288,58 @@ def test_tenant_purge_real_delete_removes_received_and_canceled_transfer_history
 
     db_session.expire_all()
     assert db_session.get(Tenant, tenant_id) is None
+
+
+def test_store_wipe_content_dry_run_reports_counts_and_preserves_store(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="store-wipe-dry-run")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+
+    response = _store_wipe_request(client, token, str(store.id), "store-wipe-dry-run-1", dry_run=True)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "DRY_RUN"
+    assert payload["would_delete_counts"]["stock_items"] >= 1
+    assert payload["would_delete_counts"]["transfers"] >= 2
+    assert payload["deleted_counts"] is None
+
+    db_session.expire_all()
+    assert db_session.get(Store, str(store.id)) is not None
+    assert db_session.get(Tenant, str(tenant.id)) is not None
+
+
+def test_tenant_wipe_content_real_execution_keeps_tenant_and_store_and_deletes_operational_rows(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="tenant-wipe-real")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+    db_session.add(
+        IdempotencyRecord(
+            tenant_id=tenant.id,
+            endpoint="/aris3/admin/tenants/test",
+            method="POST",
+            idempotency_key="wipe-keep-idem",
+            request_hash="abc123",
+            state="completed",
+            status_code=200,
+            response_body="{}",
+        )
+    )
+    db_session.commit()
+
+    response = _tenant_wipe_request(client, token, str(tenant.id), "tenant-wipe-real-1", dry_run=False)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["deleted_counts"]["stock_items"] >= 1
+    assert payload["deleted_counts"]["transfers"] >= 2
+    assert payload["deleted_counts"]["tenant_idempotency_records"] == 0
+
+    db_session.expire_all()
+    assert db_session.get(Tenant, str(tenant.id)) is not None
+    assert db_session.get(Store, str(store.id)) is not None
+    assert db_session.get(User, str(user.id)) is not None
 
 
 def test_tenant_purge_preserve_audit_events_true_keeps_audit_history(client, db_session):

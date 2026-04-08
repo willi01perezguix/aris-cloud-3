@@ -185,6 +185,44 @@ class StorePurgeResponse(BaseModel):
     trace_id: str = Field(description="Trace identifier for logs/support correlation.")
 
 
+class StoreContentWipeRequest(BaseModel):
+    confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `WIPE CONTENT <store_id>`.")
+    dry_run: bool = Field(default=True, description="If true, computes exact counts but does not delete data.")
+    delete_spaces_objects: bool = Field(default=False, description="If true, deletes Spaces objects under `aris3/images/{tenant_id}/{store_id}/`.")
+    preserve_audit_events: bool = Field(default=True, description="If true, keep store audit history.")
+    delete_store_audit_events: bool = Field(default=False, description="If true, deletes store audit events when preserve_audit_events=false.")
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class StoreContentWipeCounts(BaseModel):
+    transfer_movements: int
+    transfer_lines: int
+    transfers: int
+    sale_lines: int
+    payments: int
+    returns: int
+    sales: int
+    cash_movements: int
+    cash_sessions: int
+    cash_day_closes: int
+    exports: int
+    stock_items: int
+    store_audit_events: int = 0
+
+
+class StoreContentWipeResponse(BaseModel):
+    resource: Literal["store"] = "store"
+    resource_id: str
+    dry_run: bool
+    status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
+    would_delete_counts: StoreContentWipeCounts | None = None
+    deleted_counts: StoreContentWipeCounts | None = None
+    deleted_spaces_objects: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    preserve_audit_events: bool
+    trace_id: str
+
+
 class UserPurgeRequest(BaseModel):
     confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `PURGE <user_id>`.")
     dry_run: bool = Field(default=True, description="If true, computes exact counts but does not delete data.")
@@ -210,6 +248,46 @@ class UserPurgeResponse(BaseModel):
     deleted_counts: UserPurgeCounts | None = Field(default=None, description="Returned for real purge executions with actual deletion counts.")
     preserve_audit_events: bool = Field(description="Echoes whether audit history was preserved.")
     trace_id: str = Field(description="Trace identifier for logs/support correlation.")
+
+
+class TenantContentWipeRequest(BaseModel):
+    confirm: str = Field(..., min_length=1, description="Strong confirmation phrase: `WIPE CONTENT <tenant_id>`.")
+    dry_run: bool = Field(default=True, description="If true, computes exact counts but does not delete data.")
+    delete_spaces_objects: bool = Field(default=False, description="If true, deletes Spaces objects under `aris3/images/{tenant_id}/`.")
+    preserve_audit_events: bool = Field(default=True, description="If true, keep tenant audit history.")
+    delete_tenant_audit_events: bool = Field(default=False, description="If true, deletes tenant audit events when preserve_audit_events=false.")
+    delete_tenant_idempotency_records: bool = Field(default=False, description="If true, deletes tenant idempotency_records.")
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class TenantContentWipeCounts(BaseModel):
+    transfer_movements: int
+    transfer_lines: int
+    transfers: int
+    sale_lines: int
+    payments: int
+    returns: int
+    sales: int
+    cash_movements: int
+    cash_sessions: int
+    cash_day_closes: int
+    exports: int
+    stock_items: int
+    tenant_audit_events: int = 0
+    tenant_idempotency_records: int = 0
+
+
+class TenantContentWipeResponse(BaseModel):
+    resource: Literal["tenant"] = "tenant"
+    resource_id: str
+    dry_run: bool
+    status: Literal["DRY_RUN", "COMPLETED", "FAILED"]
+    would_delete_counts: TenantContentWipeCounts | None = None
+    deleted_counts: TenantContentWipeCounts | None = None
+    deleted_spaces_objects: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    preserve_audit_events: bool
+    trace_id: str
 
 
 class UserCreateRequest(BaseModel):

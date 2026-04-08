@@ -32,6 +32,12 @@ class UploadedImageMetadata:
     image_updated_at: str
 
 
+@dataclass(frozen=True)
+class SpacesDeletePrefixResult:
+    deleted_objects: int
+    warnings: list[str]
+
+
 class SpacesImageUploadError(Exception):
     def __init__(self, message: str, *, error_code: str = "BAD_REQUEST") -> None:
         super().__init__(message)
@@ -143,6 +149,52 @@ class SpacesImageService:
             image_source=self._image_source,
             image_updated_at=image_updated_at,
         )
+
+    def delete_prefix_objects(self, *, prefix: str, trace_id: str | None) -> SpacesDeletePrefixResult:
+        self._validate_settings()
+        normalized_prefix = (prefix or "").strip().lstrip("/")
+        if not normalized_prefix:
+            return SpacesDeletePrefixResult(deleted_objects=0, warnings=["spaces prefix was empty; nothing deleted"])
+
+        client = self._build_s3_client()
+        deleted_objects = 0
+        warnings: list[str] = []
+
+        continuation_token: str | None = None
+        while True:
+            list_kwargs = {"Bucket": self._bucket, "Prefix": normalized_prefix, "MaxKeys": 1000}
+            if continuation_token:
+                list_kwargs["ContinuationToken"] = continuation_token
+            try:
+                page = client.list_objects_v2(**list_kwargs)
+            except Exception as exc:
+                logger.exception("spaces_delete_prefix_list_error", extra={"prefix": normalized_prefix, "trace_id": trace_id})
+                warnings.append(f"failed to list objects for prefix `{normalized_prefix}`: {exc}")
+                break
+
+            keys = [item.get("Key") for item in (page.get("Contents") or []) if item.get("Key")]
+            if keys:
+                try:
+                    delete_response = client.delete_objects(
+                        Bucket=self._bucket,
+                        Delete={"Objects": [{"Key": key} for key in keys], "Quiet": True},
+                    )
+                    deleted_objects += len(delete_response.get("Deleted") or [])
+                    for delete_error in delete_response.get("Errors") or []:
+                        key = delete_error.get("Key")
+                        code = delete_error.get("Code")
+                        message = delete_error.get("Message")
+                        warnings.append(f"failed to delete `{key}` ({code}): {message}")
+                except Exception as exc:
+                    logger.exception("spaces_delete_prefix_delete_error", extra={"prefix": normalized_prefix, "trace_id": trace_id})
+                    warnings.append(f"failed to delete objects batch for prefix `{normalized_prefix}`: {exc}")
+                    break
+
+            if not page.get("IsTruncated"):
+                break
+            continuation_token = page.get("NextContinuationToken")
+
+        return SpacesDeletePrefixResult(deleted_objects=deleted_objects, warnings=warnings)
 
     def _validate_settings(self) -> None:
         required = {

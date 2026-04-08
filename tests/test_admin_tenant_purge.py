@@ -24,6 +24,7 @@ from app.aris3.db.models import (
     UserPermissionOverride,
 )
 from app.aris3.db.seed import run_seed
+from app.aris3.services.idempotency import IdempotencyContext
 from app.aris3.services.tenant_purge import TenantPurgeService
 
 
@@ -733,3 +734,20 @@ def test_user_purge_preserves_original_exception_when_failure_audit_event_raises
 
     monkeypatch.setattr(TenantPurgeService, "_delete_user_in_order", original_delete)
     monkeypatch.setattr(TenantPurgeService, "_audit_event", original_audit_event)
+
+
+def test_user_self_purge_failure_path_avoids_deleted_orm_access(client, db_session, monkeypatch):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    superadmin = db_session.query(User).filter(User.username == "superadmin").one()
+    superadmin_id = str(superadmin.id)
+
+    def _record_success_boom(self, *, status_code: int, response_body: dict):
+        raise RuntimeError("record-success-boom")
+
+    monkeypatch.setattr(IdempotencyContext, "record_success", _record_success_boom)
+
+    response = _user_purge_request(client, token, superadmin_id, "self-purge-error-1", dry_run=False, preserve_audit_events=True)
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["code"] == "INTERNAL_ERROR"

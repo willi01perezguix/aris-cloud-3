@@ -160,6 +160,7 @@ class TenantPurgeService:
         *,
         user_id: str,
         actor,
+        actor_snapshot: dict[str, str | None] | None = None,
         reason: str | None,
         dry_run: bool,
         preserve_audit_events: bool,
@@ -168,11 +169,12 @@ class TenantPurgeService:
         user = self.db.get(User, user_id)
         if user is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "User not found"})
+        resolved_actor_snapshot = actor_snapshot or self._snapshot_actor(actor)
         return self._execute_resource(
             resource="user",
             resource_id=user_id,
             tenant_id=str(user.tenant_id),
-            actor=actor,
+            actor_snapshot=resolved_actor_snapshot,
             reason=reason,
             dry_run=dry_run,
             preserve_audit_events=preserve_audit_events,
@@ -187,7 +189,8 @@ class TenantPurgeService:
         resource: str,
         resource_id: str,
         tenant_id: str,
-        actor,
+        actor=None,
+        actor_snapshot: dict[str, str | None] | None = None,
         reason: str | None,
         dry_run: bool,
         preserve_audit_events: bool,
@@ -195,7 +198,7 @@ class TenantPurgeService:
         count_fn,
         delete_fn,
     ) -> PurgeResult:
-        actor_snapshot = self._snapshot_actor(actor)
+        actor_snapshot = actor_snapshot or self._snapshot_actor(actor)
         execution_step = "count"
         would_delete_counts = count_fn()
         lock: PurgeLock | None = None

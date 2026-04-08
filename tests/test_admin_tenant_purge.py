@@ -2,6 +2,7 @@ import uuid
 from datetime import date
 
 import pytest
+from sqlalchemy.exc import ProgrammingError
 
 from app.aris3.core.deps import get_current_token_data
 from app.aris3.core.security import TokenData
@@ -16,6 +17,7 @@ from app.aris3.db.models import (
     PosReturnEvent,
     PosSale,
     PosSaleLine,
+    PurgeLock,
     StockItem,
     Store,
     Tenant,
@@ -665,6 +667,35 @@ def test_user_purge_real_delete_superadmin_purges_other_user_with_transfer_refs(
     assert db_session.get(User, target_user_id) is None
     overrides = db_session.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == target_user_uuid).all()
     assert overrides == []
+
+
+def test_user_purge_real_delete_continues_when_purge_lock_table_missing(client, db_session, monkeypatch):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="user-no-lock-table")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+    user_id = str(user.id)
+
+    original_commit = type(db_session).commit
+    state = {"raised": False}
+
+    def _commit_with_missing_purge_lock_table(self):
+        if not state["raised"] and any(isinstance(item, PurgeLock) for item in self.new):
+            state["raised"] = True
+            raise ProgrammingError(
+                "INSERT INTO purge_locks ...",
+                {},
+                Exception('relation "purge_locks" does not exist'),
+            )
+        return original_commit(self)
+
+    monkeypatch.setattr(type(db_session), "commit", _commit_with_missing_purge_lock_table)
+
+    response = _user_purge_request(client, token, user_id, "user-real-no-lock-table-1", dry_run=False, preserve_audit_events=True)
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETED"
+    db_session.expire_all()
+    assert db_session.get(User, user_id) is None
 
 
 def test_purge_response_contains_trace_and_audit_events(client, db_session):

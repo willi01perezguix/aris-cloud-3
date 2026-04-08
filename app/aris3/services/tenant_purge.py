@@ -199,6 +199,14 @@ class TenantPurgeService:
         delete_fn,
     ) -> PurgeResult:
         actor_snapshot = actor_snapshot or self._snapshot_actor(actor)
+        post_delete_actor_snapshot = actor_snapshot
+        if (
+            resource == "user"
+            and not dry_run
+            and actor_snapshot.get("id")
+            and str(actor_snapshot["id"]) == str(resource_id)
+        ):
+            post_delete_actor_snapshot = {**actor_snapshot, "id": None}
         execution_step = "count"
         would_delete_counts = count_fn()
         lock: PurgeLock | None = None
@@ -245,7 +253,7 @@ class TenantPurgeService:
                 tenant_id=tenant_id,
                 resource=resource,
                 resource_id=resource_id,
-                actor_snapshot=actor_snapshot,
+                actor_snapshot=post_delete_actor_snapshot,
                 reason=reason,
                 dry_run=False,
                 preserve_audit_events=preserve_audit_events,

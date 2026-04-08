@@ -808,3 +808,40 @@ def test_user_purge_destructive_path_uses_pre_delete_actor_snapshot(client, db_s
     payload = response.json()
     assert payload["status"] == "COMPLETED"
     assert payload["deleted_counts"]["users"] == 1
+
+
+def test_user_self_purge_completed_audit_event_uses_null_user_id(client, db_session):
+    run_seed(db_session)
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant Self Audit Null")
+    store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store Self Audit Null")
+    self_admin = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=store.id,
+        username="self-audit-null-admin",
+        email="self-audit-null-admin@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="SUPERADMIN",
+        status="ACTIVE",
+        is_active=True,
+        must_change_password=False,
+    )
+    db_session.add_all([tenant, store, self_admin])
+    db_session.commit()
+
+    self_admin_id = str(self_admin.id)
+    token = _login(client, "self-audit-null-admin", "Pass1234!")
+    response = _user_purge_request(client, token, self_admin_id, "self-purge-audit-null-1", dry_run=False, preserve_audit_events=True)
+    assert response.status_code == 200
+    trace_id = response.json()["trace_id"]
+
+    completed_event = (
+        db_session.query(AuditEvent)
+        .filter(
+            AuditEvent.trace_id == trace_id,
+            AuditEvent.action == "admin.user.purge.completed",
+            AuditEvent.entity_id == self_admin_id,
+        )
+        .one()
+    )
+    assert completed_event.user_id is None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import traceback
 import uuid
 
 from sqlalchemy import delete, func, or_, select
@@ -252,6 +253,7 @@ class TenantPurgeService:
             return PurgeResult(dry_run=False, status="COMPLETED", would_delete_counts=would_delete_counts, deleted_counts=deleted_counts)
         except Exception as exc:
             self.db.rollback()
+            failure_location = _exception_location(exc)
             logger.exception(
                 "Purge execution failed",
                 extra={
@@ -263,21 +265,36 @@ class TenantPurgeService:
                     "trace_id": trace_id,
                     "execution_step": execution_step,
                     "exception_class": exc.__class__.__name__,
+                    "exception_file": failure_location["file"],
+                    "exception_function": failure_location["function"],
+                    "exception_line": failure_location["line"],
                 },
             )
-            self._audit_event(
-                action=f"admin.{resource}.purge.failed",
-                tenant_id=tenant_id,
-                resource=resource,
-                resource_id=resource_id,
-                actor_snapshot=actor_snapshot,
-                reason=reason,
-                dry_run=dry_run,
-                preserve_audit_events=preserve_audit_events,
-                trace_id=trace_id,
-                counts=would_delete_counts,
-                result="failure",
-            )
+            try:
+                self._audit_event(
+                    action=f"admin.{resource}.purge.failed",
+                    tenant_id=tenant_id,
+                    resource=resource,
+                    resource_id=resource_id,
+                    actor_snapshot=actor_snapshot,
+                    reason=reason,
+                    dry_run=dry_run,
+                    preserve_audit_events=preserve_audit_events,
+                    trace_id=trace_id,
+                    counts=would_delete_counts,
+                    result="failure",
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to record purge failure audit event",
+                    extra={
+                        "resource": resource,
+                        "resource_id": resource_id,
+                        "tenant_id": tenant_id,
+                        "trace_id": trace_id,
+                        "execution_step": execution_step,
+                    },
+                )
             raise
         finally:
             if lock is not None:
@@ -566,3 +583,11 @@ class TenantPurgeService:
                 result=result,
             )
         )
+
+
+def _exception_location(exc: Exception) -> dict[str, str | int | None]:
+    tb = traceback.extract_tb(exc.__traceback__) if exc.__traceback__ else []
+    if not tb:
+        return {"file": None, "function": None, "line": None}
+    last = tb[-1]
+    return {"file": last.filename, "function": last.name, "line": last.lineno}

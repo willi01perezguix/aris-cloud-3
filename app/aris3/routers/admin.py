@@ -2635,6 +2635,12 @@ async def purge_user(
 ):
     _require_superadmin(token_data)
     actor_user_id = str(current_user.id) if current_user else None
+    actor_snapshot = {
+        "id": actor_user_id,
+        "store_id": str(current_user.store_id) if current_user and current_user.store_id else None,
+        "username": current_user.username if current_user else "unknown",
+        "role": current_user.role if current_user else None,
+    }
     if payload.confirm != f"PURGE {user_id}":
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "confirm must match the exact value `PURGE <user_id>`"})
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -2659,6 +2665,7 @@ async def purge_user(
         result = TenantPurgeService(db).execute_user(
             user_id=user_id,
             actor=current_user,
+            actor_snapshot=actor_snapshot,
             reason=payload.reason,
             dry_run=payload.dry_run,
             preserve_audit_events=payload.preserve_audit_events,

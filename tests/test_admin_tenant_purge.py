@@ -784,3 +784,27 @@ def test_user_self_purge_failure_path_avoids_deleted_orm_access(client, db_sessi
     assert response.status_code == 500
     payload = response.json()
     assert payload["code"] == "INTERNAL_ERROR"
+
+
+def test_user_purge_destructive_path_uses_pre_delete_actor_snapshot(client, db_session, monkeypatch):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    superadmin = db_session.query(User).filter(User.username == "superadmin").one()
+
+    def _snapshot_boom(self, actor):
+        raise RuntimeError("snapshot-should-not-run-in-user-destructive-path")
+
+    monkeypatch.setattr(TenantPurgeService, "_snapshot_actor", _snapshot_boom)
+
+    response = _user_purge_request(
+        client,
+        token,
+        str(superadmin.id),
+        "self-purge-pre-snapshot-1",
+        dry_run=False,
+        preserve_audit_events=True,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["deleted_counts"]["users"] == 1

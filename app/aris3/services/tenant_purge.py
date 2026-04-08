@@ -6,7 +6,7 @@ import traceback
 import uuid
 
 from sqlalchemy import delete, func, or_, select
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.models import (
@@ -319,7 +319,7 @@ class TenantPurgeService:
             "role": actor.role,
         }
 
-    def _acquire_lock(self, *, resource: str, resource_id: str, trace_id: str | None) -> PurgeLock:
+    def _acquire_lock(self, *, resource: str, resource_id: str, trace_id: str | None) -> PurgeLock | None:
         lock = PurgeLock(resource_type=resource, resource_id=resource_id, trace_id=trace_id)
         self.db.add(lock)
         try:
@@ -335,6 +335,15 @@ class TenantPurgeService:
         except OperationalError as exc:
             self.db.rollback()
             raise AppError(ErrorCatalog.LOCK_TIMEOUT) from exc
+        except ProgrammingError as exc:
+            self.db.rollback()
+            if _is_missing_purge_lock_table(exc):
+                logger.warning(
+                    "purge_locks table missing; continuing purge without DB lock",
+                    extra={"resource": resource, "resource_id": resource_id, "trace_id": trace_id},
+                )
+                return None
+            raise
 
     def _release_lock(self, lock: PurgeLock) -> None:
         try:
@@ -602,3 +611,10 @@ def _exception_location(exc: Exception) -> dict[str, str | int | None]:
         return {"file": None, "function": None, "line": None}
     last = tb[-1]
     return {"file": last.filename, "function": last.name, "line": last.lineno}
+
+
+def _is_missing_purge_lock_table(exc: ProgrammingError) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return "purge_locks" in message and (
+        "does not exist" in message or "undefined table" in message or "no such table" in message
+    )

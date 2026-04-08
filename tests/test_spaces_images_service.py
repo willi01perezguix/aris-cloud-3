@@ -12,6 +12,13 @@ class _FakeS3Client:
     def put_object(self, **kwargs):
         self.calls.append(kwargs)
 
+    def list_objects_v2(self, **kwargs):
+        return {"Contents": [{"Key": "aris3/images/tenant/store/file1.png"}], "IsTruncated": False}
+
+    def delete_objects(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"Deleted": [{"Key": "aris3/images/tenant/store/file1.png"}]}
+
 
 class _FakeClientError(Exception):
     def __init__(self, message: str, response: dict):
@@ -118,3 +125,27 @@ def test_upload_image_rejects_large_payload(monkeypatch):
         )
 
     assert "max size" in str(exc_info.value)
+
+
+def test_delete_prefix_objects_deletes_keys(monkeypatch):
+    service = _configure_service(monkeypatch, endpoint="nyc3.digitaloceanspaces.com")
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(service, "_build_s3_client", lambda: fake_client)
+
+    result = service.delete_prefix_objects(prefix="aris3/images/tenant/store/", trace_id="trace-123")
+
+    assert result.deleted_objects == 1
+    assert result.warnings == []
+
+
+def test_delete_prefix_objects_returns_warning_when_list_fails(monkeypatch):
+    service = _configure_service(monkeypatch, endpoint="nyc3.digitaloceanspaces.com")
+
+    class _BrokenClient:
+        def list_objects_v2(self, **kwargs):
+            raise RuntimeError("list failed")
+
+    monkeypatch.setattr(service, "_build_s3_client", lambda: _BrokenClient())
+    result = service.delete_prefix_objects(prefix="aris3/images/tenant/store/", trace_id="trace-123")
+    assert result.deleted_objects == 0
+    assert result.warnings

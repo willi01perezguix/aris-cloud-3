@@ -76,7 +76,9 @@ def test_openapi_summaries_use_consistent_sentence_case_for_core_admin_crud():
     assert paths["/aris3/admin/users/{user_id}"]["patch"]["summary"] == "Update user"
     assert paths["/aris3/admin/users/{user_id}"]["delete"]["summary"] == "Delete user"
     assert paths["/aris3/admin/tenants/{tenant_id}/purge"]["post"]["summary"] == "Purge tenant"
+    assert paths["/aris3/admin/tenants/{tenant_id}/wipe-content"]["post"]["summary"] == "Wipe tenant content"
     assert paths["/aris3/admin/stores/{store_id}/purge"]["post"]["summary"] == "Purge store"
+    assert paths["/aris3/admin/stores/{store_id}/wipe-content"]["post"]["summary"] == "Wipe store content"
     assert paths["/aris3/admin/users/{user_id}/purge"]["post"]["summary"] == "Purge user"
 
 

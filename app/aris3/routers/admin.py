@@ -56,9 +56,15 @@ from app.aris3.schemas.admin import (
     TenantPurgeCounts,
     TenantPurgeRequest,
     TenantPurgeResponse,
+    TenantContentWipeCounts,
+    TenantContentWipeRequest,
+    TenantContentWipeResponse,
     StorePurgeCounts,
     StorePurgeRequest,
     StorePurgeResponse,
+    StoreContentWipeCounts,
+    StoreContentWipeRequest,
+    StoreContentWipeResponse,
     TenantCreateRequest,
     TenantListResponse,
     TenantResponse,
@@ -102,6 +108,7 @@ from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.access_control_policies import AccessControlPolicyService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.content_wipe import ContentWipeService
 from app.aris3.services.tenant_purge import TenantPurgeService
 
 
@@ -512,6 +519,43 @@ def _user_purge_counts_payload(counts: dict[str, int]) -> UserPurgeCounts:
         transfers_as_dispatcher=counts.get("transfers_as_dispatcher", 0),
         transfers_as_canceler=counts.get("transfers_as_canceler", 0),
         users=counts.get("users", 0),
+    )
+
+
+def _store_content_wipe_counts_payload(counts: dict[str, int]) -> StoreContentWipeCounts:
+    return StoreContentWipeCounts(
+        transfer_movements=counts.get("transfer_movements", 0),
+        transfer_lines=counts.get("transfer_lines", 0),
+        transfers=counts.get("transfers", 0),
+        sale_lines=counts.get("sale_lines", 0),
+        payments=counts.get("payments", 0),
+        returns=counts.get("returns", 0),
+        sales=counts.get("sales", 0),
+        cash_movements=counts.get("cash_movements", 0),
+        cash_sessions=counts.get("cash_sessions", 0),
+        cash_day_closes=counts.get("cash_day_closes", 0),
+        exports=counts.get("exports", 0),
+        stock_items=counts.get("stock_items", 0),
+        store_audit_events=counts.get("store_audit_events", 0),
+    )
+
+
+def _tenant_content_wipe_counts_payload(counts: dict[str, int]) -> TenantContentWipeCounts:
+    return TenantContentWipeCounts(
+        transfer_movements=counts.get("transfer_movements", 0),
+        transfer_lines=counts.get("transfer_lines", 0),
+        transfers=counts.get("transfers", 0),
+        sale_lines=counts.get("sale_lines", 0),
+        payments=counts.get("payments", 0),
+        returns=counts.get("returns", 0),
+        sales=counts.get("sales", 0),
+        cash_movements=counts.get("cash_movements", 0),
+        cash_sessions=counts.get("cash_sessions", 0),
+        cash_day_closes=counts.get("cash_day_closes", 0),
+        exports=counts.get("exports", 0),
+        stock_items=counts.get("stock_items", 0),
+        tenant_audit_events=counts.get("tenant_audit_events", 0),
+        tenant_idempotency_records=counts.get("tenant_idempotency_records", 0),
     )
 
 
@@ -1675,6 +1719,64 @@ async def purge_tenant(
         raise AppError(ErrorCatalog.INTERNAL_ERROR) from exc
 
 
+@router.post(
+    "/tenants/{tenant_id}/wipe-content",
+    response_model=TenantContentWipeResponse,
+    summary="Wipe tenant content",
+    description="Deletes operational tenant content while preserving the tenant and store rows.",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
+async def wipe_tenant_content(
+    request: Request,
+    tenant_id: str,
+    payload: TenantContentWipeRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    if payload.confirm != f"WIPE CONTENT {tenant_id}":
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "confirm must match the exact value `WIPE CONTENT <tenant_id>`"})
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint({"tenant_id": tenant_id, **payload.model_dump(mode="json")})
+    context, replay = IdempotencyService(db).start(
+        tenant_id=tenant_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(status_code=replay.status_code, content=replay.response_body, headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code})
+    request.state.idempotency = context
+
+    result = ContentWipeService(db).execute_tenant_wipe(
+        tenant_id=tenant_id,
+        actor=current_user,
+        reason=payload.reason,
+        dry_run=payload.dry_run,
+        preserve_audit_events=payload.preserve_audit_events,
+        delete_tenant_audit_events=payload.delete_tenant_audit_events,
+        delete_tenant_idempotency_records=payload.delete_tenant_idempotency_records,
+        delete_spaces_objects=payload.delete_spaces_objects,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    response = TenantContentWipeResponse(
+        resource="tenant",
+        resource_id=tenant_id,
+        dry_run=result.dry_run,
+        status=result.status,
+        would_delete_counts=_tenant_content_wipe_counts_payload(result.would_delete_counts) if result.dry_run else None,
+        deleted_counts=_tenant_content_wipe_counts_payload(result.deleted_counts or {}) if not result.dry_run else None,
+        deleted_spaces_objects=result.deleted_spaces_objects,
+        warnings=result.warnings,
+        preserve_audit_events=payload.preserve_audit_events,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+    return response
+
+
 @router.post("/tenants/{tenant_id}/actions", response_model=TenantActionResponse)
 async def tenant_actions(
     request: Request,
@@ -2187,6 +2289,63 @@ async def purge_store(
         }
         context.record_failure(status_code=500, response_body=error_response)
         raise AppError(ErrorCatalog.INTERNAL_ERROR) from exc
+
+
+@router.post(
+    "/stores/{store_id}/wipe-content",
+    response_model=StoreContentWipeResponse,
+    summary="Wipe store content",
+    description="Deletes operational store content while preserving store and tenant rows.",
+    responses=ADMIN_STANDARD_ERROR_RESPONSES,
+)
+async def wipe_store_content(
+    request: Request,
+    store_id: str,
+    payload: StoreContentWipeRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    _require_superadmin(token_data)
+    if payload.confirm != f"WIPE CONTENT {store_id}":
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "confirm must match the exact value `WIPE CONTENT <store_id>`"})
+    idempotency_key = extract_idempotency_key(request.headers, required=True)
+    request_hash = IdempotencyService.fingerprint({"store_id": store_id, **payload.model_dump(mode="json")})
+    context, replay = IdempotencyService(db).start(
+        tenant_id=token_data.tenant_id or "platform",
+        endpoint=str(request.url.path),
+        method=request.method,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+    )
+    if replay:
+        return JSONResponse(status_code=replay.status_code, content=replay.response_body, headers={"X-Idempotency-Result": ErrorCatalog.IDEMPOTENCY_REPLAY.code})
+    request.state.idempotency = context
+
+    result = ContentWipeService(db).execute_store_wipe(
+        store_id=store_id,
+        actor=current_user,
+        reason=payload.reason,
+        dry_run=payload.dry_run,
+        preserve_audit_events=payload.preserve_audit_events,
+        delete_store_audit_events=payload.delete_store_audit_events,
+        delete_spaces_objects=payload.delete_spaces_objects,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    response = StoreContentWipeResponse(
+        resource="store",
+        resource_id=store_id,
+        dry_run=result.dry_run,
+        status=result.status,
+        would_delete_counts=_store_content_wipe_counts_payload(result.would_delete_counts) if result.dry_run else None,
+        deleted_counts=_store_content_wipe_counts_payload(result.deleted_counts or {}) if not result.dry_run else None,
+        deleted_spaces_objects=result.deleted_spaces_objects,
+        warnings=result.warnings,
+        preserve_audit_events=payload.preserve_audit_events,
+        trace_id=getattr(request.state, "trace_id", ""),
+    )
+    context.record_success(status_code=200, response_body=response.model_dump(mode="json"))
+    return response
 
 
 @router.get(

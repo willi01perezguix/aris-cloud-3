@@ -2625,6 +2625,7 @@ async def purge_user(
     db=Depends(get_db),
 ):
     _require_superadmin(token_data)
+    actor_user_id = str(current_user.id) if current_user else None
     if payload.confirm != f"PURGE {user_id}":
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "confirm must match the exact value `PURGE <user_id>`"})
     idempotency_key = extract_idempotency_key(request.headers, required=True)
@@ -2680,7 +2681,7 @@ async def purge_user(
             extra={
                 "trace_id": getattr(request.state, "trace_id", ""),
                 "user_id": user_id,
-                "actor_user_id": str(getattr(current_user, "id", "")) if current_user else None,
+                "actor_user_id": actor_user_id,
                 "dry_run": payload.dry_run,
                 "preserve_audit_events": payload.preserve_audit_events,
                 "execution_step": execution_step,

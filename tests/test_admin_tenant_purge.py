@@ -1,6 +1,8 @@
 import uuid
 from datetime import date
 
+import pytest
+
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import (
     AuditEvent,
@@ -696,3 +698,38 @@ def test_user_purge_preserve_audit_events_respected(client, db_session):
     assert response.status_code == 200
     remaining = db_session.query(AuditEvent).filter(AuditEvent.user_id == user.id).all()
     assert all(ev.action.startswith("admin.user.purge.") for ev in remaining)
+
+
+def test_user_purge_preserves_original_exception_when_failure_audit_event_raises(db_session, monkeypatch):
+    run_seed(db_session)
+    superadmin = db_session.query(User).filter(User.username == "superadmin").one()
+    tenant, store, user = _create_tenant_store_user(db_session, suffix="audit-failure-wrap")
+    _seed_operational_data(db_session, tenant=tenant, store=store, user=user)
+
+    original_delete = TenantPurgeService._delete_user_in_order
+    original_audit_event = TenantPurgeService._audit_event
+
+    def _delete_boom(self, *, user_id: str, preserve_audit_events: bool):
+        raise RuntimeError("delete-step-failure")
+
+    def _audit_boom(self, **kwargs):
+        if kwargs.get("action") == "admin.user.purge.failed":
+            raise ValueError("audit-step-failure")
+        return original_audit_event(self, **kwargs)
+
+    monkeypatch.setattr(TenantPurgeService, "_delete_user_in_order", _delete_boom)
+    monkeypatch.setattr(TenantPurgeService, "_audit_event", _audit_boom)
+
+    service = TenantPurgeService(db_session)
+    with pytest.raises(RuntimeError, match="delete-step-failure"):
+        service.execute_user(
+            user_id=str(user.id),
+            actor=superadmin,
+            reason="test",
+            dry_run=False,
+            preserve_audit_events=True,
+            trace_id="trace-test-audit-wrap",
+        )
+
+    monkeypatch.setattr(TenantPurgeService, "_delete_user_in_order", original_delete)
+    monkeypatch.setattr(TenantPurgeService, "_audit_event", original_audit_event)

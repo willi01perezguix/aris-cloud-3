@@ -32,5 +32,7 @@ class Settings(BaseSettings):
     ARIS3_SPACES_ORIGIN_BASE_URL: str = ""
     ARIS3_SPACES_CDN_BASE_URL: str = ""
     ARIS3_IMAGE_SOURCE: str = "digitalocean_spaces"
+    SCHEMA_DRIFT_GUARD_ENABLED: bool = True
+    SCHEMA_DRIFT_GUARD_ENFORCE: bool = True
 
 settings = Settings()

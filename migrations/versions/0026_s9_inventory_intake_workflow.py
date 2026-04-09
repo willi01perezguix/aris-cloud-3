@@ -25,6 +25,8 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("issue_state", sa.String(length=50), nullable=True))
 
     op.execute("UPDATE stock_items SET item_uid = id WHERE item_uid = '00000000-0000-0000-0000-000000000000'")
+    with op.batch_alter_table("stock_items") as batch_op:
+        batch_op.alter_column("item_uid", server_default=None)
     op.create_index("ix_stock_items_item_uid", "stock_items", ["item_uid"], unique=False)
     op.create_index("uq_stock_items_tenant_item_uid", "stock_items", ["tenant_id", "item_uid"], unique=True)
 
@@ -37,7 +39,7 @@ def upgrade() -> None:
         sa.Column("item_uid", sa.String(length=36), nullable=False),
         sa.Column("assigned_at", sa.DateTime(), nullable=False),
         sa.Column("released_at", sa.DateTime(), nullable=True),
-        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("last_release_reason", sa.String(length=100), nullable=True),
         sa.Column("status", sa.String(length=50), nullable=False, server_default="ASSIGNED"),
         sa.Column("sale_line_id", sa.String(length=36), nullable=True),
@@ -66,7 +68,7 @@ def upgrade() -> None:
         sa.Column("sku", sa.String(length=100), nullable=False),
         sa.Column("asset_id", sa.String(length=36), nullable=False),
         sa.Column("file_hash", sa.String(length=128), nullable=True),
-        sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
@@ -105,7 +107,7 @@ def upgrade() -> None:
         sa.Column("var2_value", sa.String(length=100), nullable=True),
         sa.Column("pool", sa.String(length=100), nullable=True),
         sa.Column("location_code", sa.String(length=100), nullable=True),
-        sa.Column("vendible", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("vendible", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("cost_price", sa.Numeric(precision=12, scale=2), nullable=True),
         sa.Column("suggested_price", sa.Numeric(precision=12, scale=2), nullable=True),
         sa.Column("sale_price", sa.Numeric(precision=12, scale=2), nullable=True),

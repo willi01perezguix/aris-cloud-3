@@ -46,6 +46,13 @@ def test_migrations_apply(tmp_path: Path):
         assert "variant_field_settings" in tables
         assert "return_policy_settings" in tables
         assert "pos_return_events" in tables
+        assert "epc_assignments" in tables
+        assert "sku_images" in tables
+        assert "preload_sessions" in tables
+        assert "preload_lines" in tables
+
+        stock_columns = {col["name"] for col in inspector.get_columns("stock_items")}
+        assert {"item_uid", "item_status", "epc_status", "print_status", "issue_state", "observation"}.issubset(stock_columns)
 
         indexes = [index["name"] for index in inspector.get_indexes("audit_events")]
         assert indexes.count("ix_audit_events_trace_id") == 1

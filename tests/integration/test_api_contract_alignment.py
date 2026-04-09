@@ -109,6 +109,21 @@ def test_conflict_response_schema_for_idempotency_reuse(client, db_session):
     assert "trace_id" in second.json()
 
 
+def test_create_tenant_regression_no_tenant_snapshot_name_error(client, db_session):
+    run_seed(db_session)
+    token = _login(client, "superadmin", "change-me")
+    response = client.post(
+        "/aris3/admin/tenants",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "tenant-snapshot-regression"},
+        json={"name": "Tenant Snapshot Regression"},
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["tenant"]["name"] == "Tenant Snapshot Regression"
+    assert payload["tenant"]["status"] == "ACTIVE"
+    assert "trace_id" in payload
+
+
 def test_validation_error_schema_for_missing_idempotency_key(client, db_session):
     run_seed(db_session)
     token = _login(client, "superadmin", "change-me")

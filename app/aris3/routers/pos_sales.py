@@ -19,6 +19,7 @@ from app.aris3.core.scope import (
     is_superadmin,
 )
 from app.aris3.db.models import (
+    EpcAssignment,
     PosCashDayClose,
     PosCashMovement,
     PosCashSession,
@@ -857,6 +858,7 @@ def create_sale(
     sale = PosSale(
         tenant_id=scoped_tenant_id,
         store_id=resolved_store_id,
+        sale_code=f"SALE-{uuid.uuid4().hex[:12].upper()}",
         status="DRAFT",
         total_due=float(totals["total_due"]),
         paid_total=float(totals["paid_total"]),
@@ -873,6 +875,7 @@ def create_sale(
         snapshot = _legacy_snapshot(line)
         lines.append(
             PosSaleLine(
+                sale_line_id=f"SL-{uuid.uuid4().hex[:12].upper()}",
                 sale_id=sale.id,
                 tenant_id=scoped_tenant_id,
                 line_type=line.line_type,
@@ -884,6 +887,13 @@ def create_sale(
                 var1_value=snapshot.var1_value,
                 var2_value=snapshot.var2_value,
                 epc=snapshot.epc,
+                item_uid=getattr(snapshot, "item_uid", None),
+                sku_snapshot=snapshot.sku,
+                description_snapshot=snapshot.description,
+                var1_snapshot=snapshot.var1_value,
+                var2_snapshot=snapshot.var2_value,
+                sale_price_snapshot=_legacy_unit_price(line) or Decimal("0.00"),
+                epc_at_sale=snapshot.epc,
                 location_code=snapshot.location_code,
                 pool=snapshot.pool,
                 status=snapshot.status,
@@ -1728,6 +1738,23 @@ def sale_action(
                         details={"message": "insufficient RFID stock for exchange EPC line", "epc": snapshot.epc},
                     )
                 stock_row.status = "SOLD"
+                stock_row.item_status = "SOLD"
+                stock_row.epc_status = "AVAILABLE"
+                if stock_row.epc:
+                    assignment = db.execute(
+                        select(EpcAssignment).where(
+                            EpcAssignment.tenant_id == sale.tenant_id,
+                            EpcAssignment.item_uid == stock_row.item_uid,
+                            EpcAssignment.epc == stock_row.epc,
+                            EpcAssignment.active.is_(True),
+                        )
+                    ).scalars().first()
+                    if assignment:
+                        assignment.active = False
+                        assignment.released_at = datetime.utcnow()
+                        assignment.last_release_reason = "SOLD"
+                        assignment.status = "RELEASED"
+                        assignment.updated_at = datetime.utcnow()
                 stock_row.location_is_vendible = False
                 stock_row.updated_at = now
             elif line.line_type == "SKU":
@@ -1757,6 +1784,7 @@ def sale_action(
                     )
                 for stock_row in stock_rows:
                     stock_row.status = "SOLD"
+                    stock_row.item_status = "SOLD"
                     stock_row.location_is_vendible = False
                     stock_row.updated_at = now
 
@@ -1993,6 +2021,23 @@ def sale_action(
                     details={"message": "insufficient RFID stock for EPC line", "epc": line.epc},
                 )
             stock_row.status = "SOLD"
+            stock_row.item_status = "SOLD"
+            stock_row.epc_status = "AVAILABLE"
+            if stock_row.epc:
+                assignment = db.execute(
+                    select(EpcAssignment).where(
+                        EpcAssignment.tenant_id == sale.tenant_id,
+                        EpcAssignment.item_uid == stock_row.item_uid,
+                        EpcAssignment.epc == stock_row.epc,
+                        EpcAssignment.active.is_(True),
+                    )
+                ).scalars().first()
+                if assignment:
+                    assignment.active = False
+                    assignment.released_at = datetime.utcnow()
+                    assignment.last_release_reason = "SOLD"
+                    assignment.status = "RELEASED"
+                    assignment.updated_at = datetime.utcnow()
             stock_row.location_is_vendible = False
             stock_row.updated_at = now
         elif line.line_type == "SKU":
@@ -2022,6 +2067,7 @@ def sale_action(
                 )
             for stock_row in stock_rows:
                 stock_row.status = "SOLD"
+                stock_row.item_status = "SOLD"
                 stock_row.location_is_vendible = False
                 stock_row.updated_at = now
 

@@ -8,6 +8,7 @@ from sqlalchemy import delete, func, or_, select
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.models import (
     AuditEvent,
+    EpcAssignment,
     ExportRecord,
     IdempotencyRecord,
     PosCashDayClose,
@@ -17,7 +18,10 @@ from app.aris3.db.models import (
     PosReturnEvent,
     PosSale,
     PosSaleLine,
+    PreloadLine,
+    PreloadSession,
     PurgeLock,
+    SkuImage,
     StockItem,
     Store,
     Tenant,
@@ -235,6 +239,9 @@ class ContentWipeService:
         deleted_counts["cash_movements"] = int(self.db.execute(delete(PosCashMovement).where(PosCashMovement.store_id == store_id)).rowcount or 0)
         deleted_counts["cash_sessions"] = int(self.db.execute(delete(PosCashSession).where(PosCashSession.store_id == store_id)).rowcount or 0)
         deleted_counts["exports"] = int(self.db.execute(delete(ExportRecord).where(ExportRecord.store_id == store_id)).rowcount or 0)
+        deleted_counts["preload_lines"] = int(self.db.execute(delete(PreloadLine).where(PreloadLine.store_id == store_id)).rowcount or 0)
+        deleted_counts["preload_sessions"] = int(self.db.execute(delete(PreloadSession).where(PreloadSession.store_id == store_id)).rowcount or 0)
+        deleted_counts["epc_assignments"] = int(self.db.execute(delete(EpcAssignment).where(EpcAssignment.store_id == store_id)).rowcount or 0)
         deleted_counts["stock_items"] = int(self.db.execute(delete(StockItem).where(StockItem.store_id == store_id)).rowcount or 0)
         return deleted_counts
 
@@ -252,6 +259,10 @@ class ContentWipeService:
             ("cash_sessions", PosCashSession),
             ("cash_day_closes", PosCashDayClose),
             ("exports", ExportRecord),
+            ("sku_images", SkuImage),
+            ("preload_lines", PreloadLine),
+            ("preload_sessions", PreloadSession),
+            ("epc_assignments", EpcAssignment),
             ("stock_items", StockItem),
         ):
             deleted_counts[name] = int(self.db.execute(delete(model).where(model.tenant_id == tenant_id)).rowcount or 0)
@@ -273,6 +284,9 @@ class ContentWipeService:
             "cash_sessions": self._count(select(func.count()).select_from(PosCashSession).where(PosCashSession.store_id == store_id)),
             "cash_day_closes": self._count(select(func.count()).select_from(PosCashDayClose).where(PosCashDayClose.store_id == store_id)),
             "exports": self._count(select(func.count()).select_from(ExportRecord).where(ExportRecord.store_id == store_id)),
+            "preload_lines": self._count(select(func.count()).select_from(PreloadLine).where(PreloadLine.store_id == store_id)),
+            "preload_sessions": self._count(select(func.count()).select_from(PreloadSession).where(PreloadSession.store_id == store_id)),
+            "epc_assignments": self._count(select(func.count()).select_from(EpcAssignment).where(EpcAssignment.store_id == store_id)),
             "stock_items": self._count(select(func.count()).select_from(StockItem).where(StockItem.store_id == store_id)),
         }
 
@@ -289,6 +303,10 @@ class ContentWipeService:
             "cash_sessions": self._count(select(func.count()).select_from(PosCashSession).where(PosCashSession.tenant_id == tenant_id)),
             "cash_day_closes": self._count(select(func.count()).select_from(PosCashDayClose).where(PosCashDayClose.tenant_id == tenant_id)),
             "exports": self._count(select(func.count()).select_from(ExportRecord).where(ExportRecord.tenant_id == tenant_id)),
+            "sku_images": self._count(select(func.count()).select_from(SkuImage).where(SkuImage.tenant_id == tenant_id)),
+            "preload_lines": self._count(select(func.count()).select_from(PreloadLine).where(PreloadLine.tenant_id == tenant_id)),
+            "preload_sessions": self._count(select(func.count()).select_from(PreloadSession).where(PreloadSession.tenant_id == tenant_id)),
+            "epc_assignments": self._count(select(func.count()).select_from(EpcAssignment).where(EpcAssignment.tenant_id == tenant_id)),
             "stock_items": self._count(select(func.count()).select_from(StockItem).where(StockItem.tenant_id == tenant_id)),
         }
 

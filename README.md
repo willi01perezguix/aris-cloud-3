@@ -35,6 +35,22 @@ uvicorn app.main:app --reload
 alembic upgrade head
 ```
 
+## Deploy backend API (production-safe)
+
+Use the release entrypoint below so the deploy fails fast when migrations are not aligned with
+the runtime build:
+
+```bash
+DATABASE_URL=postgresql+psycopg://... EXPECTED_ALEMBIC_HEAD=0026_s9_inventory_intake_workflow \
+  ./scripts/release/deploy_backend_api.sh
+```
+
+The script enforces:
+- `DATABASE_URL` must be set (and non-sqlite for production paths).
+- Single Alembic head in the checked-out code.
+- Expected head revision matches the checked-out migration chain.
+- `alembic upgrade head` completes before API startup.
+
 ## Tests
 
 ```bash

@@ -149,3 +149,43 @@ def test_epc_release_and_reuse(client, db_session):
 
     active = db_session.query(EpcAssignment).filter(EpcAssignment.tenant_id == tenant.id, EpcAssignment.epc == epc, EpcAssignment.active.is_(True)).all()
     assert len(active) == 1
+
+
+def test_epc_release_invalid_attempt_returns_conflict(client, db_session):
+    run_seed(db_session)
+    _tenant, _store, user = _create_tenant_user(db_session, "preload-release-invalid")
+    token = _login(client, user.username, "Pass1234!")
+
+    release = client.post(
+        "/aris3/stock/epc/release",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": "222222222222222222222222", "item_uid": str(uuid.uuid4()), "reason": "MANUAL"},
+    )
+    assert release.status_code == 409
+    assert release.json()["code"] == "BUSINESS_CONFLICT"
+
+
+def test_resolve_issue_requires_item_in_issue_state(client, db_session):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "resolve-issue-conflict")
+    token = _login(client, user.username, "Pass1234!")
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "test.xlsx",
+            "lines": [{"sku": "SKU-1", "description": "Jacket", "sale_price": "100.00", "qty": 1}],
+        },
+    )
+    line = create.json()["lines"][0]
+    client.post(f"/aris3/stock/preload-lines/{line['id']}/save", headers={"Authorization": f"Bearer {token}"})
+
+    resolve = client.post(
+        f"/aris3/stock/items/{line['item_uid']}/resolve-issue",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"item_status": "ACTIVE", "observation": "check"},
+    )
+    assert resolve.status_code == 409
+    assert resolve.json()["code"] == "BUSINESS_CONFLICT"

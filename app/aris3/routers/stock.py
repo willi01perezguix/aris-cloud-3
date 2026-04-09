@@ -33,8 +33,11 @@ from app.aris3.schemas.stock import (
     StockMigrateResponse,
     EpcAssignmentHistoryResponse,
     EpcReleaseRequest,
+    EpcReleaseResponse,
     ItemIssueRequest,
+    ItemIssueResolveResponse,
     ItemIssueResolveRequest,
+    ItemIssueResponse,
     PendingEpcAssignRequest,
     PreloadLinePatchRequest,
     PreloadLineResponse,
@@ -47,6 +50,7 @@ from app.aris3.schemas.stock import (
     StockQueryTotals,
     StockRow,
 )
+from app.aris3.schemas.errors import ApiErrorResponse
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
 
@@ -57,6 +61,13 @@ _EPC_PATTERN = re.compile(r"^[0-9A-F]{24}$")
 _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_IMPORT_POOL = "BODEGA"
 _DEFAULT_IMPORT_LOCATION = "WH-MAIN"
+_IDEMPOTENCY_HEADER_PARAMETER = {
+    "name": "Idempotency-Key",
+    "in": "header",
+    "required": False,
+    "schema": {"type": "string"},
+    "description": "Optional key for safe client retries of mutating requests.",
+}
 
 
 def _apply_import_defaults(line) -> None:
@@ -1092,7 +1103,12 @@ def _preload_line_response(line: PreloadLine) -> PreloadLineResponse:
     )
 
 
-@router.post("/aris3/stock/preload-sessions", response_model=PreloadSessionResponse, status_code=201)
+@router.post(
+    "/aris3/stock/preload-sessions",
+    response_model=PreloadSessionResponse,
+    status_code=201,
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def create_preload_session(payload: PreloadSessionCreateRequest, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     _require_tenant_admin(token_data)
@@ -1141,7 +1157,17 @@ def _assert_epc_available(db, *, tenant_id: str, epc: str):
         raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "epc already active on another in-stock item", "epc": epc, "assigned_item": {"item_uid": str(assignment.item_uid), "sku": item.sku, "description": item.description, "store_id": str(item.store_id) if item.store_id else None, "item_status": item.item_status or item.status}})
 
 
-@router.post("/aris3/stock/preload-lines/{line_id}/save", response_model=PreloadLineResponse)
+@router.post(
+    "/aris3/stock/preload-lines/{line_id}/save",
+    response_model=PreloadLineResponse,
+    responses={
+        409: {
+            "model": ApiErrorResponse,
+            "description": "BUSINESS_CONFLICT when EPC is already assigned to another active in-stock item.",
+        }
+    },
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     line = db.get(PreloadLine, line_id)
@@ -1184,7 +1210,17 @@ def list_pending_epc(tenant_id: str | None = None, token_data=Depends(get_curren
     return [_preload_line_response(row) for row in rows]
 
 
-@router.post("/aris3/stock/pending-epc/{line_id}/assign-epc", response_model=PreloadLineResponse)
+@router.post(
+    "/aris3/stock/pending-epc/{line_id}/assign-epc",
+    response_model=PreloadLineResponse,
+    responses={
+        409: {
+            "model": ApiErrorResponse,
+            "description": "BUSINESS_CONFLICT when EPC is already assigned to another active in-stock item.",
+        }
+    },
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     line = db.get(PreloadLine, line_id)
@@ -1218,12 +1254,25 @@ def epc_history(epc: str, tenant_id: str | None = None, token_data=Depends(get_c
     return EpcAssignmentHistoryResponse(epc=epc, current=None if current is None else {"item_uid": str(current.item_uid), "assigned_at": current.assigned_at, "status": current.status}, history=[{"item_uid": str(r.item_uid), "assigned_at": r.assigned_at, "released_at": r.released_at, "active": r.active, "last_release_reason": r.last_release_reason, "status": r.status} for r in rows])
 
 
-@router.post("/aris3/stock/epc/release")
+@router.post(
+    "/aris3/stock/epc/release",
+    response_model=EpcReleaseResponse,
+    responses={
+        409: {
+            "model": ApiErrorResponse,
+            "description": "BUSINESS_CONFLICT for invalid EPC release attempts.",
+        }
+    },
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def release_epc(payload: EpcReleaseRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     assignment = db.execute(select(EpcAssignment).where(EpcAssignment.tenant_id == scoped_tenant_id, EpcAssignment.epc == payload.epc, EpcAssignment.item_uid == payload.item_uid, EpcAssignment.active.is_(True))).scalars().first()
     if not assignment:
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "active assignment not found", "epc": payload.epc})
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={"message": "invalid EPC release attempt: active assignment not found", "epc": payload.epc},
+        )
     assignment.active = False
     assignment.released_at = datetime.utcnow()
     assignment.last_release_reason = payload.reason
@@ -1245,7 +1294,12 @@ def list_sku_images(sku: str, tenant_id: str | None = None, token_data=Depends(g
     return [SkuImageResponse(id=str(r.id), tenant_id=str(r.tenant_id), sku=r.sku, asset_id=str(r.asset_id), file_hash=r.file_hash, is_primary=r.is_primary, sort_order=r.sort_order, created_at=r.created_at, updated_at=r.updated_at) for r in rows]
 
 
-@router.post("/aris3/catalog/sku/{sku}/images", response_model=list[SkuImageResponse], status_code=201)
+@router.post(
+    "/aris3/catalog/sku/{sku}/images",
+    response_model=list[SkuImageResponse],
+    status_code=201,
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def upsert_sku_images(sku: str, payload: SkuImageUpsertRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     now = datetime.utcnow()
@@ -1265,7 +1319,11 @@ def upsert_sku_images(sku: str, payload: SkuImageUpsertRequest, tenant_id: str |
     return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
 
 
-@router.put("/aris3/catalog/sku/{sku}/images/{asset_id}/primary", response_model=list[SkuImageResponse])
+@router.put(
+    "/aris3/catalog/sku/{sku}/images/{asset_id}/primary",
+    response_model=list[SkuImageResponse],
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def set_primary_sku_image(sku: str, asset_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     rows = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku)).scalars().all()
@@ -1276,12 +1334,27 @@ def set_primary_sku_image(sku: str, asset_id: str, tenant_id: str | None = None,
     return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
 
 
-@router.post("/aris3/stock/items/{item_uid}/mark-issue")
+@router.post(
+    "/aris3/stock/items/{item_uid}/mark-issue",
+    response_model=ItemIssueResponse,
+    responses={
+        409: {
+            "model": ApiErrorResponse,
+            "description": "BUSINESS_CONFLICT for invalid issue/disposition state transitions.",
+        }
+    },
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == item_uid)).scalars().first()
     if not item:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "item not found", "item_uid": item_uid})
+    if item.item_status == "SOLD":
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={"message": "invalid state transition: sold items cannot be marked with issue disposition", "item_uid": item_uid},
+        )
     item.issue_state = payload.issue_state
     item.item_status = payload.issue_state
     item.observation = payload.observation
@@ -1302,12 +1375,27 @@ def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None =
     return {"item_uid": item_uid, "item_status": item.item_status, "issue_state": item.issue_state, "epc_status": item.epc_status}
 
 
-@router.post("/aris3/stock/items/{item_uid}/resolve-issue")
+@router.post(
+    "/aris3/stock/items/{item_uid}/resolve-issue",
+    response_model=ItemIssueResolveResponse,
+    responses={
+        409: {
+            "model": ApiErrorResponse,
+            "description": "BUSINESS_CONFLICT for invalid issue/disposition state transitions.",
+        }
+    },
+    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
+)
 def resolve_issue(item_uid: str, payload: ItemIssueResolveRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == item_uid)).scalars().first()
     if not item:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "item not found", "item_uid": item_uid})
+    if not item.issue_state:
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={"message": "invalid state transition: item is not currently in issue state", "item_uid": item_uid},
+        )
     item.item_status = payload.item_status
     item.issue_state = None
     item.observation = payload.observation

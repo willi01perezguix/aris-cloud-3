@@ -440,6 +440,13 @@ class EpcReleaseRequest(BaseModel):
     reason: str
 
 
+class EpcReleaseResponse(BaseModel):
+    released: bool
+    epc: str
+    item_uid: str
+    reason: str
+
+
 class SkuImageUpsertRequest(BaseModel):
     asset_id: UUID
     mode: Literal["use_existing", "replace", "add", "blank"] = "add"
@@ -470,3 +477,16 @@ class ItemIssueRequest(BaseModel):
 class ItemIssueResolveRequest(BaseModel):
     item_status: str
     observation: str | None = None
+
+
+class ItemIssueResponse(BaseModel):
+    item_uid: str
+    item_status: str
+    issue_state: str | None
+    epc_status: str
+
+
+class ItemIssueResolveResponse(BaseModel):
+    item_uid: str
+    item_status: str
+    issue_state: str | None

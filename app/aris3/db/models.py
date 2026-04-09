@@ -102,6 +102,7 @@ class StockItem(Base):
     __tablename__ = "stock_items"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    item_uid: Mapped[uuid.UUID] = mapped_column(GUID(), default=uuid.uuid4, nullable=False, index=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
     store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), index=True, nullable=True)
     sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -112,6 +113,11 @@ class StockItem(Base):
     location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    item_status: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDING")
+    epc_status: Mapped[str] = mapped_column(String(50), nullable=False, default="AVAILABLE")
+    observation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    print_status: Mapped[str] = mapped_column(String(50), nullable=False, default="NOT_REQUESTED")
+    issue_state: Mapped[str | None] = mapped_column(String(50), nullable=True)
     location_is_vendible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     image_asset_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -124,7 +130,96 @@ class StockItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    __table_args__ = (UniqueConstraint("tenant_id", "epc", name="uq_stock_items_tenant_epc"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "epc", name="uq_stock_items_tenant_epc"),
+        UniqueConstraint("tenant_id", "item_uid", name="uq_stock_items_tenant_item_uid"),
+    )
+
+
+class EpcAssignment(Base):
+    __tablename__ = "epc_assignments"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), nullable=True, index=True)
+    epc: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    item_uid: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False, index=True)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    last_release_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="ASSIGNED")
+    sale_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("pos_sale_lines.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_epc_assignments_tenant_epc_active", "tenant_id", "epc", "active"),
+    )
+
+
+class SkuImage(Base):
+    __tablename__ = "sku_images"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    sku: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    file_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "sku", "asset_id", name="uq_sku_images_tenant_sku_asset"),
+    )
+
+
+class PreloadSession(Base):
+    __tablename__ = "preload_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), nullable=True, index=True)
+    source_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="ACTIVE")
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PreloadLine(Base):
+    __tablename__ = "preload_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    preload_session_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("preload_sessions.id"), nullable=False, index=True)
+    item_uid: Mapped[uuid.UUID] = mapped_column(GUID(), default=uuid.uuid4, nullable=False, index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), nullable=True, index=True)
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    epc: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    var2_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vendible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    cost_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    suggested_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    sale_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    item_status: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDING")
+    epc_status: Mapped[str] = mapped_column(String(50), nullable=False, default="AVAILABLE")
+    observation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="blank")
+    image_asset_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    print_status: Mapped[str] = mapped_column(String(50), nullable=False, default="NOT_REQUESTED")
+    source_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_row_number: Mapped[int | None] = mapped_column(nullable=True)
+    lifecycle_state: Mapped[str] = mapped_column(String(50), nullable=False, default="STAGING")
+    saved_stock_item_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stock_items.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Transfer(Base):
@@ -400,6 +495,7 @@ class PosSale(Base):
     balance_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
     change_due: Mapped[float] = mapped_column(nullable=False, default=0.0)
     receipt_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sale_code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     checked_out_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
@@ -419,6 +515,7 @@ class PosSaleLine(Base):
     __tablename__ = "pos_sale_lines"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    sale_line_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     sale_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
     line_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -430,6 +527,13 @@ class PosSaleLine(Base):
     var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
     var2_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
     epc: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    item_uid: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
+    sku_snapshot: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    var1_snapshot: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    var2_snapshot: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sale_price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    epc_at_sale: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)

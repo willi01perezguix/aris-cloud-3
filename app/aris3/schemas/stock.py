@@ -343,3 +343,130 @@ class StockActionResponse(BaseModel):
     action: str
     processed: int
     trace_id: str
+
+
+class PreloadLineInput(BaseModel):
+    sku: str | None = None
+    epc: str | None = None
+    description: str | None = None
+    var1_value: str | None = None
+    var2_value: str | None = None
+    pool: str | None = None
+    location_code: str | None = None
+    vendible: bool = True
+    cost_price: MoneyValue | None = None
+    suggested_price: MoneyValue | None = None
+    sale_price: MoneyValue | None = None
+    observation: str | None = None
+    image_mode: Literal["existing", "replace", "add", "blank"] = "blank"
+    image_asset_id: UUID | None = None
+    source_row_number: int | None = None
+    qty: int = 1
+
+
+class PreloadSessionCreateRequest(BaseModel):
+    tenant_id: str | None = None
+    store_id: str | None = None
+    source_file_name: str | None = None
+    lines: list[PreloadLineInput]
+
+
+class PreloadLineResponse(BaseModel):
+    id: str
+    preload_session_id: str
+    item_uid: str
+    tenant_id: str
+    store_id: str | None
+    sku: str | None
+    epc: str | None
+    description: str | None
+    var1_value: str | None
+    var2_value: str | None
+    pool: str | None
+    location_code: str | None
+    vendible: bool
+    cost_price: MoneyValue | None = None
+    suggested_price: MoneyValue | None = None
+    sale_price: MoneyValue | None = None
+    item_status: str
+    epc_status: str
+    observation: str | None
+    image_mode: str
+    image_asset_id: str | None
+    print_status: str
+    source_file_name: str | None
+    source_row_number: int | None
+    lifecycle_state: str
+    saved_stock_item_id: str | None
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class PreloadSessionResponse(BaseModel):
+    id: str
+    tenant_id: str
+    store_id: str | None
+    source_file_name: str | None
+    status: str
+    created_at: datetime
+    updated_at: datetime | None
+    lines: list[PreloadLineResponse]
+
+
+class PreloadLinePatchRequest(BaseModel):
+    sale_price: MoneyValue | None = None
+    epc: str | None = None
+    pool: str | None = None
+    location_code: str | None = None
+    vendible: bool | None = None
+    observation: str | None = None
+    image_mode: Literal["existing", "replace", "add", "blank"] | None = None
+    image_asset_id: UUID | None = None
+
+
+class PendingEpcAssignRequest(BaseModel):
+    epc: str
+
+
+class EpcAssignmentHistoryResponse(BaseModel):
+    epc: str
+    current: dict | None
+    history: list[dict]
+
+
+class EpcReleaseRequest(BaseModel):
+    epc: str
+    item_uid: str
+    reason: str
+
+
+class SkuImageUpsertRequest(BaseModel):
+    asset_id: UUID
+    mode: Literal["use_existing", "replace", "add", "blank"] = "add"
+    file_hash: str | None = None
+
+
+class SkuImageResponse(BaseModel):
+    id: str
+    tenant_id: str
+    sku: str
+    asset_id: str
+    file_hash: str | None
+    is_primary: bool
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class ItemIssueRequest(BaseModel):
+    issue_state: Literal["DAMAGED", "STOLEN", "DONATED", "LOST", "ADDED_BY_ERROR", "REVIEW", "WRITE_OFF_CONFIRMED"]
+    release_epc: bool
+    release_reason: str | None = None
+    keep_epc_assigned: bool = False
+    special_permission_token: str | None = None
+    observation: str | None = None
+
+
+class ItemIssueResolveRequest(BaseModel):
+    item_status: str
+    observation: str | None = None

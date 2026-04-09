@@ -15,7 +15,7 @@ from app.aris3.core.deps import get_current_token_data, require_active_user, req
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import can_write_stock_or_assets, is_superadmin
 from app.aris3.db.session import get_db
-from app.aris3.db.models import StockItem, Store
+from app.aris3.db.models import EpcAssignment, PreloadLine, PreloadSession, SkuImage, StockItem, Store
 from app.aris3.repos.stock import StockQueryFilters, StockRepository
 from app.aris3.schemas.stock import (
     StockImportEpcRequest,
@@ -31,6 +31,17 @@ from app.aris3.schemas.stock import (
     StockActionWriteOffPayload,
     StockMigrateRequest,
     StockMigrateResponse,
+    EpcAssignmentHistoryResponse,
+    EpcReleaseRequest,
+    ItemIssueRequest,
+    ItemIssueResolveRequest,
+    PendingEpcAssignRequest,
+    PreloadLinePatchRequest,
+    PreloadLineResponse,
+    PreloadSessionCreateRequest,
+    PreloadSessionResponse,
+    SkuImageResponse,
+    SkuImageUpsertRequest,
     StockQueryMeta,
     StockQueryResponse,
     StockQueryTotals,
@@ -1066,3 +1077,240 @@ def stock_actions(
         )
     )
     return response
+
+
+def _preload_line_response(line: PreloadLine) -> PreloadLineResponse:
+    return PreloadLineResponse(
+        id=str(line.id), preload_session_id=str(line.preload_session_id), item_uid=str(line.item_uid), tenant_id=str(line.tenant_id),
+        store_id=str(line.store_id) if line.store_id else None, sku=line.sku, epc=line.epc, description=line.description,
+        var1_value=line.var1_value, var2_value=line.var2_value, pool=line.pool, location_code=line.location_code,
+        vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price,
+        item_status=line.item_status, epc_status=line.epc_status, observation=line.observation, image_mode=line.image_mode,
+        image_asset_id=str(line.image_asset_id) if line.image_asset_id else None, print_status=line.print_status,
+        source_file_name=line.source_file_name, source_row_number=line.source_row_number, lifecycle_state=line.lifecycle_state,
+        saved_stock_item_id=str(line.saved_stock_item_id) if line.saved_stock_item_id else None, created_at=line.created_at, updated_at=line.updated_at,
+    )
+
+
+@router.post("/aris3/stock/preload-sessions", response_model=PreloadSessionResponse, status_code=201)
+def create_preload_session(payload: PreloadSessionCreateRequest, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    _require_tenant_admin(token_data)
+    now = datetime.utcnow()
+    session = PreloadSession(tenant_id=scoped_tenant_id, store_id=payload.store_id, source_file_name=payload.source_file_name, created_by_user_id=token_data.sub, created_at=now, updated_at=now)
+    db.add(session)
+    db.flush()
+    for row in payload.lines:
+        for _ in range(max(1, row.qty)):
+            db.add(PreloadLine(preload_session_id=session.id, tenant_id=scoped_tenant_id, store_id=payload.store_id, sku=row.sku, epc=_normalize_epc_optional(row.epc), description=row.description, var1_value=row.var1_value, var2_value=row.var2_value, pool=row.pool, location_code=row.location_code, vendible=row.vendible, cost_price=row.cost_price, suggested_price=row.suggested_price, sale_price=row.sale_price, item_status="PENDING", epc_status="AVAILABLE", observation=row.observation, image_mode=row.image_mode, image_asset_id=row.image_asset_id, source_file_name=payload.source_file_name, source_row_number=row.source_row_number, lifecycle_state="STAGING", created_at=now, updated_at=now))
+    db.commit()
+    lines = db.execute(select(PreloadLine).where(PreloadLine.preload_session_id == session.id).order_by(PreloadLine.created_at)).scalars().all()
+    return PreloadSessionResponse(id=str(session.id), tenant_id=str(session.tenant_id), store_id=str(session.store_id) if session.store_id else None, source_file_name=session.source_file_name, status=session.status, created_at=session.created_at, updated_at=session.updated_at, lines=[_preload_line_response(line) for line in lines])
+
+
+@router.get("/aris3/stock/preload-sessions/{session_id}", response_model=PreloadSessionResponse)
+def get_preload_session(session_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    session = db.get(PreloadSession, session_id)
+    if not session or str(session.tenant_id) != scoped_tenant_id:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload session not found", "session_id": session_id})
+    lines = db.execute(select(PreloadLine).where(PreloadLine.preload_session_id == session.id).order_by(PreloadLine.created_at)).scalars().all()
+    return PreloadSessionResponse(id=str(session.id), tenant_id=str(session.tenant_id), store_id=str(session.store_id) if session.store_id else None, source_file_name=session.source_file_name, status=session.status, created_at=session.created_at, updated_at=session.updated_at, lines=[_preload_line_response(line) for line in lines])
+
+
+@router.patch("/aris3/stock/preload-lines/{line_id}", response_model=PreloadLineResponse)
+def patch_preload_line(line_id: str, payload: PreloadLinePatchRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    line = db.get(PreloadLine, line_id)
+    if not line or str(line.tenant_id) != scoped_tenant_id:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
+    for field in ("sale_price", "epc", "pool", "location_code", "vendible", "observation", "image_mode", "image_asset_id"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(line, field, value)
+    line.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(line)
+    return _preload_line_response(line)
+
+
+def _assert_epc_available(db, *, tenant_id: str, epc: str):
+    conflict = db.execute(select(EpcAssignment, StockItem).join(StockItem, (StockItem.item_uid == EpcAssignment.item_uid) & (StockItem.tenant_id == EpcAssignment.tenant_id)).where(EpcAssignment.tenant_id == tenant_id, EpcAssignment.epc == epc, EpcAssignment.active.is_(True))).first()
+    if conflict:
+        assignment, item = conflict
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "epc already active on another in-stock item", "epc": epc, "assigned_item": {"item_uid": str(assignment.item_uid), "sku": item.sku, "description": item.description, "store_id": str(item.store_id) if item.store_id else None, "item_status": item.item_status or item.status}})
+
+
+@router.post("/aris3/stock/preload-lines/{line_id}/save", response_model=PreloadLineResponse)
+def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    line = db.get(PreloadLine, line_id)
+    if not line or str(line.tenant_id) != scoped_tenant_id:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
+    if line.sale_price is None:
+        line.lifecycle_state = "PENDING_PRICE"
+        line.updated_at = datetime.utcnow()
+        db.commit()
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale_price is required"})
+
+    now = datetime.utcnow()
+    if not line.epc:
+        stock = StockItem(tenant_id=scoped_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=None, location_code=line.location_code, pool=line.pool, status="PENDING", item_status="PENDING_EPC", epc_status="AVAILABLE", observation=line.observation, print_status="NOT_REQUESTED", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
+        db.add(stock)
+        db.flush()
+        line.lifecycle_state = "PENDING_EPC"
+        line.item_status = "PENDING_EPC"
+        line.saved_stock_item_id = stock.id
+    else:
+        _assert_epc_available(db, tenant_id=scoped_tenant_id, epc=line.epc)
+        stock = StockItem(tenant_id=scoped_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=line.epc, location_code=line.location_code, pool=line.pool, status="RFID", item_status="ACTIVE", epc_status="ASSIGNED", observation=line.observation, print_status="READY_TO_PRINT", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
+        db.add(stock)
+        db.flush()
+        db.add(EpcAssignment(tenant_id=scoped_tenant_id, store_id=line.store_id, epc=line.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
+        line.lifecycle_state = "SAVED_EPC_FINAL"
+        line.item_status = "ACTIVE"
+        line.epc_status = "ASSIGNED"
+        line.saved_stock_item_id = stock.id
+    line.updated_at = now
+    db.commit()
+    db.refresh(line)
+    return _preload_line_response(line)
+
+
+@router.get("/aris3/stock/pending-epc", response_model=list[PreloadLineResponse])
+def list_pending_epc(tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    rows = db.execute(select(PreloadLine).where(PreloadLine.tenant_id == scoped_tenant_id, PreloadLine.lifecycle_state == "PENDING_EPC")).scalars().all()
+    return [_preload_line_response(row) for row in rows]
+
+
+@router.post("/aris3/stock/pending-epc/{line_id}/assign-epc", response_model=PreloadLineResponse)
+def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    line = db.get(PreloadLine, line_id)
+    if not line or str(line.tenant_id) != scoped_tenant_id:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
+    _assert_epc_available(db, tenant_id=scoped_tenant_id, epc=payload.epc)
+    now = datetime.utcnow()
+    line.epc = payload.epc
+    line.epc_status = "ASSIGNED"
+    line.item_status = "ACTIVE"
+    line.lifecycle_state = "SAVED_EPC_FINAL"
+    stock = db.get(StockItem, line.saved_stock_item_id) if line.saved_stock_item_id else None
+    if stock:
+        stock.epc = payload.epc
+        stock.status = "RFID"
+        stock.item_status = "ACTIVE"
+        stock.epc_status = "ASSIGNED"
+        stock.updated_at = now
+    db.add(EpcAssignment(tenant_id=scoped_tenant_id, store_id=line.store_id, epc=payload.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
+    line.updated_at = now
+    db.commit()
+    db.refresh(line)
+    return _preload_line_response(line)
+
+
+@router.get("/aris3/stock/epc/{epc}/history", response_model=EpcAssignmentHistoryResponse)
+def epc_history(epc: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    rows = db.execute(select(EpcAssignment).where(EpcAssignment.tenant_id == scoped_tenant_id, EpcAssignment.epc == epc).order_by(EpcAssignment.assigned_at.desc())).scalars().all()
+    current = next((r for r in rows if r.active), None)
+    return EpcAssignmentHistoryResponse(epc=epc, current=None if current is None else {"item_uid": str(current.item_uid), "assigned_at": current.assigned_at, "status": current.status}, history=[{"item_uid": str(r.item_uid), "assigned_at": r.assigned_at, "released_at": r.released_at, "active": r.active, "last_release_reason": r.last_release_reason, "status": r.status} for r in rows])
+
+
+@router.post("/aris3/stock/epc/release")
+def release_epc(payload: EpcReleaseRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    assignment = db.execute(select(EpcAssignment).where(EpcAssignment.tenant_id == scoped_tenant_id, EpcAssignment.epc == payload.epc, EpcAssignment.item_uid == payload.item_uid, EpcAssignment.active.is_(True))).scalars().first()
+    if not assignment:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "active assignment not found", "epc": payload.epc})
+    assignment.active = False
+    assignment.released_at = datetime.utcnow()
+    assignment.last_release_reason = payload.reason
+    assignment.status = "RELEASED"
+    assignment.updated_at = datetime.utcnow()
+    stock_item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == payload.item_uid)).scalars().first()
+    if stock_item:
+        stock_item.epc_status = "AVAILABLE"
+        stock_item.epc = None
+        stock_item.updated_at = datetime.utcnow()
+    db.commit()
+    return {"released": True, "epc": payload.epc, "item_uid": payload.item_uid, "reason": payload.reason}
+
+
+@router.get("/aris3/catalog/sku/{sku}/images", response_model=list[SkuImageResponse])
+def list_sku_images(sku: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    rows = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku).order_by(SkuImage.is_primary.desc(), SkuImage.sort_order.asc())).scalars().all()
+    return [SkuImageResponse(id=str(r.id), tenant_id=str(r.tenant_id), sku=r.sku, asset_id=str(r.asset_id), file_hash=r.file_hash, is_primary=r.is_primary, sort_order=r.sort_order, created_at=r.created_at, updated_at=r.updated_at) for r in rows]
+
+
+@router.post("/aris3/catalog/sku/{sku}/images", response_model=list[SkuImageResponse], status_code=201)
+def upsert_sku_images(sku: str, payload: SkuImageUpsertRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    now = datetime.utcnow()
+    if payload.mode == "blank":
+        return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+    if payload.file_hash:
+        existing_hash = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku, SkuImage.file_hash == payload.file_hash)).scalars().first()
+        if existing_hash:
+            return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+    if payload.mode == "replace":
+        for row in db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku)).scalars().all():
+            row.is_primary = False
+            row.updated_at = now
+    max_order = db.execute(select(SkuImage.sort_order).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku).order_by(SkuImage.sort_order.desc())).scalars().first() or 0
+    db.add(SkuImage(tenant_id=scoped_tenant_id, sku=sku, asset_id=payload.asset_id, file_hash=payload.file_hash, is_primary=payload.mode in {"replace", "use_existing"}, sort_order=max_order + 1, created_at=now, updated_at=now))
+    db.commit()
+    return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+
+
+@router.put("/aris3/catalog/sku/{sku}/images/{asset_id}/primary", response_model=list[SkuImageResponse])
+def set_primary_sku_image(sku: str, asset_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    rows = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku)).scalars().all()
+    for row in rows:
+        row.is_primary = str(row.asset_id) == asset_id
+        row.updated_at = datetime.utcnow()
+    db.commit()
+    return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+
+
+@router.post("/aris3/stock/items/{item_uid}/mark-issue")
+def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == item_uid)).scalars().first()
+    if not item:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "item not found", "item_uid": item_uid})
+    item.issue_state = payload.issue_state
+    item.item_status = payload.issue_state
+    item.observation = payload.observation
+    item.updated_at = datetime.utcnow()
+    if payload.release_epc and item.epc:
+        assignment = db.execute(select(EpcAssignment).where(EpcAssignment.tenant_id == scoped_tenant_id, EpcAssignment.epc == item.epc, EpcAssignment.item_uid == item.item_uid, EpcAssignment.active.is_(True))).scalars().first()
+        if assignment:
+            assignment.active = False
+            assignment.released_at = datetime.utcnow()
+            assignment.last_release_reason = payload.release_reason or payload.issue_state
+            assignment.status = "RELEASED"
+            assignment.updated_at = datetime.utcnow()
+        item.epc_status = "AVAILABLE"
+        if not payload.keep_epc_assigned:
+            item.epc = None
+            item.status = "PENDING"
+    db.commit()
+    return {"item_uid": item_uid, "item_status": item.item_status, "issue_state": item.issue_state, "epc_status": item.epc_status}
+
+
+@router.post("/aris3/stock/items/{item_uid}/resolve-issue")
+def resolve_issue(item_uid: str, payload: ItemIssueResolveRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == item_uid)).scalars().first()
+    if not item:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "item not found", "item_uid": item_uid})
+    item.item_status = payload.item_status
+    item.issue_state = None
+    item.observation = payload.observation
+    item.updated_at = datetime.utcnow()
+    db.commit()
+    return {"item_uid": item_uid, "item_status": item.item_status, "issue_state": item.issue_state}

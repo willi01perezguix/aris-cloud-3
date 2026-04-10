@@ -1,7 +1,7 @@
 """add base prices to stock items
 
 Revision ID: 0018_s8dx_stock_base_prices
-Revises: 0017_s4d6_tenant_store_user_hard
+Revises: 0017_s4d7_pos_returns_search
 Create Date: 2026-02-24 00:00:00.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "0018_s8dx_stock_base_prices"
-down_revision = "0017_s4d6_tenant_store_user_hard"
+down_revision = "0017_s4d7_pos_returns_search"
 branch_labels = None
 depends_on = None
 

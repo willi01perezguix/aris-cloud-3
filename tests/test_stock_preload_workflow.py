@@ -1,5 +1,7 @@
 import uuid
 
+from sqlalchemy.exc import ProgrammingError
+
 from app.aris3.routers import stock as stock_router
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import EpcAssignment, StockItem, Store, Tenant, User
@@ -392,3 +394,69 @@ def test_resolve_issue_requires_item_in_issue_state(client, db_session):
     )
     assert resolve.status_code == 409
     assert resolve.json()["code"] == "BUSINESS_CONFLICT"
+
+
+def test_assign_pending_epc_success_does_not_depend_on_refresh_query(client, db_session, monkeypatch):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "preload-assign-refresh-regression")
+    token = _login(client, user.username, "Pass1234!")
+    pending_epc = "ABCDEFABCDEFABCDEFABCAAA"
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "refresh-regression.xlsx",
+            "lines": [{"sku": "SKU-PENDING", "description": "Pending", "sale_price": "121.00", "qty": 1}],
+        },
+    )
+    line_pending = create.json()["lines"][0]["id"]
+    assert client.post(f"/aris3/stock/preload-lines/{line_pending}/save", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+    def _raise_refresh(*_args, **_kwargs):
+        raise ProgrammingError("SELECT preload_lines", {}, Exception("simulated post-commit refresh failure"))
+
+    monkeypatch.setattr(type(db_session), "refresh", _raise_refresh)
+
+    assign_new = client.post(
+        f"/aris3/stock/pending-epc/{line_pending}/assign-epc",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": pending_epc},
+    )
+
+    assert assign_new.status_code == 200
+    assert assign_new.json()["lifecycle_state"] == "SAVED_EPC_FINAL"
+
+    active = db_session.query(EpcAssignment).filter(
+        EpcAssignment.tenant_id == tenant.id,
+        EpcAssignment.epc == pending_epc,
+        EpcAssignment.active.is_(True),
+    ).all()
+    assert len(active) == 1
+
+
+def test_release_epc_works_with_string_item_uid_lookup(client, db_session):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "preload-release-item-uid-string")
+    token = _login(client, user.username, "Pass1234!")
+    epc = "333333333333333333333333"
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "release-string-item-uid.xlsx",
+            "lines": [{"sku": "SKU-1", "description": "Jacket", "sale_price": "100.00", "epc": epc, "qty": 1}],
+        },
+    )
+    line_1 = create.json()["lines"][0]
+    assert client.post(f"/aris3/stock/preload-lines/{line_1['id']}/save", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+    release = client.post(
+        "/aris3/stock/epc/release",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": epc, "item_uid": str(line_1["item_uid"]), "reason": "SOLD"},
+    )
+    assert release.status_code == 200

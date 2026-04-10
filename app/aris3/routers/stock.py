@@ -1150,7 +1150,7 @@ def patch_preload_line(line_id: str, payload: PreloadLinePatchRequest, tenant_id
     return _preload_line_response(line)
 
 
-def _assert_epc_available(db, *, tenant_id: str, epc: str):
+def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
     conflict = db.execute(select(EpcAssignment, StockItem).join(StockItem, (StockItem.item_uid == EpcAssignment.item_uid) & (StockItem.tenant_id == EpcAssignment.tenant_id)).where(EpcAssignment.tenant_id == tenant_id, EpcAssignment.epc == epc, EpcAssignment.active.is_(True))).first()
     if conflict:
         assignment, item = conflict
@@ -1173,26 +1173,24 @@ def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Dep
     line = db.get(PreloadLine, line_id)
     if not line or str(line.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
-    if line.sale_price is None:
-        line.lifecycle_state = "PENDING_PRICE"
-        line.updated_at = datetime.utcnow()
-        db.commit()
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale_price is required"})
+    if line.sale_price is None or line.sale_price <= 0:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale_price is required and must be greater than 0"})
 
     now = datetime.utcnow()
+    line_tenant_id = line.tenant_id
     if not line.epc:
-        stock = StockItem(tenant_id=scoped_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=None, location_code=line.location_code, pool=line.pool, status="PENDING", item_status="PENDING_EPC", epc_status="AVAILABLE", observation=line.observation, print_status="NOT_REQUESTED", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
+        stock = StockItem(tenant_id=line_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=None, location_code=line.location_code, pool=line.pool, status="PENDING", item_status="PENDING_EPC", epc_status="AVAILABLE", observation=line.observation, print_status="NOT_REQUESTED", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
         db.add(stock)
         db.flush()
         line.lifecycle_state = "PENDING_EPC"
         line.item_status = "PENDING_EPC"
         line.saved_stock_item_id = stock.id
     else:
-        _assert_epc_available(db, tenant_id=scoped_tenant_id, epc=line.epc)
-        stock = StockItem(tenant_id=scoped_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=line.epc, location_code=line.location_code, pool=line.pool, status="RFID", item_status="ACTIVE", epc_status="ASSIGNED", observation=line.observation, print_status="READY_TO_PRINT", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
+        _assert_epc_available(db, tenant_id=line_tenant_id, epc=line.epc)
+        stock = StockItem(tenant_id=line_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=line.epc, location_code=line.location_code, pool=line.pool, status="RFID", item_status="ACTIVE", epc_status="ASSIGNED", observation=line.observation, print_status="READY_TO_PRINT", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
         db.add(stock)
         db.flush()
-        db.add(EpcAssignment(tenant_id=scoped_tenant_id, store_id=line.store_id, epc=line.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
+        db.add(EpcAssignment(tenant_id=line_tenant_id, store_id=line.store_id, epc=line.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
         line.lifecycle_state = "SAVED_EPC_FINAL"
         line.item_status = "ACTIVE"
         line.epc_status = "ASSIGNED"
@@ -1226,7 +1224,7 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
     line = db.get(PreloadLine, line_id)
     if not line or str(line.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
-    _assert_epc_available(db, tenant_id=scoped_tenant_id, epc=payload.epc)
+    _assert_epc_available(db, tenant_id=line.tenant_id, epc=payload.epc)
     now = datetime.utcnow()
     line.epc = payload.epc
     line.epc_status = "ASSIGNED"
@@ -1239,7 +1237,7 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
         stock.item_status = "ACTIVE"
         stock.epc_status = "ASSIGNED"
         stock.updated_at = now
-    db.add(EpcAssignment(tenant_id=scoped_tenant_id, store_id=line.store_id, epc=payload.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
+    db.add(EpcAssignment(tenant_id=line.tenant_id, store_id=line.store_id, epc=payload.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
     line.updated_at = now
     db.commit()
     db.refresh(line)

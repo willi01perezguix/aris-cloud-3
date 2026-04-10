@@ -165,6 +165,8 @@ def test_assign_pending_epc_duplicate_returns_conflict_and_new_epc_succeeds(clie
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["code"] == "BUSINESS_CONFLICT"
+    assert duplicate.json()["details"]["message"] == "epc already active on another in-stock item"
+    assert duplicate.json()["details"]["epc"] == existing_epc
 
     assign_new = client.post(
         f"/aris3/stock/pending-epc/{line_pending}/assign-epc",
@@ -219,6 +221,8 @@ def test_epc_path_regression_save_with_epc_then_duplicate_and_new_assignment(cli
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["code"] == "BUSINESS_CONFLICT"
+    assert duplicate.json()["details"]["message"] == "epc already active on another in-stock item"
+    assert duplicate.json()["details"]["epc"] == first_epc
 
     assign_new = client.post(
         f"/aris3/stock/pending-epc/{line_2}/assign-epc",

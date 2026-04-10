@@ -1171,6 +1171,23 @@ def _raise_epc_conflict(epc: str, assignment: EpcAssignment, item: StockItem | N
     )
 
 
+def _raise_epc_conflict_from_stock(epc: str, item: StockItem) -> None:
+    raise AppError(
+        ErrorCatalog.BUSINESS_CONFLICT,
+        details={
+            "message": "epc already active on another in-stock item",
+            "epc": epc,
+            "assigned_item": {
+                "item_uid": str(item.item_uid),
+                "sku": item.sku,
+                "description": item.description,
+                "store_id": str(item.store_id) if item.store_id else None,
+                "item_status": item.item_status or item.status,
+            },
+        },
+    )
+
+
 def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
     assignment = db.execute(
         select(EpcAssignment).where(
@@ -1179,15 +1196,24 @@ def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
             EpcAssignment.active.is_(True),
         )
     ).scalar_one_or_none()
-    if assignment is None:
-        return
-    item = db.execute(
+    if assignment is not None:
+        item = db.execute(
+            select(StockItem).where(
+                StockItem.tenant_id == assignment.tenant_id,
+                StockItem.item_uid == assignment.item_uid,
+            )
+        ).scalar_one_or_none()
+        _raise_epc_conflict(epc, assignment, item)
+
+    stock_match = db.execute(
         select(StockItem).where(
-            StockItem.tenant_id == assignment.tenant_id,
-            StockItem.item_uid == assignment.item_uid,
+            StockItem.tenant_id == tenant_id,
+            StockItem.epc == epc,
+            StockItem.item_status == "ACTIVE",
         )
     ).scalar_one_or_none()
-    _raise_epc_conflict(epc, assignment, item)
+    if stock_match is not None:
+        _raise_epc_conflict_from_stock(epc, stock_match)
 
 
 def _commit_preload_epc_write(db, *, tenant_id: UUID, epc: str) -> None:
@@ -1210,6 +1236,15 @@ def _commit_preload_epc_write(db, *, tenant_id: UUID, epc: str) -> None:
                 )
             ).scalar_one_or_none()
             _raise_epc_conflict(epc, assignment, item)
+        stock_match = db.execute(
+            select(StockItem).where(
+                StockItem.tenant_id == tenant_id,
+                StockItem.epc == epc,
+                StockItem.item_status == "ACTIVE",
+            )
+        ).scalar_one_or_none()
+        if stock_match is not None:
+            _raise_epc_conflict_from_stock(epc, stock_match)
         raise
 
 

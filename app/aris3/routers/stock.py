@@ -1150,11 +1150,67 @@ def patch_preload_line(line_id: str, payload: PreloadLinePatchRequest, tenant_id
     return _preload_line_response(line)
 
 
+def _raise_epc_conflict(epc: str, assignment: EpcAssignment, item: StockItem | None) -> None:
+    assigned_item = {"item_uid": str(assignment.item_uid)}
+    if item is not None:
+        assigned_item.update(
+            {
+                "sku": item.sku,
+                "description": item.description,
+                "store_id": str(item.store_id) if item.store_id else None,
+                "item_status": item.item_status or item.status,
+            }
+        )
+    raise AppError(
+        ErrorCatalog.BUSINESS_CONFLICT,
+        details={
+            "message": "epc already active on another in-stock item",
+            "epc": epc,
+            "assigned_item": assigned_item,
+        },
+    )
+
+
 def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
-    conflict = db.execute(select(EpcAssignment, StockItem).join(StockItem, (StockItem.item_uid == EpcAssignment.item_uid) & (StockItem.tenant_id == EpcAssignment.tenant_id)).where(EpcAssignment.tenant_id == tenant_id, EpcAssignment.epc == epc, EpcAssignment.active.is_(True))).first()
-    if conflict:
-        assignment, item = conflict
-        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "epc already active on another in-stock item", "epc": epc, "assigned_item": {"item_uid": str(assignment.item_uid), "sku": item.sku, "description": item.description, "store_id": str(item.store_id) if item.store_id else None, "item_status": item.item_status or item.status}})
+    assignment = db.execute(
+        select(EpcAssignment).where(
+            EpcAssignment.tenant_id == tenant_id,
+            EpcAssignment.epc == epc,
+            EpcAssignment.active.is_(True),
+        )
+    ).scalar_one_or_none()
+    if assignment is None:
+        return
+    item = db.execute(
+        select(StockItem).where(
+            StockItem.tenant_id == assignment.tenant_id,
+            StockItem.item_uid == assignment.item_uid,
+        )
+    ).scalar_one_or_none()
+    _raise_epc_conflict(epc, assignment, item)
+
+
+def _commit_preload_epc_write(db, *, tenant_id: UUID, epc: str) -> None:
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        assignment = db.execute(
+            select(EpcAssignment).where(
+                EpcAssignment.tenant_id == tenant_id,
+                EpcAssignment.epc == epc,
+                EpcAssignment.active.is_(True),
+            )
+        ).scalar_one_or_none()
+        if assignment is not None:
+            item = db.execute(
+                select(StockItem).where(
+                    StockItem.tenant_id == assignment.tenant_id,
+                    StockItem.item_uid == assignment.item_uid,
+                )
+            ).scalar_one_or_none()
+            _raise_epc_conflict(epc, assignment, item)
+        raise
 
 
 @router.post(
@@ -1196,7 +1252,10 @@ def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Dep
         line.epc_status = "ASSIGNED"
         line.saved_stock_item_id = stock.id
     line.updated_at = now
-    db.commit()
+    if line.epc:
+        _commit_preload_epc_write(db, tenant_id=line.tenant_id, epc=line.epc)
+    else:
+        db.commit()
     db.refresh(line)
     return _preload_line_response(line)
 
@@ -1239,7 +1298,7 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
         stock.updated_at = now
     db.add(EpcAssignment(tenant_id=line.tenant_id, store_id=line.store_id, epc=payload.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
     line.updated_at = now
-    db.commit()
+    _commit_preload_epc_write(db, tenant_id=line.tenant_id, epc=payload.epc)
     db.refresh(line)
     return _preload_line_response(line)
 

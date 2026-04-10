@@ -1,5 +1,6 @@
 import uuid
 
+from app.aris3.routers import stock as stock_router
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import EpcAssignment, StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
@@ -178,6 +179,44 @@ def test_assign_pending_epc_duplicate_returns_conflict_and_new_epc_succeeds(clie
 
     active = db_session.query(EpcAssignment).filter(EpcAssignment.tenant_id == tenant.id, EpcAssignment.epc == pending_epc, EpcAssignment.active.is_(True)).all()
     assert len(active) == 1
+
+
+def test_assign_pending_epc_integrity_conflict_maps_to_business_conflict_not_internal_error(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "preload-assign-epc-integrity")
+    token = _login(client, user.username, "Pass1234!")
+    duplicate_epc = "ABCDEFABCDEFABCDEFABC888"
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "integrity-race.xlsx",
+            "lines": [
+                {"sku": "SKU-EXISTING", "description": "Existing", "sale_price": "120.00", "epc": duplicate_epc, "qty": 1},
+                {"sku": "SKU-PENDING", "description": "Pending", "sale_price": "121.00", "qty": 1},
+            ],
+        },
+    )
+    line_existing = create.json()["lines"][0]["id"]
+    line_pending = create.json()["lines"][1]["id"]
+    assert client.post(f"/aris3/stock/preload-lines/{line_existing}/save", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    assert client.post(f"/aris3/stock/preload-lines/{line_pending}/save", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+    monkeypatch.setattr(stock_router, "_assert_epc_available", lambda *args, **kwargs: None)
+    duplicate = client.post(
+        f"/aris3/stock/pending-epc/{line_pending}/assign-epc",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": duplicate_epc},
+    )
+
+    assert duplicate.status_code == 409
+    payload = duplicate.json()
+    assert payload["code"] == "BUSINESS_CONFLICT"
+    assert payload["code"] != "INTERNAL_ERROR"
+    assert payload["details"]["message"] == "epc already active on another in-stock item"
+    assert payload["details"]["epc"] == duplicate_epc
 
 
 def test_epc_path_regression_save_with_epc_then_duplicate_and_new_assignment(client, db_session):

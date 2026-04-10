@@ -1219,7 +1219,7 @@ def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
 def _commit_preload_epc_write(db, *, tenant_id: UUID, epc: str) -> None:
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         assignment = db.execute(
             select(EpcAssignment).where(
@@ -1245,7 +1245,24 @@ def _commit_preload_epc_write(db, *, tenant_id: UUID, epc: str) -> None:
         ).scalar_one_or_none()
         if stock_match is not None:
             _raise_epc_conflict_from_stock(epc, stock_match)
+        if _is_epc_conflict_integrity_error(exc):
+            raise AppError(
+                ErrorCatalog.BUSINESS_CONFLICT,
+                details={
+                    "message": "epc already active on another in-stock item",
+                    "epc": epc,
+                    "assigned_item": None,
+                },
+            ) from exc
         raise
+
+
+def _is_epc_conflict_integrity_error(exc: IntegrityError) -> bool:
+    constraint_name = getattr(getattr(getattr(exc, "orig", None), "diag", None), "constraint_name", None)
+    if constraint_name in {"uq_stock_items_tenant_epc", "uq_epc_assignments_active_epc"}:
+        return True
+    message = str(getattr(exc, "orig", exc)).lower()
+    return "uq_stock_items_tenant_epc" in message or "uq_epc_assignments_active_epc" in message
 
 
 @router.post(

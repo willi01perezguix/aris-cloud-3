@@ -1,7 +1,7 @@
 """sprint4 day7 pos returns receipt and search
 
 Revision ID: 0017_s4d7_pos_returns_search
-Revises: 0023_s8dx_items_contract_guard
+Revises: 0023_s8dx_stock_items_contract_guard
 Create Date: 2024-02-20 00:00:00.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "0017_s4d7_pos_returns_search"
-down_revision = "0023_s8dx_items_contract_guard"
+down_revision = "0023_s8dx_stock_items_contract_guard"
 branch_labels = None
 depends_on = None
 

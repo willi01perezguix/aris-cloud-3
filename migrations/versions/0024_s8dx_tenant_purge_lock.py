@@ -1,7 +1,7 @@
 """s8dx tenant purge lock
 
 Revision ID: 0024_s8dx_tenant_purge_lock
-Revises: 0023_s8dx_items_contract_guard
+Revises: 0023_s8dx_stock_items_contract_guard
 Create Date: 2026-04-04
 """
 

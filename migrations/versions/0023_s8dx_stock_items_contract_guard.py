@@ -1,6 +1,6 @@
 """guard stock_items columns required by stock import-sku contract
 
-Revision ID: 0023_s8dx_items_contract_guard
+Revision ID: 0023_s8dx_stock_items_contract_guard
 Revises: 0022_s8dx_items_storeid_fix
 Create Date: 2026-02-25 12:00:00.000000
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0023_s8dx_items_contract_guard"
+revision = "0023_s8dx_stock_items_contract_guard"
 down_revision = "0022_s8dx_items_storeid_fix"
 branch_labels = None
 depends_on = None

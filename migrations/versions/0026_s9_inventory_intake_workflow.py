@@ -9,6 +9,18 @@ from alembic import op
 import sqlalchemy as sa
 
 
+class GUID(sa.TypeDecorator):
+    impl = sa.CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import UUID
+
+            return dialect.type_descriptor(UUID(as_uuid=True))
+        return dialect.type_descriptor(sa.CHAR(36))
+
+
 revision = "0026_s9_inventory_intake_workflow"
 down_revision = "0025_s8dx_resource_purge_locks"
 branch_labels = None
@@ -32,17 +44,17 @@ def upgrade() -> None:
 
     op.create_table(
         "epc_assignments",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("tenant_id", sa.String(length=36), nullable=False),
-        sa.Column("store_id", sa.String(length=36), nullable=True),
+        sa.Column("id", GUID(), nullable=False),
+        sa.Column("tenant_id", GUID(), nullable=False),
+        sa.Column("store_id", GUID(), nullable=True),
         sa.Column("epc", sa.String(length=255), nullable=False),
-        sa.Column("item_uid", sa.String(length=36), nullable=False),
+        sa.Column("item_uid", GUID(), nullable=False),
         sa.Column("assigned_at", sa.DateTime(), nullable=False),
         sa.Column("released_at", sa.DateTime(), nullable=True),
         sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("last_release_reason", sa.String(length=100), nullable=True),
         sa.Column("status", sa.String(length=50), nullable=False, server_default="ASSIGNED"),
-        sa.Column("sale_line_id", sa.String(length=36), nullable=True),
+        sa.Column("sale_line_id", GUID(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(["sale_line_id"], ["pos_sale_lines.id"]),
@@ -63,10 +75,10 @@ def upgrade() -> None:
 
     op.create_table(
         "sku_images",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("tenant_id", sa.String(length=36), nullable=False),
+        sa.Column("id", GUID(), nullable=False),
+        sa.Column("tenant_id", GUID(), nullable=False),
         sa.Column("sku", sa.String(length=100), nullable=False),
-        sa.Column("asset_id", sa.String(length=36), nullable=False),
+        sa.Column("asset_id", GUID(), nullable=False),
         sa.Column("file_hash", sa.String(length=128), nullable=True),
         sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
@@ -79,12 +91,12 @@ def upgrade() -> None:
 
     op.create_table(
         "preload_sessions",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("tenant_id", sa.String(length=36), nullable=False),
-        sa.Column("store_id", sa.String(length=36), nullable=True),
+        sa.Column("id", GUID(), nullable=False),
+        sa.Column("tenant_id", GUID(), nullable=False),
+        sa.Column("store_id", GUID(), nullable=True),
         sa.Column("source_file_name", sa.String(length=255), nullable=True),
         sa.Column("status", sa.String(length=50), nullable=False, server_default="ACTIVE"),
-        sa.Column("created_by_user_id", sa.String(length=36), nullable=True),
+        sa.Column("created_by_user_id", GUID(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"]),
@@ -95,11 +107,11 @@ def upgrade() -> None:
 
     op.create_table(
         "preload_lines",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("preload_session_id", sa.String(length=36), nullable=False),
-        sa.Column("item_uid", sa.String(length=36), nullable=False),
-        sa.Column("tenant_id", sa.String(length=36), nullable=False),
-        sa.Column("store_id", sa.String(length=36), nullable=True),
+        sa.Column("id", GUID(), nullable=False),
+        sa.Column("preload_session_id", GUID(), nullable=False),
+        sa.Column("item_uid", GUID(), nullable=False),
+        sa.Column("tenant_id", GUID(), nullable=False),
+        sa.Column("store_id", GUID(), nullable=True),
         sa.Column("sku", sa.String(length=100), nullable=True),
         sa.Column("epc", sa.String(length=255), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
@@ -115,12 +127,12 @@ def upgrade() -> None:
         sa.Column("epc_status", sa.String(length=50), nullable=False, server_default="AVAILABLE"),
         sa.Column("observation", sa.Text(), nullable=True),
         sa.Column("image_mode", sa.String(length=20), nullable=False, server_default="blank"),
-        sa.Column("image_asset_id", sa.String(length=36), nullable=True),
+        sa.Column("image_asset_id", GUID(), nullable=True),
         sa.Column("print_status", sa.String(length=50), nullable=False, server_default="NOT_REQUESTED"),
         sa.Column("source_file_name", sa.String(length=255), nullable=True),
         sa.Column("source_row_number", sa.Integer(), nullable=True),
         sa.Column("lifecycle_state", sa.String(length=50), nullable=False, server_default="STAGING"),
-        sa.Column("saved_stock_item_id", sa.String(length=36), nullable=True),
+        sa.Column("saved_stock_item_id", GUID(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(["preload_session_id"], ["preload_sessions.id"]),

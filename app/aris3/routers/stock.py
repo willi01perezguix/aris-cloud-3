@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import String, cast, select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
@@ -1188,6 +1188,17 @@ def _raise_epc_conflict_from_stock(epc: str, item: StockItem) -> None:
     )
 
 
+
+
+def _stock_item_for_assignment(db, *, tenant_id: str | UUID, item_uid: str | UUID) -> StockItem | None:
+    return db.execute(
+        select(StockItem).where(
+            StockItem.tenant_id == tenant_id,
+            cast(StockItem.item_uid, String) == str(item_uid),
+        )
+    ).scalar_one_or_none()
+
+
 def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
     assignment = db.execute(
         select(EpcAssignment).where(
@@ -1197,12 +1208,7 @@ def _assert_epc_available(db, *, tenant_id: str | UUID, epc: str):
         )
     ).scalar_one_or_none()
     if assignment is not None:
-        item = db.execute(
-            select(StockItem).where(
-                StockItem.tenant_id == assignment.tenant_id,
-                StockItem.item_uid == assignment.item_uid,
-            )
-        ).scalar_one_or_none()
+        item = _stock_item_for_assignment(db, tenant_id=assignment.tenant_id, item_uid=assignment.item_uid)
         _raise_epc_conflict(epc, assignment, item)
 
     stock_match = db.execute(
@@ -1229,12 +1235,7 @@ def _commit_preload_epc_write(db, *, tenant_id: UUID, epc: str) -> None:
             )
         ).scalar_one_or_none()
         if assignment is not None:
-            item = db.execute(
-                select(StockItem).where(
-                    StockItem.tenant_id == assignment.tenant_id,
-                    StockItem.item_uid == assignment.item_uid,
-                )
-            ).scalar_one_or_none()
+            item = _stock_item_for_assignment(db, tenant_id=assignment.tenant_id, item_uid=assignment.item_uid)
             _raise_epc_conflict(epc, assignment, item)
         stock_match = db.execute(
             select(StockItem).where(
@@ -1351,7 +1352,6 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
     db.add(EpcAssignment(tenant_id=line.tenant_id, store_id=line.store_id, epc=payload.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))
     line.updated_at = now
     _commit_preload_epc_write(db, tenant_id=line.tenant_id, epc=payload.epc)
-    db.refresh(line)
     return _preload_line_response(line)
 
 
@@ -1387,7 +1387,7 @@ def release_epc(payload: EpcReleaseRequest, tenant_id: str | None = None, token_
     assignment.last_release_reason = payload.reason
     assignment.status = "RELEASED"
     assignment.updated_at = datetime.utcnow()
-    stock_item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == payload.item_uid)).scalars().first()
+    stock_item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, cast(StockItem.item_uid, String) == str(payload.item_uid))).scalars().first()
     if stock_item:
         stock_item.epc_status = "AVAILABLE"
         stock_item.epc = None
@@ -1456,7 +1456,7 @@ def set_primary_sku_image(sku: str, asset_id: str, tenant_id: str | None = None,
 )
 def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == item_uid)).scalars().first()
+    item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, cast(StockItem.item_uid, String) == item_uid)).scalars().first()
     if not item:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "item not found", "item_uid": item_uid})
     if item.item_status == "SOLD":
@@ -1497,7 +1497,7 @@ def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None =
 )
 def resolve_issue(item_uid: str, payload: ItemIssueResolveRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, StockItem.item_uid == item_uid)).scalars().first()
+    item = db.execute(select(StockItem).where(StockItem.tenant_id == scoped_tenant_id, cast(StockItem.item_uid, String) == item_uid)).scalars().first()
     if not item:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "item not found", "item_uid": item_uid})
     if not item.issue_state:

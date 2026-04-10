@@ -56,6 +56,32 @@ def test_migrations_apply(tmp_path: Path):
 
         indexes = [index["name"] for index in inspector.get_indexes("audit_events")]
         assert indexes.count("ix_audit_events_trace_id") == 1
+
+        if engine.dialect.name == "postgresql":
+            uuid_columns = {
+                ("epc_assignments", "id"),
+                ("epc_assignments", "tenant_id"),
+                ("epc_assignments", "store_id"),
+                ("epc_assignments", "item_uid"),
+                ("epc_assignments", "sale_line_id"),
+                ("sku_images", "id"),
+                ("sku_images", "tenant_id"),
+                ("sku_images", "asset_id"),
+                ("preload_sessions", "id"),
+                ("preload_sessions", "tenant_id"),
+                ("preload_sessions", "store_id"),
+                ("preload_sessions", "created_by_user_id"),
+                ("preload_lines", "id"),
+                ("preload_lines", "preload_session_id"),
+                ("preload_lines", "item_uid"),
+                ("preload_lines", "tenant_id"),
+                ("preload_lines", "store_id"),
+                ("preload_lines", "image_asset_id"),
+                ("preload_lines", "saved_stock_item_id"),
+            }
+            for table_name, column_name in uuid_columns:
+                column = next(col for col in inspector.get_columns(table_name) if col["name"] == column_name)
+                assert "UUID" in str(column["type"]).upper()
     finally:
         engine.dispose()
         if cleanup:

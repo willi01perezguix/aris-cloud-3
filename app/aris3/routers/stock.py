@@ -1336,6 +1336,15 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
     line = db.get(PreloadLine, line_id)
     if not line or str(line.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
+    if line.lifecycle_state != "PENDING_EPC" or not line.saved_stock_item_id:
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={
+                "message": "line must be saved in pending EPC state before assignment",
+                "line_id": line_id,
+                "lifecycle_state": line.lifecycle_state,
+            },
+        )
     _assert_epc_available(db, tenant_id=line.tenant_id, epc=payload.epc)
     now = datetime.utcnow()
     line.epc = payload.epc

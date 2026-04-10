@@ -460,3 +460,32 @@ def test_release_epc_works_with_string_item_uid_lookup(client, db_session):
         json={"epc": epc, "item_uid": str(line_1["item_uid"]), "reason": "SOLD"},
     )
     assert release.status_code == 200
+
+
+def test_assign_pending_epc_requires_previously_saved_pending_line(client, db_session):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "preload-assign-requires-save")
+    token = _login(client, user.username, "Pass1234!")
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "assign-without-save.xlsx",
+            "lines": [{"sku": "SKU-RAW", "description": "Unsaved", "sale_price": "100.00", "qty": 1}],
+        },
+    )
+    assert create.status_code == 201
+    line = create.json()["lines"][0]
+
+    assign = client.post(
+        f"/aris3/stock/pending-epc/{line['id']}/assign-epc",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": "ABCDEFABCDEFABCDEFABC777"},
+    )
+    assert assign.status_code == 409
+    payload = assign.json()
+    assert payload["code"] == "BUSINESS_CONFLICT"
+    assert payload["details"]["message"] == "line must be saved in pending EPC state before assignment"
+    assert payload["details"]["lifecycle_state"] == "STAGING"

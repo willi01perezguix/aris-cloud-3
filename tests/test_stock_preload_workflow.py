@@ -178,6 +178,64 @@ def test_assign_pending_epc_duplicate_returns_conflict_and_new_epc_succeeds(clie
     assert len(active) == 1
 
 
+def test_epc_path_regression_save_with_epc_then_duplicate_and_new_assignment(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "preload-epc-shared-path-regression")
+    token = _login(client, user.username, "Pass1234!")
+    first_epc = "ABCDEFABCDEFABCDEFABC111"
+    second_epc = "ABCDEFABCDEFABCDEFABC222"
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "regression.xlsx",
+            "lines": [
+                {"sku": "SKU-VERIFY-001", "description": "Invalid price", "sale_price": "0.00", "qty": 1},
+                {"sku": "SKU-VERIFY-002", "description": "Pending EPC", "sale_price": "175.00", "qty": 1},
+                {"sku": "SKU-VERIFY-003", "description": "With EPC", "sale_price": "185.00", "epc": first_epc, "qty": 1},
+            ],
+        },
+    )
+    assert create.status_code == 201
+    line_1, line_2, line_3 = [line["id"] for line in create.json()["lines"]]
+
+    save_1 = client.post(f"/aris3/stock/preload-lines/{line_1}/save", headers={"Authorization": f"Bearer {token}"})
+    assert save_1.status_code == 422
+
+    save_2 = client.post(f"/aris3/stock/preload-lines/{line_2}/save", headers={"Authorization": f"Bearer {token}"})
+    assert save_2.status_code == 200
+    assert save_2.json()["lifecycle_state"] == "PENDING_EPC"
+
+    save_3 = client.post(f"/aris3/stock/preload-lines/{line_3}/save", headers={"Authorization": f"Bearer {token}"})
+    assert save_3.status_code == 200
+    assert save_3.json()["lifecycle_state"] == "SAVED_EPC_FINAL"
+
+    duplicate = client.post(
+        f"/aris3/stock/pending-epc/{line_2}/assign-epc",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": first_epc},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "BUSINESS_CONFLICT"
+
+    assign_new = client.post(
+        f"/aris3/stock/pending-epc/{line_2}/assign-epc",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"epc": second_epc},
+    )
+    assert assign_new.status_code == 200
+    assert assign_new.json()["lifecycle_state"] == "SAVED_EPC_FINAL"
+
+    assignment_rows = (
+        db_session.query(EpcAssignment)
+        .filter(EpcAssignment.tenant_id == tenant.id, EpcAssignment.active.is_(True))
+        .all()
+    )
+    assert sorted(row.epc for row in assignment_rows) == [first_epc, second_epc]
+
+
 def test_superadmin_can_save_and_assign_epc_for_other_tenant_with_explicit_tenant_id(client, db_session):
     run_seed(db_session)
     tenant, store, _user = _create_tenant_user(db_session, "preload-superadmin-cross-tenant")

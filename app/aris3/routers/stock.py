@@ -1107,7 +1107,6 @@ def _preload_line_response(line: PreloadLine) -> PreloadLineResponse:
     "/aris3/stock/preload-sessions",
     response_model=PreloadSessionResponse,
     status_code=201,
-    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
 def create_preload_session(payload: PreloadSessionCreateRequest, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
@@ -1275,7 +1274,6 @@ def _is_epc_conflict_integrity_error(exc: IntegrityError) -> bool:
             "description": "BUSINESS_CONFLICT when EPC is already assigned to another active in-stock item.",
         }
     },
-    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
 def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
@@ -1329,7 +1327,6 @@ def list_pending_epc(tenant_id: str | None = None, token_data=Depends(get_curren
             "description": "BUSINESS_CONFLICT when EPC is already assigned to another active in-stock item.",
         }
     },
-    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
 def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
@@ -1381,7 +1378,6 @@ def epc_history(epc: str, tenant_id: str | None = None, token_data=Depends(get_c
             "description": "BUSINESS_CONFLICT for invalid EPC release attempts.",
         }
     },
-    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
 def release_epc(payload: EpcReleaseRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
@@ -1461,7 +1457,6 @@ def set_primary_sku_image(sku: str, asset_id: str, tenant_id: str | None = None,
             "description": "BUSINESS_CONFLICT for invalid issue/disposition state transitions.",
         }
     },
-    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
 def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
@@ -1502,7 +1497,6 @@ def mark_issue(item_uid: str, payload: ItemIssueRequest, tenant_id: str | None =
             "description": "BUSINESS_CONFLICT for invalid issue/disposition state transitions.",
         }
     },
-    openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
 def resolve_issue(item_uid: str, payload: ItemIssueResolveRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
@@ -1515,6 +1509,8 @@ def resolve_issue(item_uid: str, payload: ItemIssueResolveRequest, tenant_id: st
             details={"message": "invalid state transition: item is not currently in issue state", "item_uid": item_uid},
         )
     item.item_status = payload.item_status
+    if payload.item_status == "ACTIVE":
+        item.status = "RFID"
     item.issue_state = None
     item.observation = payload.observation
     item.updated_at = datetime.utcnow()

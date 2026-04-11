@@ -489,3 +489,55 @@ def test_assign_pending_epc_requires_previously_saved_pending_line(client, db_se
     assert payload["code"] == "BUSINESS_CONFLICT"
     assert payload["details"]["message"] == "line must be saved in pending EPC state before assignment"
     assert payload["details"]["lifecycle_state"] == "STAGING"
+
+
+def test_issue_release_then_resolve_restores_stock_status_and_preserves_preload_snapshot(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "preload-issue-resolve-status")
+    token = _login(client, user.username, "Pass1234!")
+    epc = "ABCDEFABCDEFABCDEFABC321"
+
+    create = client.post(
+        "/aris3/stock/preload-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_file_name": "issue-resolve.xlsx",
+            "lines": [{"sku": "SKU-ISSUE", "description": "Issue flow", "sale_price": "100.00", "epc": epc, "qty": 1}],
+        },
+    )
+    assert create.status_code == 201
+    line = create.json()["lines"][0]
+    assert client.post(f"/aris3/stock/preload-lines/{line['id']}/save", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+    mark_issue = client.post(
+        f"/aris3/stock/items/{line['item_uid']}/mark-issue",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "issue_state": "DAMAGED",
+            "release_epc": True,
+            "keep_epc_assigned": False,
+            "observation": "released for relabel",
+        },
+    )
+    assert mark_issue.status_code == 200
+
+    resolve_issue = client.post(
+        f"/aris3/stock/items/{line['item_uid']}/resolve-issue",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"item_status": "ACTIVE", "observation": "resolved"},
+    )
+    assert resolve_issue.status_code == 200
+
+    item = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert item.item_status == "ACTIVE"
+    assert item.status == "RFID"
+    assert item.epc_status == "AVAILABLE"
+    assert item.epc is None
+
+    session = client.get(f"/aris3/stock/preload-sessions/{create.json()['id']}", headers={"Authorization": f"Bearer {token}"})
+    assert session.status_code == 200
+    saved_line = session.json()["lines"][0]
+    assert saved_line["lifecycle_state"] == "SAVED_EPC_FINAL"
+    assert saved_line["epc"] == epc
+    assert saved_line["item_status"] == "ACTIVE"

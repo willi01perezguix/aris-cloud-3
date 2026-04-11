@@ -19,3 +19,19 @@ def test_transfers_openapi_required_example_keys_present() -> None:
     assert actions_resp_examples["dispatch"]["summary"] == "Dispatch action response"
     assert actions_resp_examples["receive"]["summary"] == "Receive action response"
     assert actions_resp_examples["cancel"]["summary"] == "Cancel action response"
+
+
+def test_transfer_mutations_document_required_idempotency_key_header() -> None:
+    openapi = app.openapi()
+    operations = [
+        ("/aris3/transfers", "post"),
+        ("/aris3/transfers/{transfer_id}", "patch"),
+        ("/aris3/transfers/{transfer_id}/actions", "post"),
+    ]
+
+    for path, method in operations:
+        params = openapi["paths"][path][method].get("parameters", [])
+        idempotency = next((param for param in params if param["name"] == "Idempotency-Key"), None)
+        assert idempotency is not None
+        assert idempotency["in"] == "header"
+        assert idempotency["required"] is True

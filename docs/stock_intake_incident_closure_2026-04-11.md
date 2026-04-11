@@ -30,7 +30,7 @@ Conclusion:
 
 ## Follow-up ticket 1 (Idempotency-Key contract vs implementation)
 
-- **Title**: Align Idempotency-Key contract and runtime behavior for preload/EPC/issue stock mutations.
+- **Title**: Align Idempotency-Key contract with implementation in preload/save/assign/release/issue stock routes
 - **Problem statement**: Stock mutation endpoints (`save_preload_line`, `assign_pending_epc`, `release_epc`, `mark_issue`, `resolve_issue`) do not currently execute through `IdempotencyService`, but broader architecture docs present idempotency as required/expected for critical mutations.
 - **Current evidence**:
   - Router implementations for the five endpoints do not call `extract_idempotency_key` or `IdempotencyService.start`.
@@ -58,12 +58,12 @@ Conclusion:
 
 ## Follow-up ticket 2 (item_uid type alignment)
 
-- **Title**: Normalize `item_uid` type alignment across migrations/schema/runtime queries.
+- **Title**: Align item_uid types across preload_lines, stock_items, and epc_assignments
 - **Problem statement**: Runtime models use UUID/GUID for `item_uid`, but migration history introduced `stock_items.item_uid` as `String(36)`, and several queries cast UUID/string explicitly. This indicates type drift and adapter logic at query time.
 - **Current evidence**:
   - `StockItem.item_uid` model type is GUID UUID.
-  - Intake migration created `stock_items.item_uid` as string while `preload_lines.item_uid` and `epc_assignments.item_uid` were GUID.
-  - Router lookups use `cast(StockItem.item_uid, String) == <item_uid>` in multiple endpoints.
+  - Intake migration created `stock_items.item_uid` as `String(36)` while `preload_lines.item_uid` and `epc_assignments.item_uid` were created as GUID.
+  - Router lookups use `cast(StockItem.item_uid, String) == <item_uid>` in multiple endpoints, indicating runtime compatibility logic.
 - **Impact/risk**: Type drift increases risk of subtle query/performance/index issues across environments and complicates future joins/contracts.
 - **Scope**:
   - Inventory actual DB column types in active environments.
@@ -86,7 +86,7 @@ Conclusion:
 
 ## Follow-up ticket 3 (preload snapshot vs live state contract)
 
-- **Title**: Clarify and document preload snapshot semantics vs live stock lifecycle state.
+- **Title**: Document preload_lines as saved snapshot vs live state in stock_items and epc_assignments
 - **Problem statement**: `preload_lines` currently preserve saved intake snapshot fields and are not synchronized after later live lifecycle changes in `stock_items` and `epc_assignments`. This behavior is visible but not explicitly documented as contract.
 - **Current evidence**:
   - `save_preload_line` and `assign_pending_epc` update preload lifecycle fields for intake progression.

@@ -72,7 +72,7 @@ def _seed_stock_for_transfer(db_session, tenant_id, store_id):
             epc=None,
             location_code="LOC-1",
             pool="P1",
-            status="RFID",
+            status="PENDING",
             location_is_vendible=True,
         ),
         StockItem(
@@ -86,7 +86,7 @@ def _seed_stock_for_transfer(db_session, tenant_id, store_id):
             epc=None,
             location_code="LOC-1",
             pool="P1",
-            status="RFID",
+            status="PENDING",
             location_is_vendible=True,
         ),
     ])
@@ -220,20 +220,29 @@ def test_transfer_create_bodega_to_store_same_tenant(client, db_session):
     assert response.json()["header"]["origin_store_id"] == str(bodega_store.id)
 
 
-def test_transfer_create_rejects_sku_lines(client, db_session):
+def test_transfer_create_accepts_sku_lines(client, db_session):
     run_seed(db_session)
     tenant, store, other_store, user = _create_tenant_user(db_session, suffix="create-sku")
     token = _login(client, user.username, "Pass1234!")
 
     payload = _transfer_payload(str(store.id), str(other_store.id))
+    _seed_stock_for_transfer(db_session, tenant.id, store.id)
+
     payload["lines"][0]["line_type"] = "SKU"
     payload["lines"][0]["snapshot"]["epc"] = None
+    payload["lines"][0]["snapshot"]["sku"] = "SKU-2"
+    payload["lines"][0]["snapshot"]["description"] = "Green Tee"
+    payload["lines"][0]["snapshot"]["var1_value"] = "Green"
+    payload["lines"][0]["snapshot"]["var2_value"] = "M"
+    payload["lines"][0]["snapshot"]["status"] = "PENDING"
+    payload["lines"][0]["qty"] = 2
 
     response = client.post(
         "/aris3/transfers",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-create-sku-1"},
         json=payload,
     )
-    assert response.status_code == 422
-    assert response.json()["code"] == "VALIDATION_ERROR"
-    assert "line_type" in str(response.json())
+    assert response.status_code == 201
+    body = response.json()
+    assert body["lines"][0]["line_type"] == "SKU"
+    assert body["lines"][0]["qty"] == 2

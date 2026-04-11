@@ -38,6 +38,13 @@ _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_RECEIVE_POOL = "SALE"
 _BROAD_ACCESS_ROLES = {"SUPERADMIN", "PLATFORM_ADMIN", "ADMIN"}
 _ACTIVE_TRANSFER_STATUSES = {"DRAFT", "DISPATCHED", "PARTIAL_RECEIVED"}
+_IDEMPOTENCY_KEY_HEADER_PARAMETER = {
+    "name": "Idempotency-Key",
+    "in": "header",
+    "required": True,
+    "schema": {"type": "string"},
+    "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted.",
+}
 _TRANSFER_LINE_EXAMPLE = {
     "id": "33333333-3333-3333-3333-333333333333",
     "line_type": "EPC",
@@ -976,6 +983,7 @@ def list_tenant_stores(
             }
         },
     },
+    openapi_extra={"parameters": [_IDEMPOTENCY_KEY_HEADER_PARAMETER]},
 )
 def create_transfer(
     request: Request,
@@ -1115,6 +1123,7 @@ def create_transfer(
             }
         },
     },
+    openapi_extra={"parameters": [_IDEMPOTENCY_KEY_HEADER_PARAMETER]},
 )
 def update_transfer(
     transfer_id: str,
@@ -1360,6 +1369,7 @@ def get_transfer_detail(
         },
     },
     openapi_extra={
+        "parameters": [_IDEMPOTENCY_KEY_HEADER_PARAMETER],
         "requestBody": {
             "content": {
                 "application/json": {

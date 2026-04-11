@@ -70,6 +70,27 @@ def _seed_epc_stock(db_session, *, tenant_id, store_id, epc: str):
     db_session.commit()
 
 
+def _seed_pending_stock(db_session, *, tenant_id, store_id, sku: str, qty: int):
+    for _ in range(qty):
+        db_session.add(
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                store_id=store_id,
+                sku=sku,
+                description="Transfer test item",
+                var1_value="Blue",
+                var2_value="L",
+                epc=None,
+                location_code="LOC-1",
+                pool="P1",
+                status="PENDING",
+                location_is_vendible=True,
+            )
+        )
+    db_session.commit()
+
+
 def _transfer_payload(origin_store_id: str, destination_store_id: str, epc: str):
     return {
         "transaction_id": f"txn-create-{epc}",
@@ -280,22 +301,28 @@ def test_cancel_transfer_valid(client, db_session):
     assert cancel.json()["header"]["status"] == "CANCELED"
 
 
-def test_non_epc_transfer_lines_rejected(client, db_session):
+def test_sku_transfer_lines_supported(client, db_session):
     run_seed(db_session)
     tenant, origin, destination, _external, origin_user, _dest_user = _create_context(db_session, suffix="non-epc")
     token = _login(client, origin_user.username, "Pass1234!")
     epc = "8" * 24
     _seed_epc_stock(db_session, tenant_id=tenant.id, store_id=origin.id, epc=epc)
+    _seed_pending_stock(db_session, tenant_id=tenant.id, store_id=origin.id, sku="SKU-1", qty=2)
 
     sku_payload = _transfer_payload(str(origin.id), str(destination.id), epc)
     sku_payload["lines"][0]["line_type"] = "SKU"
+    sku_payload["lines"][0]["qty"] = 2
+    sku_payload["lines"][0]["snapshot"]["status"] = "PENDING"
+    sku_payload["lines"][0]["snapshot"]["epc"] = None
+    sku_payload["lines"][0]["snapshot"]["description"] = "Transfer test item"
     sku_response = client.post(
         "/aris3/transfers",
         headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sku-line"},
         json=sku_payload,
     )
-    assert sku_response.status_code in {409, 422}
-    assert sku_response.status_code != 500
+    assert sku_response.status_code == 201
+    assert sku_response.json()["lines"][0]["line_type"] == "SKU"
+    assert sku_response.json()["lines"][0]["qty"] == 2
 
     missing_epc_payload = _transfer_payload(str(origin.id), str(destination.id), epc)
     missing_epc_payload["lines"][0]["snapshot"]["epc"] = None

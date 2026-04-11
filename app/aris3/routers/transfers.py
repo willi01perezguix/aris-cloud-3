@@ -67,6 +67,17 @@ _TRANSFER_LINE_EXAMPLE = {
     },
     "created_at": "2026-03-27T10:00:00Z",
 }
+_TRANSFER_SKU_LINE_EXAMPLE = {
+    **_TRANSFER_LINE_EXAMPLE,
+    "line_type": "SKU",
+    "qty": 3,
+    "outstanding_qty": 3,
+    "snapshot": {
+        **_TRANSFER_LINE_EXAMPLE["snapshot"],
+        "epc": None,
+        "status": "PENDING",
+    },
+}
 _TRANSFER_DRAFT_RESPONSE_EXAMPLE = {
     "header": {
         "id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
@@ -403,15 +414,70 @@ def _validate_transferable_epc_stock(
     return stock_row
 
 
-def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: TransferLineCreate, exclude_transfer_id: str | None = None) -> dict:
-    _validate_transfer_snapshot(line)
-    if line.line_type != "EPC":
+def _validate_transferable_sku_stock(
+    db,
+    *,
+    tenant_id: str,
+    origin_store_id: str,
+    line: TransferLineCreate,
+    expected_location_code: str | None = None,
+    expected_pool: str | None = None,
+) -> list[StockItem]:
+    snapshot = line.snapshot
+    if not snapshot.sku:
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
-            details={"message": "Transfers currently support EPC/RFID lines only"},
+            details={"message": "sku is required for SKU lines"},
         )
-    if line.snapshot.status == "PENDING":
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "PENDING stock is not transferable"})
+    rows = (
+        db.execute(
+            select(StockItem)
+            .where(
+                StockItem.tenant_id == tenant_id,
+                StockItem.store_id == origin_store_id,
+                StockItem.epc.is_(None),
+                StockItem.status == "PENDING",
+                StockItem.sku == snapshot.sku,
+                StockItem.description == snapshot.description,
+                StockItem.var1_value == snapshot.var1_value,
+                StockItem.var2_value == snapshot.var2_value,
+                StockItem.location_code == (expected_location_code or snapshot.location_code),
+                StockItem.pool == (expected_pool or snapshot.pool),
+            )
+            .with_for_update()
+            .order_by(StockItem.created_at.asc())
+            .limit(line.qty)
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) < line.qty:
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={
+                "message": "insufficient pending sku stock in origin_store_id",
+                "sku": snapshot.sku,
+                "origin_store_id": origin_store_id,
+                "requested_qty": line.qty,
+                "available_qty": len(rows),
+            },
+        )
+    return rows
+
+
+def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: TransferLineCreate, exclude_transfer_id: str | None = None) -> dict:
+    _validate_transfer_snapshot(line)
+    if line.line_type == "SKU":
+        sku_rows = _validate_transferable_sku_stock(
+            db,
+            tenant_id=tenant_id,
+            origin_store_id=origin_store_id,
+            line=line,
+        )
+        snapshot = _stock_snapshot_from_item(sku_rows[0])
+        snapshot["epc"] = None
+        snapshot["status"] = "PENDING"
+        return {"line_type": line.line_type, "qty": line.qty, "snapshot": snapshot}
 
     stock_row = _validate_transferable_epc_stock(
         db,
@@ -438,13 +504,14 @@ def _normalize_transfer_lines(db, *, tenant_id: str, origin_store_id: str, lines
     normalized: list[dict] = []
     seen_epcs: set[str] = set()
     for line in lines:
-        line_epc = (line.snapshot.epc or "").strip()
-        if line_epc in seen_epcs:
-            raise AppError(
-                ErrorCatalog.VALIDATION_ERROR,
-                details={"message": "duplicate epc in transfer lines", "epc": line_epc},
-            )
-        seen_epcs.add(line_epc)
+        if line.line_type == "EPC":
+            line_epc = (line.snapshot.epc or "").strip()
+            if line_epc in seen_epcs:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "duplicate epc in transfer lines", "epc": line_epc},
+                )
+            seen_epcs.add(line_epc)
         normalized.append(
             _normalize_transfer_line(
                 db,
@@ -467,11 +534,39 @@ def _revalidate_existing_draft_lines(
     transfer_id: str,
 ) -> None:
     for line in lines:
-        if line.line_type != "EPC":
-            raise AppError(
-                ErrorCatalog.VALIDATION_ERROR,
-                details={"message": "Transfers currently support EPC/RFID lines only"},
+        if line.line_type == "SKU":
+            sku_line = TransferLineCreate(
+                line_type="SKU",
+                qty=line.qty,
+                snapshot=TransferLineSnapshot(
+                    sku=line.sku,
+                    description=line.description,
+                    var1_value=line.var1_value,
+                    var2_value=line.var2_value,
+                    cost_price=line.cost_price,
+                    suggested_price=line.suggested_price,
+                    sale_price=line.sale_price,
+                    epc=None,
+                    location_code=line.location_code,
+                    pool=line.pool,
+                    status=line.status,
+                    location_is_vendible=line.location_is_vendible,
+                    image_asset_id=line.image_asset_id,
+                    image_url=line.image_url,
+                    image_thumb_url=line.image_thumb_url,
+                    image_source=line.image_source,
+                    image_updated_at=line.image_updated_at,
+                ),
             )
+            _validate_transferable_sku_stock(
+                db,
+                tenant_id=tenant_id,
+                origin_store_id=origin_store_id,
+                line=sku_line,
+                expected_location_code=line.location_code,
+                expected_pool=line.pool,
+            )
+            continue
         if not line.epc:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
@@ -571,6 +666,22 @@ def _validate_transfer_snapshot(line: TransferLineCreate) -> None:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "epc is required for EPC lines"},
+            )
+    if line.line_type == "SKU":
+        if snapshot.epc:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "epc must be empty for SKU lines"},
+            )
+        if not snapshot.sku:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "sku is required for SKU lines"},
+            )
+        if snapshot.status and snapshot.status != "PENDING":
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "SKU lines require PENDING status"},
             )
     if not snapshot.location_code or not snapshot.pool:
         raise AppError(
@@ -766,7 +877,7 @@ def _transfer_response(repo: TransferRepository, transfer: Transfer, lines: list
     "/aris3/transfers",
     response_model=TransferListResponse,
     summary="List transfers",
-    description="Returns transfer headers and lines. Transfers are EPC/RFID only in this version; SKU transfer lines are not supported.",
+    description="Returns transfer headers and lines. Transfers support EPC/RFID and SKU/PENDING lines.",
     responses={
         200: {
             "content": {
@@ -851,7 +962,7 @@ def list_tenant_stores(
     response_model=TransferResponse,
     status_code=201,
     summary="Create transfer draft",
-    description="Creates a new transfer in DRAFT status. Transfers accept EPC/RFID lines only; SKU lines are rejected.",
+    description="Creates a new transfer in DRAFT status. Transfers accept both EPC/RFID and SKU/PENDING lines.",
     responses={
         201: {"content": {"application/json": {"example": _TRANSFER_DRAFT_RESPONSE_EXAMPLE}}},
         409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
@@ -859,7 +970,6 @@ def list_tenant_stores(
             "content": {
                 "application/json": {
                     "examples": {
-                        "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
                         "draft_stale": {"value": _TRANSFER_ERROR_EXAMPLES["422_draft_stale"]},
                     }
                 }
@@ -984,7 +1094,7 @@ def create_transfer(
     "/aris3/transfers/{transfer_id}",
     response_model=TransferResponse,
     summary="Update transfer draft",
-    description="Updates a transfer while it remains in DRAFT status. EPC/RFID lines only; SKU lines are not supported.",
+    description="Updates a transfer while it remains in DRAFT status. Supports EPC/RFID and SKU/PENDING lines.",
     responses={
         200: {"content": {"application/json": {"example": _TRANSFER_DRAFT_RESPONSE_EXAMPLE}}},
         409: {"content": {"application/json": {"example": _TRANSFER_ERROR_EXAMPLES["409_epc_not_available"]}}},
@@ -1000,7 +1110,6 @@ def create_transfer(
                                 "trace_id": "trace-transfer-422-update-draft-only",
                             }
                         },
-                        "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
                     }
                 }
             }
@@ -1152,7 +1261,7 @@ def update_transfer(
     "/aris3/transfers/{transfer_id}",
     response_model=TransferResponse,
     summary="Get transfer detail",
-    description="Returns transfer detail for EPC/RFID transfer lines. Includes draft and post-dispatch lifecycle states.",
+    description="Returns transfer detail for EPC/RFID and SKU/PENDING transfer lines. Includes draft and post-dispatch lifecycle states.",
     responses={
         200: {
             "content": {
@@ -1206,7 +1315,7 @@ def get_transfer_detail(
     response_model=TransferResponse,
     summary="Execute transfer action",
     description=(
-        "Executes transfer lifecycle actions for EPC/RFID transfers only (SKU is not supported). "
+        "Executes transfer lifecycle actions for EPC/RFID and SKU/PENDING transfers. "
         "This endpoint documents and exemplifies dispatch, receive, and cancel actions."
     ),
     responses={
@@ -1245,7 +1354,6 @@ def get_transfer_detail(
                         "receive_invalid_state": {"value": _TRANSFER_ERROR_EXAMPLES["422_receive_invalid_state"]},
                         "cancel_invalid_state": {"value": _TRANSFER_ERROR_EXAMPLES["422_cancel_invalid_state"]},
                         "receive_wrong_store": {"value": _TRANSFER_ERROR_EXAMPLES["422_receive_scope"]},
-                        "line_type_not_epc": {"value": _TRANSFER_ERROR_EXAMPLES["422_line_type_not_epc"]},
                     }
                 }
             }
@@ -1354,10 +1462,57 @@ def transfer_actions(
         movements = []
         for line in lines:
             if line.line_type != "EPC":
-                raise AppError(
-                    ErrorCatalog.VALIDATION_ERROR,
-                    details={"message": "Transfers currently support EPC/RFID lines only"},
+                pending_rows = _validate_transferable_sku_stock(
+                    db,
+                    tenant_id=scoped_tenant_id,
+                    origin_store_id=str(transfer.origin_store_id),
+                    line=TransferLineCreate(
+                        line_type="SKU",
+                        qty=line.qty,
+                        snapshot=TransferLineSnapshot(
+                            sku=line.sku,
+                            description=line.description,
+                            var1_value=line.var1_value,
+                            var2_value=line.var2_value,
+                            cost_price=line.cost_price,
+                            suggested_price=line.suggested_price,
+                            sale_price=line.sale_price,
+                            epc=None,
+                            location_code=line.location_code,
+                            pool=line.pool,
+                            status=line.status,
+                            location_is_vendible=line.location_is_vendible,
+                            image_asset_id=line.image_asset_id,
+                            image_url=line.image_url,
+                            image_thumb_url=line.image_thumb_url,
+                            image_source=line.image_source,
+                            image_updated_at=line.image_updated_at,
+                        ),
+                    ),
+                    expected_location_code=line.location_code,
+                    expected_pool=line.pool,
                 )
+                for row in pending_rows:
+                    row.location_code = _IN_TRANSIT_CODE
+                    row.pool = _IN_TRANSIT_CODE
+                    row.location_is_vendible = False
+                    row.updated_at = datetime.utcnow()
+                movements.append(
+                    TransferMovement(
+                        tenant_id=scoped_tenant_id,
+                        transfer_id=transfer.id,
+                        transfer_line_id=line.id,
+                        action="DISPATCH",
+                        from_location_code=line.location_code,
+                        from_pool=line.pool,
+                        to_location_code=_IN_TRANSIT_CODE,
+                        to_pool=_IN_TRANSIT_CODE,
+                        status=line.status,
+                        qty=line.qty,
+                        snapshot=_stock_snapshot_from_line(line),
+                    )
+                )
+                continue
             if not line.epc:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
@@ -1461,10 +1616,60 @@ def transfer_actions(
                 )
             target_location_code, target_pool, target_is_vendible = _resolve_receive_destination(receive_line, transfer)
             if line.line_type != "EPC":
-                raise AppError(
-                    ErrorCatalog.VALIDATION_ERROR,
-                    details={"message": "Transfers currently support EPC/RFID lines only"},
+                rows = (
+                    db.execute(
+                        select(StockItem)
+                        .where(
+                            StockItem.tenant_id == scoped_tenant_id,
+                            StockItem.store_id == transfer.origin_store_id,
+                            StockItem.epc.is_(None),
+                            StockItem.sku == line.sku,
+                            StockItem.description == line.description,
+                            StockItem.var1_value == line.var1_value,
+                            StockItem.var2_value == line.var2_value,
+                            StockItem.location_code == _IN_TRANSIT_CODE,
+                            StockItem.pool == _IN_TRANSIT_CODE,
+                            StockItem.status == "PENDING",
+                        )
+                        .with_for_update()
+                        .order_by(StockItem.created_at.asc())
+                        .limit(receive_line.qty)
+                    )
+                    .scalars()
+                    .all()
                 )
+                if len(rows) < receive_line.qty:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "insufficient in-transit sku stock", "line_id": receive_line.line_id},
+                    )
+                for row in rows:
+                    row.location_code = target_location_code
+                    row.pool = target_pool
+                    row.store_id = transfer.destination_store_id
+                    row.location_is_vendible = target_is_vendible
+                    row.updated_at = datetime.utcnow()
+                movements.append(
+                    TransferMovement(
+                        tenant_id=scoped_tenant_id,
+                        transfer_id=transfer.id,
+                        transfer_line_id=line.id,
+                        action="RECEIVE",
+                        from_location_code=_IN_TRANSIT_CODE,
+                        from_pool=_IN_TRANSIT_CODE,
+                        to_location_code=target_location_code,
+                        to_pool=target_pool,
+                        status=line.status,
+                        qty=receive_line.qty,
+                        snapshot={
+                            "line_snapshot": _stock_snapshot_from_line(line),
+                            "received_location_code": target_location_code,
+                            "received_pool": target_pool,
+                            "received_location_is_vendible": target_is_vendible,
+                        },
+                    )
+                )
+                continue
             if receive_line.qty != 1:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
@@ -1774,7 +1979,6 @@ def transfer_actions(
                                 StockItem.location_code == _IN_TRANSIT_CODE,
                                 StockItem.pool == _IN_TRANSIT_CODE,
                                 StockItem.status == line.status,
-                            StockItem.status != "PENDING",
                             )
                             .with_for_update()
                             .order_by(StockItem.created_at.asc())
@@ -1875,10 +2079,39 @@ def transfer_actions(
             lines = repo.get_lines(transfer_id)
             for line in lines:
                 if line.line_type != "EPC":
-                    raise AppError(
-                        ErrorCatalog.VALIDATION_ERROR,
-                        details={"message": "Transfers currently support EPC/RFID lines only"},
+                    rows = (
+                        db.execute(
+                            select(StockItem)
+                            .where(
+                                StockItem.tenant_id == scoped_tenant_id,
+                                StockItem.store_id == transfer.origin_store_id,
+                                StockItem.epc.is_(None),
+                                StockItem.sku == line.sku,
+                                StockItem.description == line.description,
+                                StockItem.var1_value == line.var1_value,
+                                StockItem.var2_value == line.var2_value,
+                                StockItem.location_code == _IN_TRANSIT_CODE,
+                                StockItem.pool == _IN_TRANSIT_CODE,
+                                StockItem.status == "PENDING",
+                            )
+                            .with_for_update()
+                            .order_by(StockItem.created_at.asc())
+                            .limit(line.qty)
+                        )
+                        .scalars()
+                        .all()
                     )
+                    if len(rows) < line.qty:
+                        raise AppError(
+                            ErrorCatalog.BUSINESS_CONFLICT,
+                            details={"message": "sku stock not in transit for cancel", "sku": line.sku},
+                        )
+                    for row in rows:
+                        row.location_code = line.location_code
+                        row.pool = line.pool
+                        row.location_is_vendible = line.location_is_vendible
+                        row.updated_at = datetime.utcnow()
+                    continue
                 if not line.epc:
                     raise AppError(
                         ErrorCatalog.VALIDATION_ERROR,

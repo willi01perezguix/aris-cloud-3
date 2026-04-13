@@ -57,6 +57,14 @@ CASH_ERROR_EXAMPLES = {
     "409": {"code": "BUSINESS_CONFLICT", "message": "cash session already open", "details": {"store_id": "00000000-0000-0000-0000-000000000001"}, "trace_id": "trace-cash-409"},
 }
 
+_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER = {
+    "name": "Idempotency-Key",
+    "in": "header",
+    "required": True,
+    "schema": {"type": "string"},
+    "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted.",
+}
+
 MOVEMENT_TYPE_MAP = {
     "OPEN": "OPENING",
     "OPENING": "OPENING",
@@ -306,6 +314,7 @@ def get_current_session(
 
 
 @router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash session action", description="Action request is discriminated by `action` (`OPEN`, `CASH_IN`, `CASH_OUT`, `CLOSE`) with action-specific required fields.", openapi_extra={
+    "parameters": [_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER],
     "responses": {
         "200": {"content": {"application/json": {"example": {"id": "00000000-0000-0000-0000-000000000212", "tenant_id": "00000000-0000-0000-0000-000000000010", "store_id": "00000000-0000-0000-0000-000000000001", "cashier_user_id": "00000000-0000-0000-0000-000000000020", "status": "OPEN", "business_date": "2026-01-15", "timezone": "America/Mexico_City", "opening_amount": "150.00", "expected_cash": "150.00", "counted_cash": None, "difference": None, "opened_at": "2026-01-15T08:00:00Z", "closed_at": None, "created_at": "2026-01-15T08:00:00Z"}}}},
         "401": {"content": {"application/json": {"example": CASH_ERROR_EXAMPLES["401"]}}},
@@ -607,6 +616,7 @@ def list_cash_movements(
 
 
 @router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone.", openapi_extra={
+    "parameters": [_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER],
     "responses": {
         "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "reason", "message": "reason is required for force day close", "type": "value_error"}]}, "trace_id": "trace-day-close-422"}}}}
     }

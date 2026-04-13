@@ -1,3 +1,4 @@
+from app.aris3.db.models import PosCashMovement
 from tests.pos_sales_helpers import (
     create_stock_item,
     create_tenant_user,
@@ -31,6 +32,27 @@ def _create_sale(client, token: str, store_id: str, transaction_id: str):
     )
     assert response.status_code == 201
     return response.json()["header"]["id"]
+
+
+def _seed_two_units(db_session, tenant_id: str, sku: str = "SKU-1"):
+    create_stock_item(
+        db_session,
+        tenant_id=tenant_id,
+        sku=sku,
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=tenant_id,
+        sku=sku,
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
 
 
 def test_cash_checkout_success(client, db_session):
@@ -291,3 +313,90 @@ def test_mixed_payment_and_change_rules(client, db_session):
         },
     )
     assert fail_change.status_code == 422
+
+
+def test_cash_checkout_requires_open_cash_session(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-cash-required")
+    token = login(client, user.username, "Pass1234!")
+    _seed_two_units(db_session, str(tenant.id))
+
+    sale_id = _create_sale(client, token, str(store.id), "txn-cash-required")
+    response = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "pos-sale-cash-required"},
+        json={
+            "transaction_id": "txn-cash-required-checkout",
+            "action": "CHECKOUT",
+            "payments": [{"method": "CASH", "amount": 10.0}],
+        },
+    )
+    assert response.status_code == 409
+    assert "open cash session required for CASH payments" in response.json()["details"]["message"]
+
+
+def test_mixed_cash_card_requires_open_cash_session(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-mixed-cash-required")
+    token = login(client, user.username, "Pass1234!")
+    _seed_two_units(db_session, str(tenant.id))
+
+    sale_id = _create_sale(client, token, str(store.id), "txn-mixed-cash-required")
+    blocked = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "pos-sale-mixed-cash-required"},
+        json={
+            "transaction_id": "txn-mixed-cash-required-checkout",
+            "action": "CHECKOUT",
+            "payments": [
+                {"method": "CASH", "amount": 4.0},
+                {"method": "CARD", "amount": 6.0, "authorization_code": "AUTH-MIXED"},
+            ],
+        },
+    )
+    assert blocked.status_code == 409
+
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+    sale_id = _create_sale(client, token, str(store.id), "txn-mixed-cash-required-open")
+    allowed = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "pos-sale-mixed-cash-required-open"},
+        json={
+            "transaction_id": "txn-mixed-cash-required-open-checkout",
+            "action": "CHECKOUT",
+            "payments": [
+                {"method": "CASH", "amount": 4.0},
+                {"method": "CARD", "amount": 6.0, "authorization_code": "AUTH-MIXED-2"},
+            ],
+        },
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["header"]["change_due"] == "0.00"
+
+    movements = db_session.query(PosCashMovement).filter(PosCashMovement.sale_id == sale_id).all()
+    assert len(movements) == 1
+    assert float(movements[0].amount) == 4.0
+
+
+def test_mixed_non_cash_checkout_does_not_require_cash_session_or_create_cash_movement(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="pos-mixed-noncash")
+    token = login(client, user.username, "Pass1234!")
+    _seed_two_units(db_session, str(tenant.id))
+
+    sale_id = _create_sale(client, token, str(store.id), "txn-mixed-noncash")
+    response = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "pos-sale-mixed-noncash"},
+        json={
+            "transaction_id": "txn-mixed-noncash-checkout",
+            "action": "CHECKOUT",
+            "payments": [
+                {"method": "CARD", "amount": 6.0, "authorization_code": "AUTH-NC"},
+                {"method": "TRANSFER", "amount": 4.0, "bank_name": "Bank", "voucher_number": "VCH-1"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    movements = db_session.query(PosCashMovement).filter(PosCashMovement.sale_id == sale_id).all()
+    assert len(movements) == 0

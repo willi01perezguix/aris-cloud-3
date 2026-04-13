@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -34,6 +35,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 POS_STANDARD_ERROR_RESPONSES = {
     401: {"description": "Unauthorized", "model": ApiErrorResponse},
@@ -399,6 +401,17 @@ def cash_session_action(
         )
         db.add(session)
         db.flush()
+        logger.info(
+            "pos.cash_session.open tenant_id=%s store_id=%s cashier_user_id=%s cash_session_id=%s business_date=%s trace_id=%s register_id=%s terminal_id=%s",
+            scoped_tenant_id,
+            resolved_store_id,
+            cashier_user_id,
+            str(session.id),
+            str(payload.business_date),
+            getattr(request.state, "trace_id", None),
+            None,
+            None,
+        )
         db.add(
             PosCashMovement(
                 tenant_id=scoped_tenant_id,
@@ -513,6 +526,17 @@ def cash_session_action(
         movement_amount = Decimal("0.00")
         status_before = "OPEN"
         status_after = "CLOSED"
+        logger.info(
+            "pos.cash_session.close tenant_id=%s store_id=%s cashier_user_id=%s cash_session_id=%s business_date=%s trace_id=%s register_id=%s terminal_id=%s",
+            scoped_tenant_id,
+            resolved_store_id,
+            cashier_user_id,
+            str(session.id),
+            str(session.business_date),
+            getattr(request.state, "trace_id", None),
+            None,
+            None,
+        )
     else:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "unsupported action"})
 

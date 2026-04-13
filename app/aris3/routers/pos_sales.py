@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+import logging
 import uuid
 from uuid import UUID
 
@@ -58,6 +59,7 @@ from app.aris3.services.idempotency import IdempotencyService, extract_idempoten
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 POS_STANDARD_ERROR_RESPONSES = {
@@ -617,7 +619,15 @@ def _require_manager_override(
         )
 
 
-def _require_open_cash_session(db, *, tenant_id: str, store_id: str, cashier_user_id: str) -> PosCashSession:
+def _require_open_cash_session(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    cashier_user_id: str,
+    trace_id: str | None = None,
+    sale_id: str | None = None,
+) -> PosCashSession:
     session = (
         db.execute(
             select(PosCashSession).where(
@@ -630,6 +640,56 @@ def _require_open_cash_session(db, *, tenant_id: str, store_id: str, cashier_use
         )
         .scalars()
         .first()
+    )
+    if session is not None:
+        logger.info(
+            "pos.cash_session.resolve.ok tenant_id=%s store_id=%s cashier_user_id=%s cash_session_id=%s sale_id=%s trace_id=%s register_id=%s terminal_id=%s",
+            tenant_id,
+            store_id,
+            cashier_user_id,
+            str(session.id),
+            sale_id,
+            trace_id,
+            None,
+            None,
+        )
+        return session
+    fallback_sessions = (
+        db.execute(
+            select(PosCashSession).where(
+                PosCashSession.tenant_id == tenant_id,
+                PosCashSession.store_id == store_id,
+                PosCashSession.status == "OPEN",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(fallback_sessions) == 1:
+        fallback = fallback_sessions[0]
+        logger.warning(
+            "pos.cash_session.resolve.fallback tenant_id=%s store_id=%s requested_cashier_user_id=%s session_cashier_user_id=%s cash_session_id=%s sale_id=%s trace_id=%s register_id=%s terminal_id=%s",
+            tenant_id,
+            store_id,
+            cashier_user_id,
+            str(fallback.cashier_user_id),
+            str(fallback.id),
+            sale_id,
+            trace_id,
+            None,
+            None,
+        )
+        return fallback
+    logger.warning(
+        "pos.cash_session.resolve.missing tenant_id=%s store_id=%s cashier_user_id=%s open_sessions=%s sale_id=%s trace_id=%s register_id=%s terminal_id=%s",
+        tenant_id,
+        store_id,
+        cashier_user_id,
+        len(fallback_sessions),
+        sale_id,
+        trace_id,
+        None,
+        None,
     )
     if session is None:
         raise AppError(
@@ -2009,11 +2069,24 @@ def sale_action(
 
     cash_session = None
     if totals["cash_total"] > 0:
+        logger.info(
+            "pos.sale.checkout.cash_validation.start tenant_id=%s store_id=%s cashier_user_id=%s sale_id=%s payment_method=%s trace_id=%s register_id=%s terminal_id=%s",
+            scoped_tenant_id,
+            str(sale.store_id),
+            str(current_user.id),
+            str(sale.id),
+            "CASH",
+            getattr(request.state, "trace_id", None),
+            None,
+            None,
+        )
         cash_session = _require_open_cash_session(
             db,
             tenant_id=scoped_tenant_id,
             store_id=str(sale.store_id),
             cashier_user_id=str(current_user.id),
+            trace_id=getattr(request.state, "trace_id", None),
+            sale_id=str(sale.id),
         )
 
     now = datetime.utcnow()

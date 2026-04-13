@@ -81,3 +81,25 @@ def test_pos_sales_mutations_document_required_idempotency_header_consistent_wit
         idempotency = next((param for param in params if param["name"] == "Idempotency-Key" and param["in"] == "header"), None)
         assert idempotency is not None, f"{method.upper()} {path} should document Idempotency-Key"
         assert idempotency["required"] is True, f"{method.upper()} {path} should mark Idempotency-Key as required"
+
+
+def test_pos_cash_mutations_document_required_idempotency_header_consistent_with_runtime():
+    paths = app.openapi()["paths"]
+    runtime_required_routes = [
+        ("/aris3/pos/cash/session/actions", "post"),
+        ("/aris3/pos/cash/day-close/actions", "post"),
+    ]
+
+    for path, method in runtime_required_routes:
+        operation = paths[path][method]
+        params = operation.get("parameters", [])
+        idempotency = next((param for param in params if param["name"] == "Idempotency-Key" and param["in"] == "header"), None)
+        assert idempotency is not None, f"{method.upper()} {path} should document Idempotency-Key"
+        assert idempotency["required"] is True, f"{method.upper()} {path} should mark Idempotency-Key as required"
+
+
+def test_pos_cash_current_session_get_does_not_require_idempotency_header():
+    operation = app.openapi()["paths"]["/aris3/pos/cash/session/current"]["get"]
+    params = operation.get("parameters", [])
+    idempotency = next((param for param in params if param["name"] == "Idempotency-Key" and param["in"] == "header"), None)
+    assert idempotency is None

@@ -84,6 +84,14 @@ POS_ERROR_EXAMPLES = {
     "409_idempotency": {"code": "BUSINESS_CONFLICT", "message": "Idempotency conflict: transaction_id already used with different payload", "details": {"transaction_id": "txn-checkout-1001"}, "trace_id": "trace-sale-idempotency-409"},
 }
 
+_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER = {
+    "name": "Idempotency-Key",
+    "in": "header",
+    "required": True,
+    "schema": {"type": "string"},
+    "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted.",
+}
+
 
 def _require_transaction_id(transaction_id: str | None) -> None:
     if not transaction_id:
@@ -791,6 +799,7 @@ def list_sales(
     summary="Create draft sale",
     description="Creates a sale in DRAFT status using canonical line selectors (`line_type` + `sku`/`epc`).",
     openapi_extra={
+        "parameters": [_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER],
         "requestBody": {
             "content": {
                 "application/json": {
@@ -943,6 +952,7 @@ def create_sale(
     summary="Replace draft sale lines",
     description="Allowed only when the sale is in DRAFT status. This PATCH performs a full replacement of draft lines (`lines` array), preserving identifier and draft lifecycle; this is not an arbitrary partial patch.",
     openapi_extra={
+        "parameters": [_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER],
         "requestBody": {
             "content": {
                 "application/json": {
@@ -1122,6 +1132,7 @@ def get_sale(
     summary="Execute sale action",
     description="Canonical actions are `CHECKOUT`, `CANCEL`, `REFUND_ITEMS`, and `EXCHANGE_ITEMS`. Legacy lowercase is accepted and normalized.",
     openapi_extra={
+        "parameters": [_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER],
         "requestBody": {
             "content": {
                 "application/json": {

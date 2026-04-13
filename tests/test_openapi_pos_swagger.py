@@ -65,3 +65,19 @@ def test_pos_sales_patch_uses_update_schema():
     op = app.openapi()["paths"]["/aris3/pos/sales/{sale_id}"]["patch"]
     schema = op["requestBody"]["content"]["application/json"]["schema"]
     assert schema["$ref"].endswith("/PosSaleUpdateRequest")
+
+
+def test_pos_sales_mutations_document_required_idempotency_header_consistent_with_runtime():
+    paths = app.openapi()["paths"]
+    runtime_required_routes = [
+        ("/aris3/pos/sales", "post"),
+        ("/aris3/pos/sales/{sale_id}", "patch"),
+        ("/aris3/pos/sales/{sale_id}/actions", "post"),
+    ]
+
+    for path, method in runtime_required_routes:
+        operation = paths[path][method]
+        params = operation.get("parameters", [])
+        idempotency = next((param for param in params if param["name"] == "Idempotency-Key" and param["in"] == "header"), None)
+        assert idempotency is not None, f"{method.upper()} {path} should document Idempotency-Key"
+        assert idempotency["required"] is True, f"{method.upper()} {path} should mark Idempotency-Key as required"

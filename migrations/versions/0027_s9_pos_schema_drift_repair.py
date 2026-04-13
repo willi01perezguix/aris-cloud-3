@@ -71,20 +71,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_pos_sale_lines_item_uid", table_name="pos_sale_lines")
-    op.drop_index("ix_pos_sale_lines_sale_line_id", table_name="pos_sale_lines")
-    with op.batch_alter_table("pos_sale_lines") as batch_op:
-        batch_op.drop_column("epc_at_sale")
-        batch_op.drop_column("sale_price_snapshot")
-        batch_op.drop_column("var2_snapshot")
-        batch_op.drop_column("var1_snapshot")
-        batch_op.drop_column("description_snapshot")
-        batch_op.drop_column("sku_snapshot")
-        batch_op.drop_column("item_uid")
-        batch_op.drop_column("sale_line_id")
-
-    op.drop_index("ix_pos_sales_sale_code", table_name="pos_sales")
-    op.drop_index("ix_pos_sales_tenant_store_receipt", table_name="pos_sales")
-    with op.batch_alter_table("pos_sales") as batch_op:
-        batch_op.drop_column("sale_code")
-        batch_op.drop_column("receipt_number")
+    # This migration only repairs drift by conditionally adding columns/indexes that
+    # are already part of the canonical schema in earlier revisions.
+    # Downgrade is intentionally a no-op so we do not drop objects owned by previous
+    # migrations and break multi-step downgrade safety checks.
+    return

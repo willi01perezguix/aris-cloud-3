@@ -41,14 +41,13 @@ Use the release entrypoint below so the deploy fails fast when migrations are no
 the runtime build:
 
 ```bash
-DATABASE_URL=postgresql+psycopg://... EXPECTED_ALEMBIC_HEAD=0026_s9_inventory_intake_workflow \
-  ./scripts/release/deploy_backend_api.sh
+DATABASE_URL=postgresql+psycopg://... ./scripts/release/deploy_backend_api.sh
 ```
 
 The script enforces:
 - `DATABASE_URL` must be set (and non-sqlite for production paths).
 - Single Alembic head in the checked-out code.
-- Expected head revision matches the checked-out migration chain.
+- Post-upgrade DB revision must match the checked-out Alembic head.
 - `alembic upgrade head` completes before API startup.
 
 ## Tests

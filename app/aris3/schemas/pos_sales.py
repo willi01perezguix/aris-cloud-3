@@ -41,6 +41,7 @@ class PosBaseModel(BaseModel):
 
 
 class PosSaleLineSnapshot(PosBaseModel):
+    item_uid: UUID | None = None
     sku: str | None = None
     description: str | None = None
     var1_value: str | None = None

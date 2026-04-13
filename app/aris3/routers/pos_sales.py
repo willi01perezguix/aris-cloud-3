@@ -190,6 +190,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
             raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "unit_price mismatch", "expected": str(expected_price), "received": str(fallback_price)})
 
         rebuilt_snapshot = PosSaleLineSnapshot(
+            item_uid=stock.item_uid,
             sku=stock.sku,
             description=stock.description,
             var1_value=stock.var1_value,
@@ -632,6 +633,7 @@ def _require_open_cash_session(db, *, tenant_id: str, store_id: str, cashier_use
 
 def _sale_line_response(line: PosSaleLine, *, returned_qty: int = 0) -> PosSaleLineResponse:
     snapshot = PosSaleLineSnapshot(
+        item_uid=line.item_uid,
         sku=line.sku,
         description=line.description,
         var1_value=line.var1_value,
@@ -1023,6 +1025,7 @@ def update_sale(
                 PosSaleLine(
                     sale_id=sale.id,
                     tenant_id=scoped_tenant_id,
+                    sale_line_id=f"SL-{uuid.uuid4().hex[:12].upper()}",
                     line_type=line.line_type,
                     qty=line.qty,
                     unit_price=float(_legacy_unit_price(line) or Decimal("0.00")),
@@ -1032,6 +1035,13 @@ def update_sale(
                     var1_value=snapshot.var1_value,
                     var2_value=snapshot.var2_value,
                     epc=snapshot.epc,
+                    item_uid=getattr(snapshot, "item_uid", None),
+                    sku_snapshot=snapshot.sku,
+                    description_snapshot=snapshot.description,
+                    var1_snapshot=snapshot.var1_value,
+                    var2_snapshot=snapshot.var2_value,
+                    sale_price_snapshot=_legacy_unit_price(line) or Decimal("0.00"),
+                    epc_at_sale=snapshot.epc,
                     location_code=snapshot.location_code,
                     pool=snapshot.pool,
                     status=snapshot.status,
@@ -2020,6 +2030,14 @@ def sale_action(
                     ErrorCatalog.VALIDATION_ERROR,
                     details={"message": "insufficient RFID stock for EPC line", "epc": line.epc},
                 )
+            line.item_uid = line.item_uid or stock_row.item_uid
+            line.epc_at_sale = line.epc_at_sale or stock_row.epc or line.epc
+            line.sku_snapshot = line.sku_snapshot or stock_row.sku
+            line.description_snapshot = line.description_snapshot or stock_row.description
+            line.var1_snapshot = line.var1_snapshot or stock_row.var1_value
+            line.var2_snapshot = line.var2_snapshot or stock_row.var2_value
+            if line.sale_price_snapshot is None:
+                line.sale_price_snapshot = stock_row.sale_price
             stock_row.status = "SOLD"
             stock_row.item_status = "SOLD"
             stock_row.epc_status = "AVAILABLE"
@@ -2038,6 +2056,7 @@ def sale_action(
                     assignment.last_release_reason = "SOLD"
                     assignment.status = "RELEASED"
                     assignment.updated_at = datetime.utcnow()
+                stock_row.epc = None
             stock_row.location_is_vendible = False
             stock_row.updated_at = now
         elif line.line_type == "SKU":

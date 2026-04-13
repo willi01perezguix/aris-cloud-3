@@ -1,4 +1,7 @@
-from app.aris3.db.models import PosCashMovement
+import uuid
+
+from app.aris3.core.security import get_password_hash
+from app.aris3.db.models import PosCashMovement, User
 from tests.pos_sales_helpers import (
     create_stock_item,
     create_tenant_user,
@@ -376,6 +379,40 @@ def test_mixed_cash_card_requires_open_cash_session(client, db_session):
     movements = db_session.query(PosCashMovement).filter(PosCashMovement.sale_id == sale_id).all()
     assert len(movements) == 1
     assert float(movements[0].amount) == 4.0
+
+
+def test_cash_checkout_uses_single_open_store_session_when_cashier_differs(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, opener_user = create_tenant_user(db_session, suffix="pos-cash-fallback")
+    cashier_user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=store.id,
+        username="user-pos-cash-fallback-2",
+        email="user-pos-cash-fallback-2@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="ADMIN",
+        status="ACTIVE",
+        must_change_password=False,
+        is_active=True,
+    )
+    db_session.add(cashier_user)
+    db_session.commit()
+    cashier_token = login(client, cashier_user.username, "Pass1234!")
+    _seed_two_units(db_session, str(tenant.id))
+
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(opener_user.id))
+    sale_id = _create_sale(client, cashier_token, str(store.id), "txn-cash-fallback")
+    response = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {cashier_token}", "Idempotency-Key": "pos-sale-cash-fallback"},
+        json={
+            "transaction_id": "txn-cash-fallback-checkout",
+            "action": "CHECKOUT",
+            "payments": [{"method": "CASH", "amount": 10.0}],
+        },
+    )
+    assert response.status_code == 200
 
 
 def test_mixed_non_cash_checkout_does_not_require_cash_session_or_create_cash_movement(client, db_session):

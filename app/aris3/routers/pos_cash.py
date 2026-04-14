@@ -292,11 +292,12 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
     }
 })
 def get_current_session(
+    request: Request,
     store_id: str | None = None,
     cashier_user_id: str | None = None,
     tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
     token_data=Depends(get_current_token_data),
-    _user=Depends(require_active_user),
+    current_user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_VIEW")),
     db=Depends(get_db),
 ):
@@ -304,7 +305,16 @@ def get_current_session(
     store_id = _resolve_store_id(token_data, store_id)
     enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
     if not cashier_user_id:
-        cashier_user_id = token_data.sub
+        cashier_user_id = str(current_user.id)
+    logger.info(
+        "pos.cash_session.current.resolve.start tenant_id=%s store_id=%s cashier_user_id=%s trace_id=%s register_id=%s terminal_id=%s",
+        scoped_tenant_id,
+        store_id,
+        cashier_user_id,
+        getattr(request.state, "trace_id", None) if hasattr(request, "state") else None,
+        None,
+        None,
+    )
     session = _open_session_query(
         db,
         tenant_id=scoped_tenant_id,
@@ -312,7 +322,31 @@ def get_current_session(
         cashier_user_id=cashier_user_id,
         for_update=False,
     )
-    return PosCashSessionCurrentResponse(session=_session_summary(session) if session else None)
+    if session is None:
+        logger.warning(
+            "pos.cash_session.current.resolve.missing tenant_id=%s store_id=%s cashier_user_id=%s trace_id=%s register_id=%s terminal_id=%s",
+            scoped_tenant_id,
+            store_id,
+            cashier_user_id,
+            getattr(request.state, "trace_id", None) if hasattr(request, "state") else None,
+            None,
+            None,
+        )
+        raise AppError(
+            ErrorCatalog.RESOURCE_NOT_FOUND,
+            details={"message": "open cash session not found"},
+        )
+    logger.info(
+        "pos.cash_session.current.resolve.ok tenant_id=%s store_id=%s cashier_user_id=%s cash_session_id=%s trace_id=%s register_id=%s terminal_id=%s",
+        scoped_tenant_id,
+        store_id,
+        cashier_user_id,
+        str(session.id),
+        getattr(request.state, "trace_id", None) if hasattr(request, "state") else None,
+        None,
+        None,
+    )
+    return PosCashSessionCurrentResponse(session=_session_summary(session))
 
 
 @router.post("/aris3/pos/cash/session/actions", response_model=PosCashSessionSummary, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash session action", description="Action request is discriminated by `action` (`OPEN`, `CASH_IN`, `CASH_OUT`, `CLOSE`) with action-specific required fields.", openapi_extra={

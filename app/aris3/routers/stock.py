@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import String, cast, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
@@ -115,6 +115,22 @@ def _validate_scoped_store(db, *, tenant_id: str, store_id: str) -> None:
             ErrorCatalog.CROSS_TENANT_ACCESS_DENIED,
             details={"message": "store_id is outside tenant scope", "store_id": store_id},
         )
+
+def _compile_sql_with_literals(db, statement) -> str:
+    bind = db.get_bind()
+    compiled = statement.compile(
+        dialect=bind.dialect,
+        compile_kwargs={"literal_binds": True},
+    )
+    return str(compiled)
+
+
+def _store_row_counts(rows: list[StockItem]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        key = str(row.store_id) if row.store_id else "NULL"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 def _require_transaction_id(transaction_id: str | None) -> None:
     if not transaction_id:
@@ -347,12 +363,42 @@ def list_stock(
         to_date=to_date,
         view=view,
     )
+    base_query = repo._apply_filters(filters)
+    sort_column = repo._resolve_sort_column(sort_by)
+    resolved_sort_column = sort_column.desc() if sort_dir.lower() == "desc" else sort_column.asc()
+    paged_query = base_query.order_by(resolved_sort_column).offset((page - 1) * page_size).limit(page_size)
+    base_subquery = base_query.subquery()
+    grouped_store_counts_query = (
+        select(base_subquery.c.store_id, func.count())
+        .select_from(base_subquery)
+        .group_by(base_subquery.c.store_id)
+    )
+
     rows, totals, resolved_sort_by = repo.list_stock(
         filters,
         page=page,
         page_size=page_size,
         sort_by=sort_by,
         sort_dir=sort_dir,
+    )
+
+    token_store_id = getattr(token_data, "store_id", None)
+    resolved_store_id = str(UUID(store_id)) if store_id else None
+    grouped_store_counts = {
+        str(store_id_value) if store_id_value else "NULL": count
+        for store_id_value, count in db.execute(grouped_store_counts_query).all()
+    }
+    logger.info(
+        "stock_query_forensics requested_store_id=%s resolved_store_id=%s token_store_id=%s view=%s include_sold=%s base_sql=%s paged_sql=%s grouped_store_counts=%s paged_row_counts=%s",
+        store_id,
+        resolved_store_id,
+        token_store_id,
+        view,
+        include_sold,
+        _compile_sql_with_literals(db, base_query),
+        _compile_sql_with_literals(db, paged_query),
+        grouped_store_counts,
+        _store_row_counts(rows),
     )
     if store_id:
         scoped_store_id = UUID(store_id)

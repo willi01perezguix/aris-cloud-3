@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
+from app.aris3.routers import stock as stock_router
 
 
 def _login(client, username: str, password: str) -> str:
@@ -295,7 +296,7 @@ def test_stock_query_store_scope_no_cross_store_leakage_across_views(client, db_
     assert all(row["sku"] in {"SKU-REQ-PENDING", "SKU-REQ-SOLD"} for row in operational_true_rows)
 
 
-def test_stock_query_store_scope_strict_rows_and_totals_with_operational_view(client, db_session):
+def test_stock_query_store_scope_strict_rows_and_totals_with_operational_view(client, db_session, monkeypatch):
     run_seed(db_session)
     tenant = Tenant(id=uuid.uuid4(), name="Tenant strict-live-hotfix")
     requested_store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Requested Store")
@@ -359,6 +360,13 @@ def test_stock_query_store_scope_strict_rows_and_totals_with_operational_view(cl
     )
     db_session.commit()
 
+    forensic_messages: list[str] = []
+
+    def _capture_log(message, *args, **kwargs):
+        forensic_messages.append(message % args)
+
+    monkeypatch.setattr(stock_router.logger, "info", _capture_log)
+
     token = _login(client, user.username, "Pass1234!")
     response = client.get(
         "/aris3/stock",
@@ -385,3 +393,14 @@ def test_stock_query_store_scope_strict_rows_and_totals_with_operational_view(cl
     assert body["totals"]["total_units"] == 1
     assert "available_for_transfer" in rows[0]
     assert rows[0]["transfer_mode"] == "SKU"
+
+    forensic_logs = [message for message in forensic_messages if "stock_query_forensics" in message]
+    assert forensic_logs, "Expected stock_query_forensics log entry"
+    forensic_log = forensic_logs[-1]
+    assert "requested_store_id=" in forensic_log
+    assert "resolved_store_id=" in forensic_log
+    assert "token_store_id=" in forensic_log
+    assert "base_sql=" in forensic_log
+    assert "paged_sql=" in forensic_log
+    assert str(requested_store.id) in forensic_log
+    assert "SKU-SMOKE-A" not in {row["sku"] for row in rows}

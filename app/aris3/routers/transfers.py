@@ -31,6 +31,7 @@ from app.aris3.schemas.transfers import (
 from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.stock_rules import transfer_sku_filters
 
 
 router = APIRouter()
@@ -440,16 +441,13 @@ def _validate_transferable_sku_stock(
         db.execute(
             select(StockItem)
             .where(
-                StockItem.tenant_id == tenant_id,
-                StockItem.store_id == origin_store_id,
-                StockItem.epc.is_(None),
-                StockItem.status == "PENDING",
-                StockItem.sku == snapshot.sku,
-                StockItem.description == snapshot.description,
-                StockItem.var1_value == snapshot.var1_value,
-                StockItem.var2_value == snapshot.var2_value,
-                StockItem.location_code == (expected_location_code or snapshot.location_code),
-                StockItem.pool == (expected_pool or snapshot.pool),
+                *transfer_sku_filters(
+                    tenant_id=tenant_id,
+                    origin_store_id=origin_store_id,
+                    sku=snapshot.sku,
+                    location_code=(expected_location_code or snapshot.location_code),
+                    pool=(expected_pool or snapshot.pool),
+                )
             )
             .with_for_update()
             .order_by(StockItem.created_at.asc())

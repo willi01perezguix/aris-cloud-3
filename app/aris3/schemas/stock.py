@@ -96,6 +96,14 @@ class StockRow(BaseModel):
     image_thumb_url: str | None
     image_source: str | None
     image_updated_at: datetime | None
+    available_for_sale: bool
+    available_for_transfer: bool
+    sale_mode: Literal["EPC", "SKU", "NONE"]
+    transfer_mode: Literal["EPC", "SKU", "NONE"]
+    is_historical: bool
+    available_qty: int
+    display_pool: str | None
+    display_location_code: str | None
     id: str
     tenant_id: str
     created_at: datetime
@@ -114,6 +122,7 @@ class StockQueryMeta(BaseModel):
     page_size: int
     sort_by: str
     sort_dir: Literal["asc", "desc"]
+    view: Literal["operational", "history", "all"]
 
 
 class StockQueryTotals(BaseModel):

@@ -22,6 +22,7 @@ class StockQueryFilters:
     store_id: str | None = None
     from_date: datetime | None = None
     to_date: datetime | None = None
+    view: str = "operational"
 
 
 class StockRepository:
@@ -92,6 +93,10 @@ class StockRepository:
             query = query.where(StockItem.pool == filters.pool)
         if filters.store_id:
             query = query.where(StockItem.store_id == filters.store_id)
+        if filters.view == "operational":
+            query = query.where(StockItem.status != "SOLD")
+        elif filters.view == "history":
+            query = query.where(StockItem.status == "SOLD")
         if filters.from_date:
             query = query.where(StockItem.created_at >= filters.from_date)
         if filters.to_date:

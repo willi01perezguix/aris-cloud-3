@@ -56,6 +56,7 @@ from app.aris3.schemas.pos_sales import (
 from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.stock_rules import sale_epc_filters, sale_sku_filters
 
 
 router = APIRouter()
@@ -180,13 +181,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
 
     if line.line_type == "EPC":
         epc = snapshot.epc or line.epc
-        filters = [
-            StockItem.tenant_id == tenant_id,
-            StockItem.store_id == store_id,
-            StockItem.epc == epc,
-            StockItem.status == "RFID",
-            StockItem.location_is_vendible.is_(True),
-        ]
+        filters = list(sale_epc_filters(tenant_id=tenant_id, store_id=store_id, epc=epc))
         if snapshot.location_code:
             filters.append(StockItem.location_code == snapshot.location_code)
         if snapshot.pool:
@@ -219,13 +214,7 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
         return PosSaleLineCreate(line_type=line.line_type, qty=1, unit_price=expected_price, snapshot=rebuilt_snapshot)
 
     sku = snapshot.sku or line.sku
-    filters = [
-        StockItem.tenant_id == tenant_id,
-        StockItem.store_id == store_id,
-        StockItem.sku == sku,
-        StockItem.status == "PENDING",
-        StockItem.location_is_vendible.is_(True),
-    ]
+    filters = list(sale_sku_filters(tenant_id=tenant_id, store_id=store_id, sku=sku))
     if snapshot.location_code:
         filters.append(StockItem.location_code == snapshot.location_code)
     if snapshot.pool:

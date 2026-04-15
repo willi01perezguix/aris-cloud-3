@@ -1,0 +1,186 @@
+import uuid
+
+from app.aris3.core.security import get_password_hash
+from app.aris3.db.models import StockItem, Store, Tenant, User
+from app.aris3.db.seed import run_seed
+from tests.pos_sales_helpers import sale_line, sale_payload
+
+
+def _login(client, username: str, password: str = "Pass1234!") -> str:
+    response = client.post("/aris3/auth/login", json={"username_or_email": username, "password": password})
+    assert response.status_code == 200
+    return response.json()["access_token"]
+
+
+def _bootstrap(db_session, suffix: str):
+    tenant = Tenant(id=uuid.uuid4(), name=f"Tenant {suffix}")
+    store_a = Store(id=uuid.uuid4(), tenant_id=tenant.id, name=f"Store A {suffix}")
+    store_b = Store(id=uuid.uuid4(), tenant_id=tenant.id, name=f"Store B {suffix}")
+    user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        store_id=store_a.id,
+        username=f"admin-{suffix}",
+        email=f"admin-{suffix}@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role="ADMIN",
+        status="active",
+        must_change_password=False,
+        is_active=True,
+    )
+    db_session.add_all([tenant, store_a, store_b, user])
+    db_session.commit()
+    return tenant, store_a, store_b, user
+
+
+def _add_stock(db_session, *, tenant_id, store_id, sku, status, epc=None, vendible=True, location_code="LOC-1", pool="SALE"):
+    row = StockItem(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        store_id=store_id,
+        sku=sku,
+        description="Item",
+        var1_value="V1",
+        var2_value="V2",
+        epc=epc,
+        location_code=location_code,
+        pool=pool,
+        status=status,
+        location_is_vendible=vendible,
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+def test_stock_store_scope_and_history_modes(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, store_b, user = _bootstrap(db_session, "stock-scope")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-A", status="PENDING", epc=None)
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_b.id, sku="SKU-B", status="PENDING", epc=None)
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-SOLD", status="SOLD", epc="SOLD" + "1" * 20)
+
+    token = _login(client, user.username)
+
+    scoped = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store_a.id)},
+    )
+    assert scoped.status_code == 200
+    rows = scoped.json()["rows"]
+    assert rows
+    assert {row["store_id"] for row in rows} == {str(store_a.id)}
+    assert all(row["status"] != "SOLD" for row in rows)
+
+    history = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store_a.id), "view": "history"},
+    )
+    assert history.status_code == 200
+    history_rows = history.json()["rows"]
+    assert len(history_rows) == 1
+    assert history_rows[0]["status"] == "SOLD"
+    assert history_rows[0]["is_historical"] is True
+    assert history_rows[0]["available_for_sale"] is False
+    assert history_rows[0]["available_for_transfer"] is False
+
+
+def test_rfid_without_epc_is_explicitly_non_operational(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, _, user = _bootstrap(db_session, "rfid-no-epc")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-RFID", status="RFID", epc=None, vendible=True)
+
+    token = _login(client, user.username)
+    response = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store_a.id)},
+    )
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row["status"] == "RFID"
+    assert row["epc"] is None
+    assert row["available_for_sale"] is False
+    assert row["available_for_transfer"] is False
+    assert row["sale_mode"] == "NONE"
+    assert row["transfer_mode"] == "NONE"
+
+
+def test_available_for_sale_rows_can_be_sold(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, _, user = _bootstrap(db_session, "sale-alignment")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-SALE", status="PENDING", epc=None, vendible=True)
+
+    token = _login(client, user.username)
+    stock = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store_a.id), "sku": "SKU-SALE"},
+    )
+    assert stock.status_code == 200
+    row = stock.json()["rows"][0]
+    assert row["available_for_sale"] is True
+    assert row["sale_mode"] == "SKU"
+
+    create_sale = client.post(
+        "/aris3/pos/sales",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sale-alignment-1"},
+        json=sale_payload(
+            str(store_a.id),
+            [sale_line(line_type="SKU", qty=1, unit_price=None, sku="SKU-SALE", epc=None, status="PENDING")],
+            transaction_id="sale-alignment-1",
+        ),
+    )
+    assert create_sale.status_code == 201
+
+
+def test_available_for_transfer_rows_can_be_used_in_transfer(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, store_b, user = _bootstrap(db_session, "transfer-alignment")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-MOVE", status="PENDING", epc=None, vendible=True)
+
+    token = _login(client, user.username)
+    stock = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store_a.id), "sku": "SKU-MOVE"},
+    )
+    assert stock.status_code == 200
+    row = stock.json()["rows"][0]
+    assert row["available_for_transfer"] is True
+    assert row["transfer_mode"] == "SKU"
+
+    transfer = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-alignment-1"},
+        json={
+            "transaction_id": "transfer-alignment-1",
+            "origin_store_id": str(store_a.id),
+            "destination_store_id": str(store_b.id),
+            "lines": [
+                {
+                    "line_type": "SKU",
+                    "qty": 1,
+                    "snapshot": {
+                        "sku": "SKU-MOVE",
+                        "description": "mismatch-description-allowed",
+                        "var1_value": None,
+                        "var2_value": None,
+                        "epc": None,
+                        "location_code": "LOC-1",
+                        "pool": "SALE",
+                        "status": "PENDING",
+                        "location_is_vendible": True,
+                        "image_asset_id": None,
+                        "image_url": None,
+                        "image_thumb_url": None,
+                        "image_source": None,
+                        "image_updated_at": None,
+                    },
+                }
+            ],
+        },
+    )
+    assert transfer.status_code == 201

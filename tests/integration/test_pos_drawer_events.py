@@ -33,9 +33,9 @@ def test_create_drawer_event_and_confirm_close(client, db_session):
     assert payload["closed_confirmed_at"] is None
 
     confirm_resp = client.post(
-        f"/aris3/pos/drawer/events/{payload['id']}/confirm-close",
+        f"/aris3/pos/drawer/events/{payload['id']}/actions",
         headers={"Authorization": f"Bearer {token}"},
-        json={"tenant_id": str(tenant.id), "store_id": str(store.id)},
+        json={"action": "CONFIRM_CLOSE", "tenant_id": str(tenant.id), "store_id": str(store.id)},
     )
     assert confirm_resp.status_code == 200
     confirmed = confirm_resp.json()
@@ -57,9 +57,9 @@ def test_confirm_close_not_found(client, db_session):
     token = login(client, username=user.username, password="Pass1234!")
 
     resp = client.post(
-        "/aris3/pos/drawer/events/00000000-0000-0000-0000-000000000999/confirm-close",
+        "/aris3/pos/drawer/events/00000000-0000-0000-0000-000000000999/actions",
         headers={"Authorization": f"Bearer {token}"},
-        json={"tenant_id": str(tenant.id), "store_id": str(store.id)},
+        json={"action": "CONFIRM_CLOSE", "tenant_id": str(tenant.id), "store_id": str(store.id)},
     )
     assert resp.status_code == 404
     assert resp.json()["code"] == "RESOURCE_NOT_FOUND"

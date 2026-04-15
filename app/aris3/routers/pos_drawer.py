@@ -121,12 +121,12 @@ def create_drawer_event(
 
 
 @router.post(
-    "/events/{event_id}/confirm-close",
+    "/events/{event_id}/actions",
     response_model=DrawerEventResponse,
     responses=POS_STANDARD_ERROR_RESPONSES,
-    summary="Confirm drawer close for an event",
+    summary="Execute drawer event action",
 )
-def confirm_drawer_close(
+def drawer_event_action(
     event_id: str,
     payload: DrawerEventConfirmCloseRequest,
     request: Request,
@@ -135,6 +135,9 @@ def confirm_drawer_close(
     _active=Depends(require_active_user),
     _permission=Depends(require_permission("POS_CASH_MANAGE")),
 ):
+    if payload.action != "CONFIRM_CLOSE":
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "unsupported action", "action": payload.action})
+
     tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
     store_id = _resolve_store_id(token_data, payload.store_id)
 

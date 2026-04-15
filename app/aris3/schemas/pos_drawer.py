@@ -45,6 +45,7 @@ class DrawerEventCreateRequest(PosBaseModel):
 
 
 class DrawerEventConfirmCloseRequest(PosBaseModel):
+    action: Literal["CONFIRM_CLOSE"] = "CONFIRM_CLOSE"
     tenant_id: str | None = Field(
         default=None,
         description="Tenant scope. Required for superadmin roles; ignored/validated against token for tenant-scoped roles.",

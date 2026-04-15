@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.core.scope import can_write_stock_or_assets, is_superadmin
+from app.aris3.core.scope import can_read_tenant_scope, can_write_stock_or_assets, is_superadmin
 from app.aris3.db.session import get_db
 from app.aris3.db.models import EpcAssignment, PreloadLine, PreloadSession, SkuImage, StockItem, Store
 from app.aris3.repos.stock import StockQueryFilters, StockRepository
@@ -115,6 +115,26 @@ def _validate_scoped_store(db, *, tenant_id: str, store_id: str) -> None:
             ErrorCatalog.CROSS_TENANT_ACCESS_DENIED,
             details={"message": "store_id is outside tenant scope", "store_id": store_id},
         )
+
+
+def _resolve_query_scope(
+    token_data,
+    *,
+    scope: Literal["self", "tenant"],
+    requested_store_id: str | None,
+) -> str | None:
+    token_store_id = getattr(token_data, "store_id", None)
+    if scope == "self":
+        if token_store_id is None:
+            raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
+        if requested_store_id and requested_store_id != token_store_id:
+            raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+        return token_store_id
+
+    if not can_read_tenant_scope(token_data.role):
+        raise AppError(ErrorCatalog.PERMISSION_DENIED)
+    return None
+
 
 def _compile_sql_with_literals(db, statement) -> str:
     bind = db.get_bind()
@@ -339,17 +359,25 @@ def list_stock(
     page_size: int = Query(50, ge=1, le=500),
     sort_by: str = Query("created_at"),
     sort_dir: Literal["asc", "desc"] = "desc",
+    scope: Literal["self", "tenant"] = Query("self"),
     view: Literal["operational", "history", "all"] = Query("operational"),
     include_sold: bool | None = Query(default=None),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     if store_id:
         _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
+    scope_store_id = _resolve_query_scope(
+        token_data,
+        scope=scope,
+        requested_store_id=store_id,
+    )
     if include_sold is True and view == "operational":
         view = "all"
     repo = StockRepository(db)
     filters = StockQueryFilters(
         tenant_id=scoped_tenant_id,
+        scope=scope,
+        scope_store_id=scope_store_id,
         q=q,
         description=description,
         var1_value=var1_value,
@@ -400,8 +428,8 @@ def list_stock(
         grouped_store_counts,
         _store_row_counts(rows),
     )
-    if store_id:
-        scoped_store_id = UUID(store_id)
+    if scope_store_id:
+        scoped_store_id = UUID(scope_store_id)
         rows = [row for row in rows if row.store_id == scoped_store_id]
         total_rfid = sum(1 for row in rows if row.location_is_vendible and row.status == "RFID")
         total_pending = sum(1 for row in rows if row.location_is_vendible and row.status == "PENDING")
@@ -411,6 +439,27 @@ def list_stock(
             "total_pending": total_pending,
             "total_units": total_rfid + total_pending,
         }
+
+    store_ids = {row.store_id for row in rows if row.store_id is not None}
+    grouped_store_ids = {store_id for store_id, _ in db.execute(grouped_store_counts_query).all() if store_id is not None}
+    store_ids.update(grouped_store_ids)
+    stores_by_id = {}
+    if store_ids:
+        stores = db.execute(select(Store).where(Store.id.in_(store_ids))).scalars().all()
+        stores_by_id = {str(store.id): store for store in stores}
+
+    grouped_store_totals = []
+    for grouped_store_id, count in db.execute(grouped_store_counts_query).all():
+        grouped_store_id_str = str(grouped_store_id) if grouped_store_id else None
+        store_name = stores_by_id.get(grouped_store_id_str).name if grouped_store_id_str in stores_by_id else None
+        grouped_store_totals.append(
+            {
+                "store_id": grouped_store_id_str,
+                "store_name": store_name,
+                "is_current_store": grouped_store_id_str == token_store_id if grouped_store_id_str else False,
+                "total_rows": count,
+            }
+        )
 
     sku_available_qty: dict[tuple[str | None, str | None], int] = {}
     for row in rows:
@@ -438,6 +487,8 @@ def list_stock(
             location_code=row.location_code,
             pool=row.pool,
             store_id=str(row.store_id) if row.store_id else None,
+            store_name=stores_by_id.get(str(row.store_id)).name if row.store_id and str(row.store_id) in stores_by_id else None,
+            is_current_store=(str(row.store_id) == token_store_id) if row.store_id else None,
             status=row.status,
             location_is_vendible=row.location_is_vendible,
             image_asset_id=str(row.image_asset_id) if row.image_asset_id else None,
@@ -463,12 +514,16 @@ def list_stock(
         page_size=page_size,
         sort_by=resolved_sort_by,
         sort_dir=sort_dir,
+        scope=scope,
         view=view,
     )
     return StockQueryResponse(
         meta=meta,
         rows=response_rows,
-        totals=StockQueryTotals(**totals),
+        totals=StockQueryTotals(
+            **totals,
+            totals_by_store=grouped_store_totals if scope == "tenant" else [],
+        ),
     )
 
 

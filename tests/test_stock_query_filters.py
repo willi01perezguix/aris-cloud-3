@@ -56,6 +56,24 @@ def _create_tenant_user_with_store(db_session, *, suffix: str, tenant_id, store_
     return user
 
 
+def _create_store_user_with_role(db_session, *, suffix: str, tenant_id, store_id, role: str):
+    user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        store_id=store_id,
+        username=f"user-{suffix}",
+        email=f"user-{suffix}@example.com",
+        hashed_password=get_password_hash("Pass1234!"),
+        role=role,
+        status="active",
+        must_change_password=False,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
 def _seed_items(db_session, tenant_id, store_id_a, store_id_b):
     now = datetime.utcnow()
     items = [
@@ -165,16 +183,78 @@ def test_stock_query_store_id_filter_and_null(client, db_session):
     token = _login(client, user.username, "Pass1234!")
     headers = {"Authorization": f"Bearer {token}"}
 
-    response = client.get("/aris3/stock", headers=headers)
+    response = client.get("/aris3/stock", params={"scope": "tenant"}, headers=headers)
     assert response.status_code == 200
     assert any(row["store_id"] is None for row in response.json()["rows"])
 
-    filtered = client.get("/aris3/stock", params={"store_id": str(store_b.id)}, headers=headers)
+    filtered = client.get("/aris3/stock", params={"scope": "tenant", "store_id": str(store_b.id)}, headers=headers)
     assert filtered.status_code == 200
     rows = filtered.json()["rows"]
     assert len(rows) == 1
     assert rows[0]["sku"] == "SKU-B"
     assert rows[0]["store_id"] == str(store_b.id)
+
+
+def test_stock_query_default_scope_is_self(client, db_session):
+    run_seed(db_session)
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant self-scope")
+    store_a = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store A")
+    store_b = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store B")
+    db_session.add_all([tenant, store_a, store_b])
+    db_session.commit()
+    user = _create_tenant_user_with_store(db_session, suffix="self-scope", tenant_id=tenant.id, store_id=store_a.id)
+    _seed_items(db_session, tenant.id, store_a.id, store_b.id)
+
+    token = _login(client, user.username, "Pass1234!")
+    response = client.get("/aris3/stock", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    assert rows
+    assert {row["store_id"] for row in rows} == {str(store_a.id)}
+    assert response.json()["meta"]["scope"] == "self"
+
+
+def test_stock_query_scope_tenant_includes_store_context_and_totals(client, db_session):
+    run_seed(db_session)
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant tenant-scope")
+    store_a = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store A")
+    store_b = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store B")
+    db_session.add_all([tenant, store_a, store_b])
+    db_session.commit()
+    user = _create_tenant_user_with_store(db_session, suffix="tenant-scope", tenant_id=tenant.id, store_id=store_a.id)
+    _seed_items(db_session, tenant.id, store_a.id, store_b.id)
+
+    token = _login(client, user.username, "Pass1234!")
+    response = client.get("/aris3/stock", params={"scope": "tenant", "view": "all"}, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta"]["scope"] == "tenant"
+    assert {row["store_id"] for row in payload["rows"]} == {str(store_a.id), str(store_b.id)}
+    assert all("store_name" in row for row in payload["rows"])
+    assert all("is_current_store" in row for row in payload["rows"])
+    assert payload["totals"]["totals_by_store"]
+    assert {entry["store_id"] for entry in payload["totals"]["totals_by_store"]} == {str(store_a.id), str(store_b.id)}
+
+
+def test_stock_query_scope_tenant_requires_broad_store_access(client, db_session):
+    run_seed(db_session)
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant tenant-scope-restricted")
+    store_a = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store A")
+    store_b = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Store B")
+    db_session.add_all([tenant, store_a, store_b])
+    db_session.commit()
+    user = _create_store_user_with_role(
+        db_session,
+        suffix="tenant-scope-restricted",
+        tenant_id=tenant.id,
+        store_id=store_a.id,
+        role="CASHIER",
+    )
+    _seed_items(db_session, tenant.id, store_a.id, store_b.id)
+
+    token = _login(client, user.username, "Pass1234!")
+    response = client.get("/aris3/stock", params={"scope": "tenant"}, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
 
 
 def test_stock_query_store_id_respects_tenant_scope(client, db_session):

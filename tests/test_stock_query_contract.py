@@ -64,6 +64,7 @@ def test_stock_query_contract(client, db_session):
     token = _login(client, user.username, "Pass1234!")
     response = client.get(
         "/aris3/stock",
+        params={"scope": "tenant"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
@@ -71,6 +72,7 @@ def test_stock_query_contract(client, db_session):
     assert set(payload.keys()) == {"meta", "rows", "totals"}
     assert payload["meta"]["page"] == 1
     assert payload["meta"]["page_size"] == 50
+    assert payload["meta"]["scope"] == "tenant"
     assert payload["meta"]["view"] == "operational"
     assert payload["rows"]
 
@@ -86,6 +88,8 @@ def test_stock_query_contract(client, db_session):
         "location_code",
         "pool",
         "store_id",
+        "store_name",
+        "is_current_store",
         "status",
         "location_is_vendible",
         "image_asset_id",

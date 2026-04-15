@@ -656,5 +656,35 @@ class PosCashDayClose(Base):
     )
 
 
+class DrawerEvent(Base):
+    __tablename__ = "drawer_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    terminal_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    cash_session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    sale_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    movement_type: Mapped[str] = mapped_column(String(30), nullable=False, default="UNKNOWN")
+    event_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    printer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    machine_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    closed_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[str] = mapped_column(String(20), nullable=False, default="SUCCESS")
+    details_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_drawer_events_tenant_store_created", "tenant_id", "store_id", "created_at"),
+        Index("ix_drawer_events_cash_session_created", "cash_session_id", "created_at"),
+        Index("ix_drawer_events_sale_created", "sale_id", "created_at"),
+    )
+
+
 Index("ix_users_tenant_username", User.tenant_id, User.username)
 Index("ix_users_tenant_email", User.tenant_id, User.email)

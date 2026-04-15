@@ -190,3 +190,106 @@ def test_stock_query_store_id_respects_tenant_scope(client, db_session):
     headers = {"Authorization": f"Bearer {token}"}
     response = client.get("/aris3/stock", params={"store_id": str(store_b.id)}, headers=headers)
     assert response.status_code == 403
+
+
+def test_stock_query_store_scope_no_cross_store_leakage_across_views(client, db_session):
+    run_seed(db_session)
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant strict-store-scope")
+    requested_store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Requested Store")
+    other_store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Other Store")
+    db_session.add_all([tenant, requested_store, other_store])
+    db_session.commit()
+    user = _create_tenant_user_with_store(
+        db_session,
+        suffix="strict-store-scope",
+        tenant_id=tenant.id,
+        store_id=requested_store.id,
+    )
+
+    db_session.add_all(
+        [
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=requested_store.id,
+                sku="SKU-REQ-PENDING",
+                epc=None,
+                status="PENDING",
+                location_code="LOC-REQ",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=requested_store.id,
+                sku="SKU-REQ-SOLD",
+                epc="EPC-REQ-SOLD",
+                status="SOLD",
+                location_code="LOC-REQ",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=other_store.id,
+                sku="SKU-OTHER-A",
+                epc=None,
+                status="RFID",
+                location_code="LOC-OTHER",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=other_store.id,
+                sku="SKU-OTHER-SOLD",
+                epc="EPC-OTHER-SOLD",
+                status="SOLD",
+                location_code="LOC-OTHER",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    token = _login(client, user.username, "Pass1234!")
+    headers = {"Authorization": f"Bearer {token}"}
+    scoped_params = {"store_id": str(requested_store.id)}
+
+    default_response = client.get("/aris3/stock", params=scoped_params, headers=headers)
+    assert default_response.status_code == 200
+    default_rows = default_response.json()["rows"]
+    assert all(row["store_id"] == str(requested_store.id) for row in default_rows)
+    assert all(row["status"] != "SOLD" for row in default_rows)
+    assert any(row["sku"] == "SKU-REQ-PENDING" for row in default_rows)
+    assert {"available_for_sale", "available_for_transfer", "sale_mode", "transfer_mode", "available_qty"} <= set(
+        default_rows[0].keys()
+    )
+
+    operational_false = client.get(
+        "/aris3/stock",
+        params={**scoped_params, "view": "operational", "include_sold": "false"},
+        headers=headers,
+    )
+    assert operational_false.status_code == 200
+    operational_false_rows = operational_false.json()["rows"]
+    assert all(row["store_id"] == str(requested_store.id) for row in operational_false_rows)
+    assert all(row["status"] != "SOLD" for row in operational_false_rows)
+    pending_row = next(row for row in operational_false_rows if row["sku"] == "SKU-REQ-PENDING")
+    assert pending_row["available_for_transfer"] is True
+    assert pending_row["transfer_mode"] == "SKU"
+
+    operational_true = client.get(
+        "/aris3/stock",
+        params={**scoped_params, "view": "operational", "include_sold": "true"},
+        headers=headers,
+    )
+    assert operational_true.status_code == 200
+    operational_true_rows = operational_true.json()["rows"]
+    assert all(row["store_id"] == str(requested_store.id) for row in operational_true_rows)
+    assert any(row["status"] == "SOLD" for row in operational_true_rows)
+    assert all(row["sku"] in {"SKU-REQ-PENDING", "SKU-REQ-SOLD"} for row in operational_true_rows)

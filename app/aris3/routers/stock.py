@@ -53,6 +53,7 @@ from app.aris3.schemas.stock import (
 from app.aris3.schemas.errors import ApiErrorResponse
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.stock_rules import compute_operational_state
 
 
 router = APIRouter()
@@ -322,10 +323,14 @@ def list_stock(
     page_size: int = Query(50, ge=1, le=500),
     sort_by: str = Query("created_at"),
     sort_dir: Literal["asc", "desc"] = "desc",
+    view: Literal["operational", "history", "all"] = Query("operational"),
+    include_sold: bool | None = Query(default=None),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     if store_id:
         _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
+    if include_sold is True and view == "operational":
+        view = "all"
     repo = StockRepository(db)
     filters = StockQueryFilters(
         tenant_id=scoped_tenant_id,
@@ -340,6 +345,7 @@ def list_stock(
         store_id=store_id,
         from_date=from_date,
         to_date=to_date,
+        view=view,
     )
     rows, totals, resolved_sort_by = repo.list_stock(
         filters,
@@ -348,8 +354,21 @@ def list_stock(
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
-    response_rows = [
-        StockRow(
+    sku_available_qty: dict[tuple[str | None, str | None], int] = {}
+    for row in rows:
+        state = compute_operational_state(row)
+        if state.sale_mode != "SKU" and state.transfer_mode != "SKU":
+            continue
+        key = (str(row.store_id) if row.store_id else None, row.sku)
+        sku_available_qty[key] = sku_available_qty.get(key, 0) + 1
+
+    response_rows = []
+    for row in rows:
+        state = compute_operational_state(row)
+        key = (str(row.store_id) if row.store_id else None, row.sku)
+        sku_mode = state.sale_mode == "SKU" or state.transfer_mode == "SKU"
+        available_qty = sku_available_qty.get(key, 0) if sku_mode else (1 if state.available_for_sale else 0)
+        response_rows.append(StockRow(
             sku=row.sku,
             description=row.description,
             var1_value=row.var1_value,
@@ -368,18 +387,25 @@ def list_stock(
             image_thumb_url=row.image_thumb_url,
             image_source=row.image_source,
             image_updated_at=row.image_updated_at,
+            available_for_sale=state.available_for_sale,
+            available_for_transfer=state.available_for_transfer,
+            sale_mode=state.sale_mode,
+            transfer_mode=state.transfer_mode,
+            is_historical=state.is_historical,
+            available_qty=available_qty,
+            display_pool=row.pool,
+            display_location_code=row.location_code,
             id=str(row.id),
             tenant_id=str(row.tenant_id),
             created_at=row.created_at,
             updated_at=row.updated_at,
-        )
-        for row in rows
-    ]
+        ))
     meta = StockQueryMeta(
         page=page,
         page_size=page_size,
         sort_by=resolved_sort_by,
         sort_dir=sort_dir,
+        view=view,
     )
     return StockQueryResponse(
         meta=meta,

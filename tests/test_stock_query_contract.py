@@ -71,6 +71,7 @@ def test_stock_query_contract(client, db_session):
     assert set(payload.keys()) == {"meta", "rows", "totals"}
     assert payload["meta"]["page"] == 1
     assert payload["meta"]["page_size"] == 50
+    assert payload["meta"]["view"] == "operational"
     assert payload["rows"]
 
     row = payload["rows"][0]
@@ -92,6 +93,14 @@ def test_stock_query_contract(client, db_session):
         "image_thumb_url",
         "image_source",
         "image_updated_at",
+        "available_for_sale",
+        "available_for_transfer",
+        "sale_mode",
+        "transfer_mode",
+        "is_historical",
+        "available_qty",
+        "display_pool",
+        "display_location_code",
         "cost_price",
         "suggested_price",
         "sale_price",

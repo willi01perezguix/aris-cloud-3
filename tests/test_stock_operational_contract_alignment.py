@@ -1,5 +1,7 @@
 import uuid
 
+import pytest
+
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
@@ -115,6 +117,52 @@ def test_stock_operational_view_is_strictly_scoped_to_requested_store(client, db
     rows = scoped.json()["rows"]
     assert rows
     assert all(row["store_id"] == str(store_a.id) for row in rows)
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_statuses"),
+    [
+        ({"include_sold": "false"}, {"PENDING"}),
+        ({"include_sold": "true"}, {"PENDING", "SOLD"}),
+        ({"view": "all"}, {"PENDING", "SOLD"}),
+        ({"view": "history"}, {"SOLD"}),
+    ],
+)
+def test_stock_store_scope_has_no_cross_store_leaks_in_all_read_modes(client, db_session, params, expected_statuses):
+    run_seed(db_session)
+    tenant, store_a, store_b, user = _bootstrap(db_session, "all-read-modes-store-scope")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-SCOPE-TARGET", status="PENDING", epc=None, vendible=True)
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-SCOPE-TARGET-SOLD", status="SOLD", epc="SOLD" + "2" * 20, vendible=True)
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_b.id, sku="SKU-SCOPE-LEAK", status="PENDING", epc=None, vendible=True)
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_b.id, sku="SKU-SCOPE-LEAK-SOLD", status="SOLD", epc="SOLD" + "3" * 20, vendible=True)
+
+    token = _login(client, user.username)
+    response = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={
+            "store_id": str(store_a.id),
+            "page": 1,
+            "page_size": 50,
+            "sort_by": "created_at",
+            "sort_dir": "desc",
+            **params,
+        },
+    )
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    assert rows
+    assert all(row["store_id"] == str(store_a.id) for row in rows)
+    assert "SKU-SCOPE-LEAK" not in {row["sku"] for row in rows}
+    assert set(row["status"] for row in rows).issubset(expected_statuses)
+
+    if params.get("view") != "history":
+        sample = rows[0]
+        assert "available_for_sale" in sample
+        assert "available_for_transfer" in sample
+        assert "sale_mode" in sample
+        assert "transfer_mode" in sample
+        assert "available_qty" in sample
 
 
 def test_rfid_without_epc_is_transferable_by_sku_only(client, db_session):

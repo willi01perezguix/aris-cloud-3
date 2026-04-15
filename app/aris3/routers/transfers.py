@@ -683,10 +683,10 @@ def _validate_transfer_snapshot(line: TransferLineCreate) -> None:
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "sku is required for SKU lines"},
             )
-        if snapshot.status and snapshot.status != "PENDING":
+        if snapshot.status and snapshot.status not in {"PENDING", "RFID"}:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
-                details={"message": "SKU lines require PENDING status"},
+                details={"message": "SKU lines require PENDING or RFID status"},
             )
     if not snapshot.location_code or not snapshot.pool:
         raise AppError(

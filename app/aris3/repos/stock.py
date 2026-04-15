@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, or_, select, case
+from sqlalchemy import String, case, cast, func, or_, select
 
 from app.aris3.db.models import StockItem
 
@@ -92,7 +92,7 @@ class StockRepository:
         if filters.pool:
             query = query.where(StockItem.pool == filters.pool)
         if filters.store_id:
-            query = query.where(StockItem.store_id == filters.store_id)
+            query = query.where(cast(StockItem.store_id, String) == str(filters.store_id))
         if filters.view == "operational":
             query = query.where(StockItem.status != "SOLD")
         elif filters.view == "history":

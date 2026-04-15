@@ -92,8 +92,9 @@ class StockRepository:
             query = query.where(StockItem.location_code == filters.location_code)
         if filters.pool:
             query = query.where(StockItem.pool == filters.pool)
-        if filters.store_id:
-            query = query.where(StockItem.store_id == self._normalize_store_id(filters.store_id))
+        store_scope_id = self._normalize_optional_store_id(filters.store_id)
+        if store_scope_id is not None:
+            query = query.where(StockItem.store_id == store_scope_id)
         if filters.view == "operational":
             query = query.where(StockItem.status != "SOLD")
         elif filters.view == "history":
@@ -152,3 +153,9 @@ class StockRepository:
     @staticmethod
     def _normalize_store_id(store_id: str) -> UUID:
         return UUID(str(store_id))
+
+    @classmethod
+    def _normalize_optional_store_id(cls, store_id: str | None) -> UUID | None:
+        if store_id is None:
+            return None
+        return cls._normalize_store_id(store_id)

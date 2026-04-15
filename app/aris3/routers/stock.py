@@ -354,6 +354,10 @@ def list_stock(
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
+    if store_id:
+        scoped_store_id = UUID(store_id)
+        rows = [row for row in rows if row.store_id == scoped_store_id]
+
     sku_available_qty: dict[tuple[str | None, str | None], int] = {}
     for row in rows:
         state = compute_operational_state(row)

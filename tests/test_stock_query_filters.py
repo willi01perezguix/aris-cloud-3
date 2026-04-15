@@ -293,3 +293,95 @@ def test_stock_query_store_scope_no_cross_store_leakage_across_views(client, db_
     assert all(row["store_id"] == str(requested_store.id) for row in operational_true_rows)
     assert any(row["status"] == "SOLD" for row in operational_true_rows)
     assert all(row["sku"] in {"SKU-REQ-PENDING", "SKU-REQ-SOLD"} for row in operational_true_rows)
+
+
+def test_stock_query_store_scope_strict_rows_and_totals_with_operational_view(client, db_session):
+    run_seed(db_session)
+    tenant = Tenant(id=uuid.uuid4(), name="Tenant strict-live-hotfix")
+    requested_store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Requested Store")
+    leaking_store = Store(id=uuid.uuid4(), tenant_id=tenant.id, name="Leaking Store")
+    db_session.add_all([tenant, requested_store, leaking_store])
+    db_session.commit()
+    user = _create_tenant_user_with_store(
+        db_session,
+        suffix="strict-live-hotfix",
+        tenant_id=tenant.id,
+        store_id=requested_store.id,
+    )
+
+    db_session.add_all(
+        [
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=requested_store.id,
+                sku="SKU-TARGET-001",
+                epc=None,
+                status="PENDING",
+                location_code="LOC-TARGET",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=leaking_store.id,
+                sku="SKU-SMOKE-A",
+                epc=None,
+                status="PENDING",
+                location_code="LOC-LEAK",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=leaking_store.id,
+                sku="SKU-VERIFY-003",
+                epc=None,
+                status="PENDING",
+                location_code="LOC-LEAK",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                store_id=leaking_store.id,
+                sku="SKU-TEST-001",
+                epc=None,
+                status="PENDING",
+                location_code="LOC-LEAK",
+                pool="SALE",
+                location_is_vendible=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    token = _login(client, user.username, "Pass1234!")
+    response = client.get(
+        "/aris3/stock",
+        params={
+            "store_id": str(requested_store.id),
+            "view": "operational",
+            "include_sold": "false",
+            "page": 1,
+            "page_size": 50,
+            "sort_by": "created_at",
+            "sort_dir": "desc",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    rows = body["rows"]
+    assert rows
+    assert {row["store_id"] for row in rows} == {str(requested_store.id)}
+    assert {row["sku"] for row in rows} == {"SKU-TARGET-001"}
+    assert body["totals"]["total_rows"] == 1
+    assert body["totals"]["total_pending"] == 1
+    assert body["totals"]["total_units"] == 1
+    assert "available_for_transfer" in rows[0]
+    assert rows[0]["transfer_mode"] == "SKU"

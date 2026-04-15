@@ -357,6 +357,14 @@ def list_stock(
     if store_id:
         scoped_store_id = UUID(store_id)
         rows = [row for row in rows if row.store_id == scoped_store_id]
+        total_rfid = sum(1 for row in rows if row.location_is_vendible and row.status == "RFID")
+        total_pending = sum(1 for row in rows if row.location_is_vendible and row.status == "PENDING")
+        totals = {
+            "total_rows": len(rows),
+            "total_rfid": total_rfid,
+            "total_pending": total_pending,
+            "total_units": total_rfid + total_pending,
+        }
 
     sku_available_qty: dict[tuple[str | None, str | None], int] = {}
     for row in rows:

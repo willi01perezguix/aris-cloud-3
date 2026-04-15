@@ -89,6 +89,8 @@ class StockRow(BaseModel):
     location_code: str | None
     pool: str | None
     store_id: str | None
+    store_name: str | None = None
+    is_current_store: bool | None = None
     status: str | None
     location_is_vendible: bool
     image_asset_id: str | None
@@ -122,7 +124,15 @@ class StockQueryMeta(BaseModel):
     page_size: int
     sort_by: str
     sort_dir: Literal["asc", "desc"]
+    scope: Literal["self", "tenant"]
     view: Literal["operational", "history", "all"]
+
+
+class StockTotalsByStore(BaseModel):
+    store_id: str | None
+    store_name: str | None = None
+    is_current_store: bool | None = None
+    total_rows: int
 
 
 class StockQueryTotals(BaseModel):
@@ -130,6 +140,7 @@ class StockQueryTotals(BaseModel):
     total_rfid: int
     total_pending: int
     total_units: int
+    totals_by_store: list[StockTotalsByStore] = Field(default_factory=list)
 
 
 class StockQueryResponse(BaseModel):

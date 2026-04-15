@@ -30,6 +30,16 @@ def can_write_stock_or_assets(role: str | None) -> bool:
     return normalized_role in STOCK_AND_ASSET_WRITE_ROLES
 
 
+def can_read_tenant_scope(
+    role: str | None,
+    *,
+    broader_store_roles: Iterable[str] | None = None,
+) -> bool:
+    normalized_role = _normalize_role(role)
+    allowed_roles = {r.upper() for r in (broader_store_roles or DEFAULT_BROAD_STORE_ROLES)}
+    return normalized_role in allowed_roles
+
+
 def enforce_tenant_scope(
     token_data: TokenData,
     tenant_id: str | None,

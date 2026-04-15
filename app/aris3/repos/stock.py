@@ -12,6 +12,8 @@ from app.aris3.db.models import StockItem
 @dataclass(frozen=True)
 class StockQueryFilters:
     tenant_id: str
+    scope: str = "self"
+    scope_store_id: str | None = None
     q: str | None = None
     description: str | None = None
     var1_value: str | None = None
@@ -65,6 +67,9 @@ class StockRepository:
 
     def _apply_filters(self, filters: StockQueryFilters):
         query = select(StockItem).where(StockItem.tenant_id == filters.tenant_id)
+        scope_store_id = self._normalize_optional_store_id(filters.scope_store_id)
+        if scope_store_id is not None:
+            query = query.where(StockItem.store_id == scope_store_id)
         if filters.q:
             like = f"%{filters.q}%"
             query = query.where(
@@ -92,9 +97,9 @@ class StockRepository:
             query = query.where(StockItem.location_code == filters.location_code)
         if filters.pool:
             query = query.where(StockItem.pool == filters.pool)
-        store_scope_id = self._normalize_optional_store_id(filters.store_id)
-        if store_scope_id is not None:
-            query = query.where(StockItem.store_id == store_scope_id)
+        requested_store_id = self._normalize_optional_store_id(filters.store_id)
+        if requested_store_id is not None:
+            query = query.where(StockItem.store_id == requested_store_id)
         if filters.view == "operational":
             query = query.where(StockItem.status != "SOLD")
         elif filters.view == "history":

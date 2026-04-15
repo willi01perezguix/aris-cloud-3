@@ -72,6 +72,10 @@ def test_stock_store_scope_and_history_modes(client, db_session):
     assert rows
     assert {row["store_id"] for row in rows} == {str(store_a.id)}
     assert all(row["status"] != "SOLD" for row in rows)
+    assert all(
+        row["store_id"] == str(store_a.id)
+        for row in rows
+    )
 
     history = client.get(
         "/aris3/stock",
@@ -87,7 +91,33 @@ def test_stock_store_scope_and_history_modes(client, db_session):
     assert history_rows[0]["available_for_transfer"] is False
 
 
-def test_rfid_without_epc_is_explicitly_non_operational(client, db_session):
+def test_stock_operational_view_is_strictly_scoped_to_requested_store(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, store_b, user = _bootstrap(db_session, "operational-store-scope")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-SCOPE-A", status="PENDING", epc=None, vendible=True)
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_b.id, sku="SKU-SCOPE-B", status="PENDING", epc=None, vendible=True)
+
+    token = _login(client, user.username)
+    scoped = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={
+            "store_id": str(store_a.id),
+            "view": "operational",
+            "include_sold": "false",
+            "page": 1,
+            "page_size": 50,
+            "sort_by": "created_at",
+            "sort_dir": "desc",
+        },
+    )
+    assert scoped.status_code == 200
+    rows = scoped.json()["rows"]
+    assert rows
+    assert all(row["store_id"] == str(store_a.id) for row in rows)
+
+
+def test_rfid_without_epc_is_transferable_by_sku_only(client, db_session):
     run_seed(db_session)
     tenant, store_a, _, user = _bootstrap(db_session, "rfid-no-epc")
     _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-RFID", status="RFID", epc=None, vendible=True)
@@ -103,9 +133,9 @@ def test_rfid_without_epc_is_explicitly_non_operational(client, db_session):
     assert row["status"] == "RFID"
     assert row["epc"] is None
     assert row["available_for_sale"] is False
-    assert row["available_for_transfer"] is False
+    assert row["available_for_transfer"] is True
     assert row["sale_mode"] == "NONE"
-    assert row["transfer_mode"] == "NONE"
+    assert row["transfer_mode"] == "SKU"
 
 
 def test_available_for_sale_rows_can_be_sold(client, db_session):
@@ -172,6 +202,57 @@ def test_available_for_transfer_rows_can_be_used_in_transfer(client, db_session)
                         "location_code": "LOC-1",
                         "pool": "SALE",
                         "status": "PENDING",
+                        "location_is_vendible": True,
+                        "image_asset_id": None,
+                        "image_url": None,
+                        "image_thumb_url": None,
+                        "image_source": None,
+                        "image_updated_at": None,
+                    },
+                }
+            ],
+        },
+    )
+    assert transfer.status_code == 201
+
+
+def test_transfer_allows_rfid_without_epc_when_stock_reports_transferable(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, store_b, user = _bootstrap(db_session, "transfer-rfid-no-epc")
+    _add_stock(db_session, tenant_id=tenant.id, store_id=store_a.id, sku="SKU-RFID-MOVE", status="RFID", epc=None, vendible=True)
+
+    token = _login(client, user.username)
+    stock = client.get(
+        "/aris3/stock",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store_a.id), "sku": "SKU-RFID-MOVE"},
+    )
+    assert stock.status_code == 200
+    row = stock.json()["rows"][0]
+    assert row["available_for_transfer"] is True
+    assert row["transfer_mode"] == "SKU"
+    assert row["sale_mode"] == "NONE"
+
+    transfer = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "transfer-rfid-no-epc-1"},
+        json={
+            "transaction_id": "transfer-rfid-no-epc-1",
+            "origin_store_id": str(store_a.id),
+            "destination_store_id": str(store_b.id),
+            "lines": [
+                {
+                    "line_type": "SKU",
+                    "qty": 1,
+                    "snapshot": {
+                        "sku": "SKU-RFID-MOVE",
+                        "description": "rfid-no-epc",
+                        "var1_value": None,
+                        "var2_value": None,
+                        "epc": None,
+                        "location_code": "LOC-1",
+                        "pool": "SALE",
+                        "status": "RFID",
                         "location_is_vendible": True,
                         "image_asset_id": None,
                         "image_url": None,

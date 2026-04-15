@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from sqlalchemy import or_
+
 from app.aris3.db.models import StockItem
 
 
@@ -55,7 +57,16 @@ def compute_operational_state(item: StockItem) -> StockOperationalState:
             is_historical=False,
         )
 
-    # Explicitly non-operational ambiguous stock (for example RFID without EPC).
+    if status == "RFID" and not epc:
+        return StockOperationalState(
+            available_for_sale=False,
+            available_for_transfer=not in_transit,
+            sale_mode="NONE",
+            transfer_mode="SKU" if not in_transit else "NONE",
+            is_historical=False,
+        )
+
+    # Explicitly non-operational ambiguous stock.
     return StockOperationalState(
         available_for_sale=False,
         available_for_transfer=False,
@@ -106,7 +117,7 @@ def transfer_sku_filters(*, tenant_id: str, origin_store_id: str, sku: str, loca
         StockItem.tenant_id == tenant_id,
         StockItem.store_id == origin_store_id,
         StockItem.epc.is_(None),
-        StockItem.status == "PENDING",
+        or_(StockItem.status == "PENDING", StockItem.status == "RFID"),
         StockItem.sku == sku,
         StockItem.location_code != "IN_TRANSIT",
         StockItem.pool != "IN_TRANSIT",

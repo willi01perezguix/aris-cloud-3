@@ -385,16 +385,10 @@ def _validate_transferable_epc_stock(
             },
         )
 
-    if stock_row.status != "RFID":
+    if stock_row.status == "SOLD":
         raise AppError(
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "stock is not transferable", "epc": epc, "status": stock_row.status},
-        )
-
-    if stock_row.location_code == _IN_TRANSIT_CODE or stock_row.pool == _IN_TRANSIT_CODE:
-        raise AppError(
-            ErrorCatalog.BUSINESS_CONFLICT,
-            details={"message": "stock is already in transit", "epc": epc},
         )
 
     if expected_location_code and stock_row.location_code != expected_location_code:
@@ -460,7 +454,7 @@ def _validate_transferable_sku_stock(
         raise AppError(
             ErrorCatalog.BUSINESS_CONFLICT,
             details={
-                "message": "insufficient pending sku stock in origin_store_id",
+                "message": "insufficient sku stock in origin_store_id",
                 "sku": snapshot.sku,
                 "origin_store_id": origin_store_id,
                 "requested_qty": line.qty,

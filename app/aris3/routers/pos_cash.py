@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import case, func, select
+from sqlalchemy import case, exists, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
@@ -263,11 +263,55 @@ def _reconciliation_rollup(
 
 
 def _open_session_query(db, *, tenant_id: str, store_id: str, cashier_user_id: str, for_update: bool = False):
+    day_close_exists = exists(
+        select(1).where(
+            PosCashDayClose.tenant_id == PosCashSession.tenant_id,
+            PosCashDayClose.store_id == PosCashSession.store_id,
+            PosCashDayClose.business_date == PosCashSession.business_date,
+            PosCashDayClose.status == "CLOSED",
+        )
+    )
+    query = (
+        select(PosCashSession)
+        .where(
+            PosCashSession.tenant_id == tenant_id,
+            PosCashSession.store_id == store_id,
+            PosCashSession.cashier_user_id == cashier_user_id,
+            PosCashSession.status == "OPEN",
+            PosCashSession.closed_at.is_(None),
+            ~day_close_exists,
+        )
+        .order_by(PosCashSession.opened_at.desc(), PosCashSession.created_at.desc())
+    )
+    if for_update:
+        query = query.with_for_update()
+    return db.execute(query).scalars().first()
+
+
+def _resolve_active_session(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    cashier_user_id: str,
+    cash_session_id: str | None,
+    for_update: bool = False,
+) -> PosCashSession | None:
+    if not cash_session_id:
+        return _open_session_query(
+            db,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            cashier_user_id=cashier_user_id,
+            for_update=for_update,
+        )
     query = select(PosCashSession).where(
+        PosCashSession.id == cash_session_id,
         PosCashSession.tenant_id == tenant_id,
         PosCashSession.store_id == store_id,
         PosCashSession.cashier_user_id == cashier_user_id,
         PosCashSession.status == "OPEN",
+        PosCashSession.closed_at.is_(None),
     )
     if for_update:
         query = query.with_for_update()
@@ -874,11 +918,12 @@ def quote_cash_cut(
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
     resolved_store_id = _resolve_store_id(token_data, payload.store_id)
     enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
-    session = _open_session_query(
+    session = _resolve_active_session(
         db,
         tenant_id=scoped_tenant_id,
         store_id=resolved_store_id,
         cashier_user_id=str(current_user.id),
+        cash_session_id=payload.cash_session_id,
         for_update=False,
     )
     if session is None:
@@ -919,11 +964,12 @@ def create_cash_cut(
     enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
     resolved_store_id = _resolve_store_id(token_data, payload.store_id)
     enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
-    session = _open_session_query(
+    session = _resolve_active_session(
         db,
         tenant_id=scoped_tenant_id,
         store_id=resolved_store_id,
         cashier_user_id=str(current_user.id),
+        cash_session_id=payload.cash_session_id,
         for_update=True,
     )
     if session is None:
@@ -1209,6 +1255,9 @@ def close_day(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "reason is required for force day close"},
             )
+        for session in open_sessions:
+            session.status = "CLOSED"
+            session.closed_at = datetime.utcnow()
 
     rollup = _reconciliation_rollup(
         db,

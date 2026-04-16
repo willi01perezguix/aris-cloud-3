@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -303,7 +304,7 @@ class PosReturnsService:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "return not found"})
         if event.action != DRAFT_ACTION:
             raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "Action cannot be executed for current return state"})
-        payload = _event_payload(event)
+        payload = deepcopy(_event_payload(event))
         now = datetime.utcnow()
         net_adjustment = Decimal(str(event.net_adjustment or 0)).quantize(Decimal("0.01"))
         if action_request.action == "VOID":

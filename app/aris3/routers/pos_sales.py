@@ -61,6 +61,7 @@ from app.aris3.services.stock_rules import sale_epc_filters, sale_sku_filters
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+POS_RETURN_AGGREGATE_ACTIONS = {"REFUND_ITEMS", "EXCHANGE_ITEMS"}
 
 
 POS_STANDARD_ERROR_RESPONSES = {
@@ -540,6 +541,8 @@ def _return_event_summaries(events: list[PosReturnEvent]) -> tuple[PosReturnTota
     net_adjustment = Decimal("0.00")
     summaries: list[PosReturnEventSummary] = []
     for event in events:
+        if event.action not in POS_RETURN_AGGREGATE_ACTIONS:
+            continue
         refund_subtotal += Decimal(str(event.refund_subtotal or 0))
         restocking_fee += Decimal(str(event.restocking_fee or 0))
         refund_total += Decimal(str(event.refund_total or 0))
@@ -571,6 +574,8 @@ def _return_event_summaries(events: list[PosReturnEvent]) -> tuple[PosReturnTota
 def _refunded_quantities(events: list[PosReturnEvent]) -> dict[str, int]:
     refunded: dict[str, int] = {}
     for event in events:
+        if event.action not in POS_RETURN_AGGREGATE_ACTIONS:
+            continue
         payload = event.payload or {}
         for item in payload.get("returned_lines", []):
             line_id = item.get("line_id")

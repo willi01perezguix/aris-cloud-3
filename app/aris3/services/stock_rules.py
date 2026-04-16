@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from sqlalchemy import or_
-
 from app.aris3.db.models import StockItem
 
 
@@ -27,8 +25,6 @@ def is_historical_status(status: str | None) -> bool:
 def compute_operational_state(item: StockItem) -> StockOperationalState:
     status = (item.status or "").upper()
     epc = (item.epc or "").strip() or None
-    vendible = bool(item.location_is_vendible)
-    in_transit = item.location_code == "IN_TRANSIT" or item.pool == "IN_TRANSIT"
 
     if status == "SOLD":
         return StockOperationalState(
@@ -39,41 +35,23 @@ def compute_operational_state(item: StockItem) -> StockOperationalState:
             is_historical=True,
         )
 
-    if status == "RFID" and epc:
+    if epc:
         return StockOperationalState(
-            available_for_sale=vendible and not in_transit,
-            available_for_transfer=not in_transit,
-            sale_mode="EPC" if vendible and not in_transit else "NONE",
-            transfer_mode="EPC" if not in_transit else "NONE",
+            available_for_sale=True,
+            available_for_transfer=True,
+            sale_mode="EPC",
+            transfer_mode="EPC",
             is_historical=False,
         )
 
-    if status == "PENDING" and not epc:
+    if not epc:
         return StockOperationalState(
-            available_for_sale=vendible and not in_transit,
-            available_for_transfer=not in_transit,
-            sale_mode="SKU" if vendible and not in_transit else "NONE",
-            transfer_mode="SKU" if not in_transit else "NONE",
+            available_for_sale=True,
+            available_for_transfer=True,
+            sale_mode="SKU",
+            transfer_mode="SKU",
             is_historical=False,
         )
-
-    if status == "RFID" and not epc:
-        return StockOperationalState(
-            available_for_sale=False,
-            available_for_transfer=not in_transit,
-            sale_mode="NONE",
-            transfer_mode="SKU" if not in_transit else "NONE",
-            is_historical=False,
-        )
-
-    # Explicitly non-operational ambiguous stock.
-    return StockOperationalState(
-        available_for_sale=False,
-        available_for_transfer=False,
-        sale_mode="NONE",
-        transfer_mode="NONE",
-        is_historical=False,
-    )
 
 
 def sale_epc_filters(*, tenant_id: str, store_id: str, epc: str):
@@ -81,10 +59,7 @@ def sale_epc_filters(*, tenant_id: str, store_id: str, epc: str):
         StockItem.tenant_id == tenant_id,
         StockItem.store_id == store_id,
         StockItem.epc == epc,
-        StockItem.status == "RFID",
-        StockItem.location_is_vendible.is_(True),
-        StockItem.location_code != "IN_TRANSIT",
-        StockItem.pool != "IN_TRANSIT",
+        StockItem.status != "SOLD",
     )
 
 
@@ -94,10 +69,7 @@ def sale_sku_filters(*, tenant_id: str, store_id: str, sku: str):
         StockItem.store_id == store_id,
         StockItem.sku == sku,
         StockItem.epc.is_(None),
-        StockItem.status == "PENDING",
-        StockItem.location_is_vendible.is_(True),
-        StockItem.location_code != "IN_TRANSIT",
-        StockItem.pool != "IN_TRANSIT",
+        StockItem.status != "SOLD",
     )
 
 
@@ -106,9 +78,7 @@ def transfer_epc_filters(*, tenant_id: str, origin_store_id: str, epc: str):
         StockItem.tenant_id == tenant_id,
         StockItem.store_id == origin_store_id,
         StockItem.epc == epc,
-        StockItem.status == "RFID",
-        StockItem.location_code != "IN_TRANSIT",
-        StockItem.pool != "IN_TRANSIT",
+        StockItem.status != "SOLD",
     )
 
 
@@ -117,10 +87,8 @@ def transfer_sku_filters(*, tenant_id: str, origin_store_id: str, sku: str, loca
         StockItem.tenant_id == tenant_id,
         StockItem.store_id == origin_store_id,
         StockItem.epc.is_(None),
-        or_(StockItem.status == "PENDING", StockItem.status == "RFID"),
+        StockItem.status != "SOLD",
         StockItem.sku == sku,
-        StockItem.location_code != "IN_TRANSIT",
-        StockItem.pool != "IN_TRANSIT",
     ]
     if location_code is not None:
         clauses.append(StockItem.location_code == location_code)

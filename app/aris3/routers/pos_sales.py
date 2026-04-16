@@ -1792,10 +1792,9 @@ def sale_action(
                             StockItem.tenant_id == sale.tenant_id,
                             StockItem.store_id == sale.store_id,
                             StockItem.epc == snapshot.epc,
-                            StockItem.status == "RFID",
+                            StockItem.status != "SOLD",
                             StockItem.location_code == snapshot.location_code,
                             StockItem.pool == snapshot.pool,
-                            StockItem.location_is_vendible.is_(True),
                         )
                         .with_for_update()
                     )
@@ -1835,10 +1834,10 @@ def sale_action(
                             StockItem.tenant_id == sale.tenant_id,
                             StockItem.store_id == sale.store_id,
                             StockItem.sku == snapshot.sku,
-                            StockItem.status == "PENDING",
+                            StockItem.status != "SOLD",
+                            StockItem.epc.is_(None),
                             StockItem.location_code == snapshot.location_code,
                             StockItem.pool == snapshot.pool,
-                            StockItem.location_is_vendible.is_(True),
                         )
                         .order_by(StockItem.created_at)
                         .limit(line.qty)
@@ -1850,7 +1849,7 @@ def sale_action(
                 if len(stock_rows) < line.qty:
                     raise AppError(
                         ErrorCatalog.VALIDATION_ERROR,
-                        details={"message": "insufficient PENDING stock for exchange SKU line", "sku": snapshot.sku},
+                        details={"message": "insufficient stock for exchange SKU line", "sku": snapshot.sku},
                     )
                 for stock_row in stock_rows:
                     stock_row.status = "SOLD"
@@ -2088,10 +2087,9 @@ def sale_action(
                         StockItem.tenant_id == sale.tenant_id,
                         StockItem.store_id == sale.store_id,
                         StockItem.epc == line.epc,
-                        StockItem.status == "RFID",
+                        StockItem.status != "SOLD",
                         StockItem.location_code == line.location_code,
                         StockItem.pool == line.pool,
-                        StockItem.location_is_vendible.is_(True),
                     )
                     .with_for_update()
                 )
@@ -2140,10 +2138,10 @@ def sale_action(
                         StockItem.tenant_id == sale.tenant_id,
                         StockItem.store_id == sale.store_id,
                         StockItem.sku == line.sku,
-                        StockItem.status == "PENDING",
+                        StockItem.status != "SOLD",
+                        StockItem.epc.is_(None),
                         StockItem.location_code == line.location_code,
                         StockItem.pool == line.pool,
-                        StockItem.location_is_vendible.is_(True),
                     )
                     .order_by(StockItem.created_at)
                     .limit(line.qty)
@@ -2155,7 +2153,7 @@ def sale_action(
             if len(stock_rows) < line.qty:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
-                    details={"message": "insufficient PENDING stock for SKU line", "sku": line.sku},
+                    details={"message": "insufficient stock for SKU line", "sku": line.sku},
                 )
             for stock_row in stock_rows:
                 stock_row.status = "SOLD"

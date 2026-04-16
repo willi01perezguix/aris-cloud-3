@@ -1179,7 +1179,11 @@ def get_sale(
 
 @router.post("/aris3/pos/sales/{sale_id}/actions", response_model=PosSaleResponse, responses=POS_STANDARD_ERROR_RESPONSES,
     summary="Execute sale action",
-    description="Canonical actions are `CHECKOUT`, `CANCEL`, `REFUND_ITEMS`, and `EXCHANGE_ITEMS`. Legacy lowercase is accepted and normalized.",
+    description=(
+        "Canonical POS flow uses `/aris3/pos/returns` for refunds/exchanges. "
+        "`REFUND_ITEMS` and `EXCHANGE_ITEMS` are maintained as compatibility wrappers on sales actions. "
+        "Legacy lowercase is accepted and normalized."
+    ),
     openapi_extra={
         "parameters": [_IDEMPOTENCY_REQUIRED_HEADER_PARAMETER],
         "requestBody": {

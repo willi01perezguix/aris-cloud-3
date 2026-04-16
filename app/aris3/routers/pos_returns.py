@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from uuid import uuid4
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
+from app.aris3.db.session import get_db
 from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorResponse
 from app.aris3.schemas.pos_returns import (
     ReturnActionRequest,
@@ -16,7 +16,7 @@ from app.aris3.schemas.pos_returns import (
     ReturnQuoteResponse,
     ReturnSummaryRow,
 )
-from app.aris3.services.pos_returns import compute_quote
+from app.aris3.services.pos_returns import PosReturnsService
 
 router = APIRouter()
 
@@ -58,9 +58,11 @@ def list_returns(
     business_date_to: date | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    db=Depends(get_db),
 ):
-    _ = (return_number, sale_id, receipt_number, status, business_date_from, business_date_to)
-    return ReturnListResponse(page=page, page_size=page_size, total=0, rows=[])
+    _ = (return_number, status, business_date_from, business_date_to)
+    service = PosReturnsService(db)
+    return service.list_returns(sale_id=sale_id, receipt_number=receipt_number, page=page, page_size=page_size)
 
 
 @router.get('/aris3/pos/returns/{return_id}', response_model=ReturnDetail, responses={k: v for k, v in POS_STANDARD_ERROR_RESPONSES.items() if k != 409}, openapi_extra={
@@ -70,26 +72,9 @@ def list_returns(
         "404": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["404"]}}},
     }
 })
-def get_return(return_id: str):
-    if return_id in {"not-found", "00000000-0000-0000-0000-000000000404"}:
-        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "return not found"})
-    now = datetime.utcnow()
-    return ReturnDetail(
-        id=return_id,
-        return_number=f'RET-{return_id[:8]}',
-        sale_id='00000000-0000-0000-0000-000000000000',
-        store_id='00000000-0000-0000-0000-000000000000',
-        status='DRAFT',
-        return_type='REFUND',
-        refund_total='0.00',
-        exchange_total='0.00',
-        net_adjustment='0.00',
-        settlement_direction='NONE',
-        created_at=now,
-        lines=[],
-        settlement_payments=[],
-        events=[],
-    )
+def get_return(return_id: str, db=Depends(get_db)):
+    service = PosReturnsService(db)
+    return service.get_return(return_id)
 
 
 @router.get('/aris3/pos/returns/eligibility', response_model=ReturnEligibilityResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
@@ -100,15 +85,9 @@ def get_return(return_id: str):
         "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "sale_id", "message": "sale_id or receipt_number is required", "type": "value_error"}]}, "trace_id": "trace-returns-eligibility-422"}}}},
     }
 })
-def get_eligibility(sale_id: str | None = None, receipt_number: str | None = None):
-    return ReturnEligibilityResponse(
-        sale_id=sale_id or 'unknown',
-        receipt_number=receipt_number,
-        eligible=bool(sale_id or receipt_number),
-        reason=None if (sale_id or receipt_number) else 'sale_id or receipt_number is required',
-        lines=[],
-        allowed_settlement_methods=['CASH', 'CARD', 'TRANSFER'],
-    )
+def get_eligibility(sale_id: str | None = None, receipt_number: str | None = None, db=Depends(get_db)):
+    service = PosReturnsService(db)
+    return service.get_eligibility(sale_id=sale_id, receipt_number=receipt_number)
 
 
 @router.post(
@@ -140,8 +119,9 @@ def get_eligibility(sale_id: str | None = None, receipt_number: str | None = Non
         },
     },
 )
-def quote_return(request: ReturnQuoteRequest):
-    return compute_quote(request)
+def quote_return(request: ReturnQuoteRequest, db=Depends(get_db)):
+    service = PosReturnsService(db)
+    return service.compute_quote(request)
 
 
 @router.post(
@@ -179,26 +159,9 @@ def quote_return(request: ReturnQuoteRequest):
         },
     },
 )
-def create_return(request: ReturnQuoteRequest):
-    quote = compute_quote(request)
-    now = datetime.utcnow()
-    rid = str(uuid4())
-    return ReturnDetail(
-        id=rid,
-        return_number=f'RET-{rid[:8]}',
-        sale_id=request.sale_id,
-        store_id=request.store_id,
-        status='DRAFT',
-        return_type='MIXED',
-        refund_total=quote.refund_total,
-        exchange_total=quote.exchange_total,
-        net_adjustment=quote.net_adjustment,
-        settlement_direction=quote.settlement_direction,
-        created_at=now,
-        lines=[],
-        settlement_payments=[],
-        events=[{'action': 'CREATED', 'at': now.isoformat() + 'Z'}],
-    )
+def create_return(request: ReturnQuoteRequest, db=Depends(get_db)):
+    service = PosReturnsService(db)
+    return service.create_draft(request)
 
 
 @router.post(
@@ -214,23 +177,6 @@ def create_return(request: ReturnQuoteRequest):
         },
     },
 )
-def action_return(return_id: str, request: ReturnActionRequest):
-    now = datetime.utcnow()
-    status = 'COMPLETED' if request.action == 'COMPLETE' else 'VOIDED'
-    return ReturnDetail(
-        id=return_id,
-        return_number=f'RET-{return_id[:8]}',
-        sale_id='00000000-0000-0000-0000-000000000000',
-        store_id='00000000-0000-0000-0000-000000000000',
-        status=status,
-        return_type='MIXED',
-        refund_total='0.00',
-        exchange_total='0.00',
-        net_adjustment='0.00',
-        settlement_direction='NONE',
-        created_at=now,
-        completed_at=now if status == 'COMPLETED' else None,
-        lines=[],
-        settlement_payments=[],
-        events=[{'action': request.action, 'at': now.isoformat() + 'Z'}],
-    )
+def action_return(return_id: str, request: ReturnActionRequest, db=Depends(get_db)):
+    service = PosReturnsService(db)
+    return service.apply_action(return_id, request)

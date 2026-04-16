@@ -25,8 +25,9 @@ except ModuleNotFoundError:  # pragma: no cover
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.schemas.exports import ExportFilters, ExportFormat, ExportSourceType
 from app.aris3.services.reports import (
+    build_daily_report_rows,
+    build_report_totals,
     daily_sales_refunds,
-    iter_dates,
     resolve_date_range,
     resolve_timezone,
     validate_date_range,
@@ -67,61 +68,6 @@ def sanitize_filename(name: str | None, format: ExportFormat, *, fallback: str) 
     return f"{cleaned}.{format}"
 
 
-def _totals_from_days(rows: list[dict]) -> dict[str, Decimal]:
-    gross_sales = sum((row["gross_sales"] for row in rows), Decimal("0.00"))
-    refunds_total = sum((row["refunds_total"] for row in rows), Decimal("0.00"))
-    net_sales = sum((row["net_sales"] for row in rows), Decimal("0.00"))
-    cogs_gross = sum((row["cogs_gross"] for row in rows), Decimal("0.00"))
-    cogs_reversed = sum((row["cogs_reversed_from_returns"] for row in rows), Decimal("0.00"))
-    net_cogs = sum((row["net_cogs"] for row in rows), Decimal("0.00"))
-    net_profit = sum((row["net_profit"] for row in rows), Decimal("0.00"))
-    orders_paid_count = sum((row["orders_paid_count"] for row in rows), 0)
-    average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
-    return {
-        "gross_sales": gross_sales,
-        "refunds_total": refunds_total,
-        "net_sales": net_sales,
-        "cogs_gross": cogs_gross,
-        "cogs_reversed_from_returns": cogs_reversed,
-        "net_cogs": net_cogs,
-        "net_profit": net_profit,
-        "orders_paid_count": orders_paid_count,
-        "average_ticket": average_ticket.quantize(Decimal("0.01")),
-    }
-
-
-def _build_daily_rows(
-    sales_by_date: dict[date, Decimal],
-    orders_by_date: dict[date, int],
-    refunds_by_date: dict[date, Decimal],
-    *,
-    start_date: date,
-    end_date: date,
-) -> list[dict]:
-    rows: list[dict] = []
-    for day in iter_dates(start_date, end_date):
-        gross_sales = sales_by_date.get(day, Decimal("0.00"))
-        refunds_total = refunds_by_date.get(day, Decimal("0.00"))
-        net_sales = gross_sales - refunds_total
-        orders_paid_count = orders_by_date.get(day, 0)
-        average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
-        rows.append(
-            {
-                "business_date": day,
-                "gross_sales": gross_sales,
-                "refunds_total": refunds_total,
-                "net_sales": net_sales,
-                "cogs_gross": Decimal("0.00"),
-                "cogs_reversed_from_returns": Decimal("0.00"),
-                "net_cogs": Decimal("0.00"),
-                "net_profit": net_sales,
-                "orders_paid_count": orders_paid_count,
-                "average_ticket": average_ticket.quantize(Decimal("0.01")),
-            }
-        )
-    return rows
-
-
 def build_report_dataset(
     *,
     db,
@@ -144,7 +90,7 @@ def build_report_dataset(
         cashier_id=filters.cashier,
         payment_method=filters.payment_method,
     )
-    daily_rows = _build_daily_rows(
+    daily_rows = build_daily_report_rows(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
@@ -153,7 +99,7 @@ def build_report_dataset(
     )
 
     if source_type == "reports_overview":
-        totals = _totals_from_days(daily_rows)
+        totals = build_report_totals(daily_rows)
         columns = list(totals.keys())
         rows = [[totals[col] for col in columns]]
         return ExportDataset(columns=columns, rows=rows, totals=totals)
@@ -172,7 +118,7 @@ def build_report_dataset(
             "average_ticket",
         ]
         rows = [[row[col] for col in columns] for row in daily_rows]
-        return ExportDataset(columns=columns, rows=rows, totals=_totals_from_days(daily_rows))
+        return ExportDataset(columns=columns, rows=rows, totals=build_report_totals(daily_rows))
 
     if source_type == "reports_calendar":
         columns = ["business_date", "net_sales", "net_profit", "orders_paid_count"]
@@ -180,7 +126,7 @@ def build_report_dataset(
             [row["business_date"], row["net_sales"], row["net_profit"], row["orders_paid_count"]]
             for row in daily_rows
         ]
-        return ExportDataset(columns=columns, rows=rows, totals=_totals_from_days(daily_rows))
+        return ExportDataset(columns=columns, rows=rows, totals=build_report_totals(daily_rows))
 
     raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "invalid source_type"})
 

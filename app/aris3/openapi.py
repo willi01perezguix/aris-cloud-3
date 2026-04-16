@@ -651,6 +651,9 @@ def _prune_public_legacy_contract(schema: dict) -> None:
         "CashOutRequest": {"tenant_id"},
         "CloseCashSessionRequest": {"tenant_id"},
         "PosCashDayCloseActionRequest": {"tenant_id"},
+        "PosCashCutQuoteRequest": {"tenant_id"},
+        "PosCashCutCreateRequest": {"tenant_id"},
+        "PosCashCutActionRequest": {"tenant_id"},
         "UserCreateRequest": {"tenant_id"},
     }.items():
         model = components.get(schema_name, {})
@@ -666,6 +669,8 @@ def _prune_public_legacy_contract(schema: dict) -> None:
         "/aris3/pos/cash/movements",
         "/aris3/pos/cash/day-close/summary",
         "/aris3/pos/cash/reconciliation/breakdown",
+        "/aris3/pos/cash/cuts",
+        "/aris3/pos/cash/cuts/{cut_id}",
     ):
         op = schema.get("paths", {}).get(path, {}).get("get", {})
         if op:

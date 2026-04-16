@@ -65,6 +65,85 @@ PosCashSessionActionRequest = Annotated[
 ]
 
 
+class PosCashCutQuoteRequest(PosBaseModel):
+    tenant_id: str | None = Field(
+        default=None,
+        description="Tenant scope. Required for superadmin roles; ignored/validated against token for tenant-scoped roles.",
+    )
+    store_id: str | None = None
+    cash_session_id: str | None = None
+    use_last_cut_window: bool = True
+    from_at: datetime | None = None
+    to_at: datetime | None = None
+    timezone: str | None = None
+    cut_type: Literal["PARTIAL", "SHIFT_HANDOFF", "BANK_DEPOSIT"] = "PARTIAL"
+
+
+class PosCashCutCreateRequest(PosCashCutQuoteRequest):
+    transaction_id: str
+    counted_cash: Money | None = None
+    deposit_removed_amount: Money | None = None
+    notes: str | None = None
+    auto_apply_cash_out: bool = False
+
+
+class PosCashCutActionRequest(PosBaseModel):
+    transaction_id: str
+    tenant_id: str | None = Field(
+        default=None,
+        description="Tenant scope. Required for superadmin roles; ignored/validated against token for tenant-scoped roles.",
+    )
+    store_id: str | None = None
+    action: Literal["COMPLETE", "VOID", "PRINT_MARK", "APPLY_CASH_OUT"]
+    amount: Money | None = None
+    reason: str | None = None
+    notes: str | None = None
+
+
+class PosCashCutSummary(PosBaseModel):
+    id: str
+    tenant_id: str
+    store_id: str
+    cash_session_id: str
+    cut_number: int
+    cut_type: str
+    from_at: datetime
+    to_at: datetime
+    timezone: str
+    opening_amount_snapshot: Money
+    cash_sales_total: Money
+    card_sales_total: Money
+    transfer_sales_total: Money
+    mixed_cash_component_total: Money
+    mixed_card_component_total: Money
+    mixed_transfer_component_total: Money
+    cash_in_total: Money
+    cash_out_total: Money
+    cash_refunds_total: Money
+    expected_cash: Money
+    counted_cash: Money | None = None
+    difference: Money | None = None
+    deposit_removed_amount: Money | None = None
+    deposit_cash_movement_id: str | None = None
+    notes: str | None = None
+    status: str
+    created_by_user_id: str
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class PosCashCutQuoteResponse(PosBaseModel):
+    quote: PosCashCutSummary
+
+
+class PosCashCutListResponse(PaginatedResponse):
+    rows: list[PosCashCutSummary]
+
+
+class PosCashCutDetailResponse(PosBaseModel):
+    cut: PosCashCutSummary
+
+
 class PosCashSessionSummary(PosBaseModel):
     id: str
     tenant_id: str

@@ -65,18 +65,6 @@ def list_returns(
     return service.list_returns(sale_id=sale_id, receipt_number=receipt_number, page=page, page_size=page_size)
 
 
-@router.get('/aris3/pos/returns/{return_id}', response_model=ReturnDetail, responses={k: v for k, v in POS_STANDARD_ERROR_RESPONSES.items() if k != 409}, openapi_extra={
-    "responses": {
-        "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
-        "403": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["403"]}}},
-        "404": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["404"]}}},
-    }
-})
-def get_return(return_id: str, db=Depends(get_db)):
-    service = PosReturnsService(db)
-    return service.get_return(return_id)
-
-
 @router.get('/aris3/pos/returns/eligibility', response_model=ReturnEligibilityResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
     "responses": {
         "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
@@ -122,6 +110,18 @@ def get_eligibility(sale_id: str | None = None, receipt_number: str | None = Non
 def quote_return(request: ReturnQuoteRequest, db=Depends(get_db)):
     service = PosReturnsService(db)
     return service.compute_quote(request)
+
+
+@router.get('/aris3/pos/returns/{return_id}', response_model=ReturnDetail, responses={k: v for k, v in POS_STANDARD_ERROR_RESPONSES.items() if k != 409}, openapi_extra={
+    "responses": {
+        "401": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["401"]}}},
+        "403": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["403"]}}},
+        "404": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["404"]}}},
+    }
+})
+def get_return(return_id: str, db=Depends(get_db)):
+    service = PosReturnsService(db)
+    return service.get_return(return_id)
 
 
 @router.post(

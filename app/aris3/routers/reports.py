@@ -23,8 +23,9 @@ from app.aris3.schemas.reports import (
     ReportTotals,
 )
 from app.aris3.services.reports import (
+    build_daily_report_rows,
+    build_report_totals,
     daily_sales_refunds,
-    iter_dates,
     resolve_date_range,
     resolve_timezone,
     validate_date_range,
@@ -41,63 +42,6 @@ def _resolve_store_id(token_data, store_id: str | None) -> str:
     if token_data.store_id:
         return token_data.store_id
     raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
-
-
-def _totals_from_days(
-    rows: list[ReportDailyRow],
-) -> ReportTotals:
-    gross_sales = sum((row.gross_sales for row in rows), Decimal("0.00"))
-    refunds_total = sum((row.refunds_total for row in rows), Decimal("0.00"))
-    net_sales = sum((row.net_sales for row in rows), Decimal("0.00"))
-    cogs_gross = sum((row.cogs_gross for row in rows), Decimal("0.00"))
-    cogs_reversed = sum((row.cogs_reversed_from_returns for row in rows), Decimal("0.00"))
-    net_cogs = sum((row.net_cogs for row in rows), Decimal("0.00"))
-    net_profit = sum((row.net_profit for row in rows), Decimal("0.00"))
-    orders_paid_count = sum((row.orders_paid_count for row in rows), 0)
-    average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
-    return ReportTotals(
-        gross_sales=gross_sales,
-        refunds_total=refunds_total,
-        net_sales=net_sales,
-        cogs_gross=cogs_gross,
-        cogs_reversed_from_returns=cogs_reversed,
-        net_cogs=net_cogs,
-        net_profit=net_profit,
-        orders_paid_count=orders_paid_count,
-        average_ticket=average_ticket.quantize(Decimal("0.01")),
-    )
-
-
-def _build_daily_rows(
-    sales_by_date: dict[date, Decimal],
-    orders_by_date: dict[date, int],
-    refunds_by_date: dict[date, Decimal],
-    *,
-    start_date: date,
-    end_date: date,
-) -> list[ReportDailyRow]:
-    rows: list[ReportDailyRow] = []
-    for day in iter_dates(start_date, end_date):
-        gross_sales = sales_by_date.get(day, Decimal("0.00"))
-        refunds_total = refunds_by_date.get(day, Decimal("0.00"))
-        net_sales = gross_sales - refunds_total
-        orders_paid_count = orders_by_date.get(day, 0)
-        average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
-        rows.append(
-            ReportDailyRow(
-                business_date=day,
-                gross_sales=gross_sales,
-                refunds_total=refunds_total,
-                net_sales=net_sales,
-                cogs_gross=Decimal("0.00"),
-                cogs_reversed_from_returns=Decimal("0.00"),
-                net_cogs=Decimal("0.00"),
-                net_profit=net_sales,
-                orders_paid_count=orders_paid_count,
-                average_ticket=average_ticket.quantize(Decimal("0.01")),
-            )
-        )
-    return rows
 
 
 def _build_meta(request: Request, store_id: str, timezone_name: str, date_range, filters: ReportFilters, query_ms: float) -> ReportMeta:
@@ -175,14 +119,15 @@ def report_overview(
         cashier_id=cashier,
         payment_method=payment_method,
     )
-    rows = _build_daily_rows(
+    rows_data = build_daily_report_rows(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
-    totals = _totals_from_days(rows)
+    rows = [ReportDailyRow(**row) for row in rows_data]
+    totals = ReportTotals(**build_report_totals(rows_data))
     query_ms = (time.perf_counter() - start_time) * 1000
     meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
     logger.info(
@@ -259,14 +204,15 @@ def report_daily(
         cashier_id=cashier,
         payment_method=payment_method,
     )
-    rows = _build_daily_rows(
+    rows_data = build_daily_report_rows(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
-    totals = _totals_from_days(rows)
+    rows = [ReportDailyRow(**row) for row in rows_data]
+    totals = ReportTotals(**build_report_totals(rows_data))
     query_ms = (time.perf_counter() - start_time) * 1000
     meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
     logger.info(
@@ -343,13 +289,14 @@ def report_calendar(
         cashier_id=cashier,
         payment_method=payment_method,
     )
-    daily_rows = _build_daily_rows(
+    daily_rows_data = build_daily_report_rows(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
+    daily_rows = [ReportDailyRow(**row) for row in daily_rows_data]
     calendar_rows = [
         ReportCalendarDay(
             business_date=row.business_date,
@@ -359,7 +306,7 @@ def report_calendar(
         )
         for row in daily_rows
     ]
-    totals = _totals_from_days(daily_rows)
+    totals = ReportTotals(**build_report_totals(daily_rows_data))
     query_ms = (time.perf_counter() - start_time) * 1000
     meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
     logger.info(

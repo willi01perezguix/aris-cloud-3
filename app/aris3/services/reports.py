@@ -38,6 +38,7 @@ class ReportDateRange:
 
 
 UTC_ALIASES = {"UTC", "Z", "Etc/UTC"}
+REPORTABLE_RETURN_ACTIONS = ("REFUND_ITEMS", "EXCHANGE_ITEMS")
 
 
 def _normalize_timezone_name(timezone_name: str | None) -> str:
@@ -179,18 +180,88 @@ def refund_events_query(
     start_utc: datetime,
     end_utc: datetime,
     cashier_id: str | None,
+    payment_method: str | None,
 ) -> Select:
     query = select(PosReturnEvent.refund_total, PosReturnEvent.created_at).where(
         PosReturnEvent.tenant_id == tenant_id,
         PosReturnEvent.store_id == store_id,
+        PosReturnEvent.action.in_(REPORTABLE_RETURN_ACTIONS),
         PosReturnEvent.created_at >= start_utc,
         PosReturnEvent.created_at <= end_utc,
     )
-    if cashier_id:
+    if cashier_id or payment_method:
         query = query.join(PosSale, PosSale.id == PosReturnEvent.sale_id).where(
-            PosSale.checked_out_by_user_id == cashier_id
+            PosSale.tenant_id == tenant_id,
+            PosSale.store_id == store_id,
         )
+    if cashier_id:
+        query = query.where(PosSale.checked_out_by_user_id == cashier_id)
+    if payment_method:
+        payment_subquery = (
+            select(PosPayment.sale_id)
+            .where(
+                PosPayment.tenant_id == tenant_id,
+                PosPayment.method == payment_method,
+            )
+            .distinct()
+        )
+        query = query.where(PosReturnEvent.sale_id.in_(payment_subquery))
     return query
+
+
+def build_daily_report_rows(
+    sales_by_date: dict[date, Decimal],
+    orders_by_date: dict[date, int],
+    refunds_by_date: dict[date, Decimal],
+    *,
+    start_date: date,
+    end_date: date,
+) -> list[dict[str, Decimal | date | int]]:
+    rows: list[dict[str, Decimal | date | int]] = []
+    for day in iter_dates(start_date, end_date):
+        gross_sales = sales_by_date.get(day, Decimal("0.00"))
+        refunds_total = refunds_by_date.get(day, Decimal("0.00"))
+        net_sales = gross_sales - refunds_total
+        orders_paid_count = orders_by_date.get(day, 0)
+        average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
+        rows.append(
+            {
+                "business_date": day,
+                "gross_sales": gross_sales,
+                "refunds_total": refunds_total,
+                "net_sales": net_sales,
+                "cogs_gross": Decimal("0.00"),
+                "cogs_reversed_from_returns": Decimal("0.00"),
+                "net_cogs": Decimal("0.00"),
+                "net_profit": net_sales,
+                "orders_paid_count": orders_paid_count,
+                "average_ticket": average_ticket.quantize(Decimal("0.01")),
+            }
+        )
+    return rows
+
+
+def build_report_totals(rows: list[dict[str, Decimal | date | int]]) -> dict[str, Decimal | int]:
+    gross_sales = sum((row["gross_sales"] for row in rows), Decimal("0.00"))
+    refunds_total = sum((row["refunds_total"] for row in rows), Decimal("0.00"))
+    net_sales = sum((row["net_sales"] for row in rows), Decimal("0.00"))
+    cogs_gross = sum((row["cogs_gross"] for row in rows), Decimal("0.00"))
+    cogs_reversed = sum((row["cogs_reversed_from_returns"] for row in rows), Decimal("0.00"))
+    net_cogs = sum((row["net_cogs"] for row in rows), Decimal("0.00"))
+    net_profit = sum((row["net_profit"] for row in rows), Decimal("0.00"))
+    orders_paid_count = sum((row["orders_paid_count"] for row in rows), 0)
+    average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
+    return {
+        "gross_sales": gross_sales,
+        "refunds_total": refunds_total,
+        "net_sales": net_sales,
+        "cogs_gross": cogs_gross,
+        "cogs_reversed_from_returns": cogs_reversed,
+        "net_cogs": net_cogs,
+        "net_profit": net_profit,
+        "orders_paid_count": orders_paid_count,
+        "average_ticket": average_ticket.quantize(Decimal("0.01")),
+    }
 
 
 def sale_line_totals(
@@ -249,6 +320,7 @@ def daily_sales_refunds(
             start_utc=start_utc,
             end_utc=end_utc,
             cashier_id=cashier_id,
+            payment_method=payment_method,
         )
     ).all()
     refunds_by_date: dict[date, Decimal] = defaultdict(lambda: Decimal("0.00"))

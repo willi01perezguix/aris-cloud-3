@@ -656,6 +656,51 @@ class PosCashDayClose(Base):
     )
 
 
+class PosCashCut(Base):
+    __tablename__ = "pos_cash_cuts"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    cash_session_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    cut_number: Mapped[int] = mapped_column(nullable=False)
+    cut_type: Mapped[str] = mapped_column(String(30), nullable=False, default="PARTIAL")
+    from_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    to_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    opening_amount_snapshot: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    cash_sales_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    card_sales_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    transfer_sales_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    mixed_cash_component_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    mixed_card_component_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    mixed_transfer_component_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    cash_in_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    cash_out_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    cash_refunds_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    expected_cash: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    counted_cash: Mapped[float | None] = mapped_column(nullable=True)
+    difference: Mapped[float | None] = mapped_column(nullable=True)
+    deposit_removed_amount: Mapped[float | None] = mapped_column(nullable=True)
+    deposit_cash_movement_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN")
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "store_id",
+            "cash_session_id",
+            "cut_number",
+            name="uq_pos_cash_cut_session_number",
+        ),
+        Index("ix_pos_cash_cuts_tenant_store_to_at", "tenant_id", "store_id", "to_at"),
+    )
+
+
 class DrawerEvent(Base):
     __tablename__ = "drawer_events"
 

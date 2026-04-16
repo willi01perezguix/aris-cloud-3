@@ -8,17 +8,24 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope, enforce_tenant_scope, is_superadmin
-from app.aris3.db.models import PosCashDayClose, PosCashMovement, PosCashSession
+from app.aris3.db.models import PosCashCut, PosCashDayClose, PosCashMovement, PosCashSession, PosPayment, PosSale
 from app.aris3.db.session import get_db
 from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorResponse
 from app.aris3.schemas.pos_cash import (
     PosCashDayCloseActionRequest,
+    PosCashCutActionRequest,
+    PosCashCutCreateRequest,
+    PosCashCutDetailResponse,
+    PosCashCutListResponse,
+    PosCashCutQuoteRequest,
+    PosCashCutQuoteResponse,
+    PosCashCutSummary,
     PosCashDayCloseResponse,
     PosCashDayCloseSummaryListResponse,
     PosCashDayCloseSummaryResponse,
@@ -282,6 +289,188 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
             details={"message": "cash_out would result in negative expected balance"},
         )
 
+
+def _cash_cut_summary(cut: PosCashCut) -> PosCashCutSummary:
+    return PosCashCutSummary(
+        id=_normalize_uuid(cut.id),
+        tenant_id=_normalize_uuid(cut.tenant_id),
+        store_id=_normalize_uuid(cut.store_id),
+        cash_session_id=_normalize_uuid(cut.cash_session_id),
+        cut_number=cut.cut_number,
+        cut_type=cut.cut_type,
+        from_at=cut.from_at,
+        to_at=cut.to_at,
+        timezone=cut.timezone,
+        opening_amount_snapshot=Decimal(str(cut.opening_amount_snapshot)),
+        cash_sales_total=Decimal(str(cut.cash_sales_total)),
+        card_sales_total=Decimal(str(cut.card_sales_total)),
+        transfer_sales_total=Decimal(str(cut.transfer_sales_total)),
+        mixed_cash_component_total=Decimal(str(cut.mixed_cash_component_total)),
+        mixed_card_component_total=Decimal(str(cut.mixed_card_component_total)),
+        mixed_transfer_component_total=Decimal(str(cut.mixed_transfer_component_total)),
+        cash_in_total=Decimal(str(cut.cash_in_total)),
+        cash_out_total=Decimal(str(cut.cash_out_total)),
+        cash_refunds_total=Decimal(str(cut.cash_refunds_total)),
+        expected_cash=Decimal(str(cut.expected_cash)),
+        counted_cash=Decimal(str(cut.counted_cash)) if cut.counted_cash is not None else None,
+        difference=Decimal(str(cut.difference)) if cut.difference is not None else None,
+        deposit_removed_amount=Decimal(str(cut.deposit_removed_amount)) if cut.deposit_removed_amount is not None else None,
+        deposit_cash_movement_id=_normalize_uuid(cut.deposit_cash_movement_id) if cut.deposit_cash_movement_id else None,
+        notes=cut.notes,
+        status=cut.status,
+        created_by_user_id=_normalize_uuid(cut.created_by_user_id),
+        created_at=cut.created_at,
+        completed_at=cut.completed_at,
+    )
+
+
+def _resolve_cut_window(db, *, session: PosCashSession, use_last_cut_window: bool, from_at: datetime | None, to_at: datetime | None) -> tuple[datetime, datetime]:
+    to_value = to_at or datetime.utcnow()
+    if from_at:
+        return from_at, to_value
+    if use_last_cut_window:
+        last_cut = (
+            db.execute(
+                select(PosCashCut)
+                .where(PosCashCut.cash_session_id == session.id)
+                .order_by(PosCashCut.cut_number.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if last_cut:
+            return last_cut.to_at, to_value
+    return session.opened_at, to_value
+
+
+def _calculate_cut_quote(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    session: PosCashSession,
+    cut_type: str,
+    from_at: datetime,
+    to_at: datetime,
+    timezone: str,
+    counted_cash: Decimal | None = None,
+    deposit_removed_amount: Decimal | None = None,
+    notes: str | None = None,
+    existing_cut_id: str | None = None,
+) -> PosCashCutSummary:
+    if to_at <= from_at:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "to_at must be greater than from_at"})
+
+    prior_rows = db.execute(
+        select(PosCashMovement.action, func.sum(PosCashMovement.amount))
+        .where(
+            PosCashMovement.tenant_id == tenant_id,
+            PosCashMovement.store_id == store_id,
+            PosCashMovement.cash_session_id == session.id,
+            PosCashMovement.occurred_at >= session.opened_at,
+            PosCashMovement.occurred_at < from_at,
+            PosCashMovement.action.in_(["CASH_IN", "CASH_OUT", "SALE", "CASH_OUT_REFUND"]),
+        )
+        .group_by(PosCashMovement.action)
+    ).all()
+    prior_totals = {action: Decimal(str(total or 0)) for action, total in prior_rows}
+    opening_snapshot = (
+        Decimal(str(session.opening_amount or 0))
+        + prior_totals.get("CASH_IN", Decimal("0.00"))
+        - prior_totals.get("CASH_OUT", Decimal("0.00"))
+        + prior_totals.get("SALE", Decimal("0.00"))
+        - prior_totals.get("CASH_OUT_REFUND", Decimal("0.00"))
+    )
+
+    payment_rows = db.execute(
+        select(
+            PosSale.id,
+            func.count(PosPayment.id),
+            func.sum(case((PosPayment.method == "CASH", PosPayment.amount), else_=0.0)),
+            func.sum(case((PosPayment.method == "CARD", PosPayment.amount), else_=0.0)),
+            func.sum(case((PosPayment.method == "TRANSFER", PosPayment.amount), else_=0.0)),
+        )
+        .select_from(PosSale)
+        .join(PosPayment, PosPayment.sale_id == PosSale.id)
+        .where(
+            PosSale.tenant_id == tenant_id,
+            PosSale.store_id == store_id,
+            PosSale.status == "PAID",
+            PosSale.checked_out_at >= from_at,
+            PosSale.checked_out_at <= to_at,
+        )
+        .group_by(PosSale.id)
+    ).all()
+    cash_sales = card_sales = transfer_sales = Decimal("0.00")
+    mixed_cash = mixed_card = mixed_transfer = Decimal("0.00")
+    for _sale_id, payment_count, cash_amount, card_amount, transfer_amount in payment_rows:
+        sale_cash = Decimal(str(cash_amount or 0))
+        sale_card = Decimal(str(card_amount or 0))
+        sale_transfer = Decimal(str(transfer_amount or 0))
+        cash_sales += sale_cash
+        card_sales += sale_card
+        transfer_sales += sale_transfer
+        if int(payment_count or 0) > 1:
+            mixed_cash += sale_cash
+            mixed_card += sale_card
+            mixed_transfer += sale_transfer
+
+    movement_rows = db.execute(
+        select(PosCashMovement.action, func.sum(PosCashMovement.amount))
+        .where(
+            PosCashMovement.tenant_id == tenant_id,
+            PosCashMovement.store_id == store_id,
+            PosCashMovement.cash_session_id == session.id,
+            PosCashMovement.occurred_at >= from_at,
+            PosCashMovement.occurred_at <= to_at,
+            PosCashMovement.action.in_(["CASH_IN", "CASH_OUT", "CASH_OUT_REFUND"]),
+        )
+        .group_by(PosCashMovement.action)
+    ).all()
+    movement_totals = {action: Decimal(str(total or 0)) for action, total in movement_rows}
+    cash_in_total = movement_totals.get("CASH_IN", Decimal("0.00"))
+    cash_out_total = movement_totals.get("CASH_OUT", Decimal("0.00"))
+    cash_refunds_total = movement_totals.get("CASH_OUT_REFUND", Decimal("0.00"))
+    expected_cash = opening_snapshot + cash_sales + cash_in_total - cash_out_total - cash_refunds_total
+    difference = (counted_cash - expected_cash) if counted_cash is not None else None
+
+    cut_number = (
+        db.execute(select(func.max(PosCashCut.cut_number)).where(PosCashCut.cash_session_id == session.id)).scalar_one()
+        or 0
+    ) + 1
+    quote_id = existing_cut_id or "00000000-0000-0000-0000-000000000000"
+    return PosCashCutSummary(
+        id=quote_id,
+        tenant_id=tenant_id,
+        store_id=store_id,
+        cash_session_id=_normalize_uuid(session.id),
+        cut_number=cut_number,
+        cut_type=cut_type,
+        from_at=from_at,
+        to_at=to_at,
+        timezone=timezone,
+        opening_amount_snapshot=opening_snapshot,
+        cash_sales_total=cash_sales,
+        card_sales_total=card_sales,
+        transfer_sales_total=transfer_sales,
+        mixed_cash_component_total=mixed_cash,
+        mixed_card_component_total=mixed_card,
+        mixed_transfer_component_total=mixed_transfer,
+        cash_in_total=cash_in_total,
+        cash_out_total=cash_out_total,
+        cash_refunds_total=cash_refunds_total,
+        expected_cash=expected_cash,
+        counted_cash=counted_cash,
+        difference=difference,
+        deposit_removed_amount=deposit_removed_amount,
+        deposit_cash_movement_id=None,
+        notes=notes,
+        status="OPEN",
+        created_by_user_id=_normalize_uuid(session.cashier_user_id),
+        created_at=datetime.utcnow(),
+        completed_at=None,
+    )
 
 @router.get("/aris3/pos/cash/session/current", response_model=PosCashSessionCurrentResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Get current open cash session", description="Returns the currently OPEN cash session for the cashier/store context. `closed_at` is null while session is open.", openapi_extra={
     "responses": {
@@ -671,6 +860,267 @@ def list_cash_movements(
     total = db.execute(count_query).scalar_one()
     rows = db.execute(query.order_by(PosCashMovement.created_at.desc()).limit(page_size).offset(offset)).scalars().all()
     return PosCashMovementListResponse(page=page, page_size=page_size, rows=[_movement_response(row) for row in rows], total=total)
+
+
+@router.post("/aris3/pos/cash/cuts/quote", response_model=PosCashCutQuoteResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def quote_cash_cut(
+    payload: PosCashCutQuoteRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_VIEW")),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, payload.store_id)
+    enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
+    session = _open_session_query(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=resolved_store_id,
+        cashier_user_id=str(current_user.id),
+        for_update=False,
+    )
+    if session is None:
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "open cash session required"})
+    _ensure_not_closed(db, tenant_id=scoped_tenant_id, store_id=resolved_store_id, business_date=session.business_date)
+    from_at, to_at = _resolve_cut_window(
+        db,
+        session=session,
+        use_last_cut_window=payload.use_last_cut_window,
+        from_at=payload.from_at,
+        to_at=payload.to_at,
+    )
+    quote = _calculate_cut_quote(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=resolved_store_id,
+        session=session,
+        cut_type=payload.cut_type,
+        from_at=from_at,
+        to_at=to_at,
+        timezone=payload.timezone or session.timezone,
+    )
+    quote.created_by_user_id = _normalize_uuid(current_user.id)
+    return PosCashCutQuoteResponse(quote=quote)
+
+
+@router.post("/aris3/pos/cash/cuts", response_model=PosCashCutDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def create_cash_cut(
+    request: Request,
+    payload: PosCashCutCreateRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_MANAGE")),
+    db=Depends(get_db),
+):
+    _require_transaction_id(payload.transaction_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    enforce_tenant_scope(token_data, scoped_tenant_id, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, payload.store_id)
+    enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
+    session = _open_session_query(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=resolved_store_id,
+        cashier_user_id=str(current_user.id),
+        for_update=True,
+    )
+    if session is None:
+        raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "open cash session required"})
+    _ensure_not_closed(db, tenant_id=scoped_tenant_id, store_id=resolved_store_id, business_date=session.business_date)
+    from_at, to_at = _resolve_cut_window(
+        db,
+        session=session,
+        use_last_cut_window=payload.use_last_cut_window,
+        from_at=payload.from_at,
+        to_at=payload.to_at,
+    )
+    counted_cash = Decimal(str(payload.counted_cash)) if payload.counted_cash is not None else None
+    deposit_removed = Decimal(str(payload.deposit_removed_amount)) if payload.deposit_removed_amount is not None else None
+    quote = _calculate_cut_quote(
+        db,
+        tenant_id=scoped_tenant_id,
+        store_id=resolved_store_id,
+        session=session,
+        cut_type=payload.cut_type,
+        from_at=from_at,
+        to_at=to_at,
+        timezone=payload.timezone or session.timezone,
+        counted_cash=counted_cash,
+        deposit_removed_amount=deposit_removed,
+        notes=payload.notes,
+    )
+    now = datetime.utcnow()
+    cut = PosCashCut(
+        tenant_id=scoped_tenant_id,
+        store_id=resolved_store_id,
+        cash_session_id=session.id,
+        cut_number=quote.cut_number,
+        cut_type=quote.cut_type,
+        from_at=quote.from_at,
+        to_at=quote.to_at,
+        timezone=quote.timezone,
+        opening_amount_snapshot=float(quote.opening_amount_snapshot),
+        cash_sales_total=float(quote.cash_sales_total),
+        card_sales_total=float(quote.card_sales_total),
+        transfer_sales_total=float(quote.transfer_sales_total),
+        mixed_cash_component_total=float(quote.mixed_cash_component_total),
+        mixed_card_component_total=float(quote.mixed_card_component_total),
+        mixed_transfer_component_total=float(quote.mixed_transfer_component_total),
+        cash_in_total=float(quote.cash_in_total),
+        cash_out_total=float(quote.cash_out_total),
+        cash_refunds_total=float(quote.cash_refunds_total),
+        expected_cash=float(quote.expected_cash),
+        counted_cash=float(quote.counted_cash) if quote.counted_cash is not None else None,
+        difference=float(quote.difference) if quote.difference is not None else None,
+        deposit_removed_amount=float(deposit_removed) if deposit_removed is not None else None,
+        notes=payload.notes,
+        status="COMPLETED" if counted_cash is not None else "OPEN",
+        created_by_user_id=current_user.id,
+        created_at=now,
+        completed_at=now if counted_cash is not None else None,
+    )
+    db.add(cut)
+    if payload.auto_apply_cash_out and deposit_removed and deposit_removed > 0:
+        expected_before = Decimal(str(session.expected_cash or 0))
+        expected_after = expected_before - deposit_removed
+        _ensure_non_negative_balance(expected_after)
+        session.expected_cash = float(expected_after)
+        movement = PosCashMovement(
+            tenant_id=scoped_tenant_id,
+            store_id=resolved_store_id,
+            cash_session_id=session.id,
+            cashier_user_id=session.cashier_user_id,
+            actor_user_id=current_user.id,
+            business_date=session.business_date,
+            timezone=session.timezone,
+            sale_id=None,
+            action="CASH_OUT",
+            amount=float(deposit_removed),
+            expected_balance_before=float(expected_before),
+            expected_balance_after=float(expected_after),
+            transaction_id=f"{payload.transaction_id}-cut-deposit",
+            reason=payload.notes or "bank deposit",
+            trace_id=getattr(request.state, "trace_id", None),
+            occurred_at=now,
+            created_at=now,
+        )
+        db.add(movement)
+        db.flush()
+        cut.deposit_cash_movement_id = movement.id
+    db.commit()
+    return PosCashCutDetailResponse(cut=_cash_cut_summary(cut))
+
+
+@router.get("/aris3/pos/cash/cuts", response_model=PosCashCutListResponse, responses=POS_LIST_ERROR_RESPONSES)
+def list_cash_cuts(
+    store_id: str | None = None,
+    cash_session_id: str | None = None,
+    status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_VIEW")),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    store_id = _resolve_store_id(token_data, store_id)
+    enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+    offset = (page - 1) * page_size
+    query = select(PosCashCut).where(PosCashCut.tenant_id == scoped_tenant_id, PosCashCut.store_id == store_id)
+    count_query = select(func.count()).select_from(PosCashCut).where(PosCashCut.tenant_id == scoped_tenant_id, PosCashCut.store_id == store_id)
+    if cash_session_id:
+        query = query.where(PosCashCut.cash_session_id == cash_session_id)
+        count_query = count_query.where(PosCashCut.cash_session_id == cash_session_id)
+    if status:
+        query = query.where(PosCashCut.status == status)
+        count_query = count_query.where(PosCashCut.status == status)
+    total = db.execute(count_query).scalar_one()
+    rows = db.execute(query.order_by(PosCashCut.created_at.desc()).limit(page_size).offset(offset)).scalars().all()
+    return PosCashCutListResponse(page=page, page_size=page_size, total=total, rows=[_cash_cut_summary(row) for row in rows])
+
+
+@router.get("/aris3/pos/cash/cuts/{cut_id}", response_model=PosCashCutDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def get_cash_cut(
+    cut_id: str,
+    store_id: str | None = None,
+    tenant_id: Annotated[str | None, Query(description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.")] = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_VIEW")),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    store_id = _resolve_store_id(token_data, store_id)
+    enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+    cut = db.execute(select(PosCashCut).where(PosCashCut.id == cut_id, PosCashCut.tenant_id == scoped_tenant_id, PosCashCut.store_id == store_id)).scalars().first()
+    if cut is None:
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "cash cut not found"})
+    return PosCashCutDetailResponse(cut=_cash_cut_summary(cut))
+
+
+@router.post("/aris3/pos/cash/cuts/{cut_id}/actions", response_model=PosCashCutDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def cash_cut_action(
+    request: Request,
+    cut_id: str,
+    payload: PosCashCutActionRequest,
+    token_data=Depends(get_current_token_data),
+    current_user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_CASH_MANAGE")),
+    db=Depends(get_db),
+):
+    _require_transaction_id(payload.transaction_id)
+    scoped_tenant_id = _resolve_tenant_id(token_data, payload.tenant_id)
+    store_id = _resolve_store_id(token_data, payload.store_id)
+    enforce_store_scope(token_data, store_id, db, allow_superadmin=True)
+    cut = db.execute(select(PosCashCut).where(PosCashCut.id == cut_id, PosCashCut.tenant_id == scoped_tenant_id, PosCashCut.store_id == store_id)).scalars().first()
+    if cut is None:
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "cash cut not found"})
+    now = datetime.utcnow()
+    if payload.action == "VOID":
+        cut.status = "VOID"
+    elif payload.action == "COMPLETE":
+        cut.status = "COMPLETED"
+        cut.completed_at = now
+    elif payload.action == "PRINT_MARK":
+        cut.notes = f"{cut.notes or ''}\nprint_mark:{now.isoformat()}".strip()
+    elif payload.action == "APPLY_CASH_OUT":
+        amount = _ensure_positive_amount(payload.amount, "amount")
+        session = db.execute(select(PosCashSession).where(PosCashSession.id == cut.cash_session_id).with_for_update()).scalars().first()
+        if session is None or session.status != "OPEN":
+            raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "open cash session required"})
+        expected_before = Decimal(str(session.expected_cash or 0))
+        expected_after = expected_before - amount
+        _ensure_non_negative_balance(expected_after)
+        session.expected_cash = float(expected_after)
+        movement = PosCashMovement(
+            tenant_id=scoped_tenant_id,
+            store_id=store_id,
+            cash_session_id=session.id,
+            cashier_user_id=session.cashier_user_id,
+            actor_user_id=current_user.id,
+            business_date=session.business_date,
+            timezone=session.timezone,
+            sale_id=None,
+            action="CASH_OUT",
+            amount=float(amount),
+            expected_balance_before=float(expected_before),
+            expected_balance_after=float(expected_after),
+            transaction_id=f"{payload.transaction_id}-cut-action",
+            reason=payload.reason or "cut cash out",
+            trace_id=getattr(request.state, "trace_id", None),
+            occurred_at=now,
+            created_at=now,
+        )
+        db.add(movement)
+        db.flush()
+        cut.deposit_removed_amount = float(amount)
+        cut.deposit_cash_movement_id = movement.id
+    db.commit()
+    return PosCashCutDetailResponse(cut=_cash_cut_summary(cut))
 
 
 @router.post("/aris3/pos/cash/day-close/actions", response_model=PosCashDayCloseResponse, responses=POS_STANDARD_ERROR_RESPONSES, summary="Execute cash day close", description="Performs day-close for the requested business date and timezone.", openapi_extra={

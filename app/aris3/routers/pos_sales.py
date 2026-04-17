@@ -21,6 +21,8 @@ from app.aris3.core.scope import (
 )
 from app.aris3.db.models import (
     EpcAssignment,
+    PosAdvance,
+    PosAdvanceEvent,
     PosCashDayClose,
     PosCashMovement,
     PosCashSession,
@@ -56,6 +58,7 @@ from app.aris3.schemas.pos_sales import (
 from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
+from app.aris3.services.pos_advances import expire_advance_if_needed
 from app.aris3.services.stock_rules import sale_epc_filters, sale_sku_filters
 
 
@@ -420,6 +423,7 @@ def _validate_payments(payments: list[PosPaymentCreate], total_due: Decimal) -> 
     paid_total = Decimal("0.00")
     cash_total = Decimal("0.00")
     non_cash_total = Decimal("0.00")
+    advance_total = Decimal("0.00")
     for payment in payments:
         if payment.amount <= 0:
             raise AppError(
@@ -437,12 +441,25 @@ def _validate_payments(payments: list[PosPaymentCreate], total_due: Decimal) -> 
                     ErrorCatalog.VALIDATION_ERROR,
                     details={"message": "bank_name and voucher_number are required for TRANSFER"},
                 )
+        if payment.method == "ADVANCE":
+            if not payment.reference_code and not payment.advance_id:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "reference_code or advance_id is required for ADVANCE"},
+                )
+            if payment.authorization_code or payment.bank_name:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "ADVANCE cannot include bank/card fields"},
+                )
 
         paid_total += payment.amount
         if payment.method == "CASH":
             cash_total += payment.amount
         else:
             non_cash_total += payment.amount
+        if payment.method == "ADVANCE":
+            advance_total += payment.amount
 
     if paid_total < total_due:
         raise AppError(
@@ -465,13 +482,56 @@ def _validate_payments(payments: list[PosPaymentCreate], total_due: Decimal) -> 
             ErrorCatalog.VALIDATION_ERROR,
             details={"message": "non-cash payments exceed total_due"},
         )
+    if advance_total > total_due:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "advance payments exceed total_due"},
+        )
     return {
         "total_due": total_due,
         "paid_total": paid_total,
         "balance_due": max(total_due - paid_total, Decimal("0.00")),
         "change_due": change_due,
         "cash_total": cash_total,
+        "advance_total": advance_total,
     }
+
+
+def _resolve_advance_for_checkout(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    payment: PosPaymentCreate,
+    actor_user_id: str,
+    now: datetime,
+) -> PosAdvance:
+    filters = [
+        PosAdvance.tenant_id == tenant_id,
+        PosAdvance.store_id == store_id,
+    ]
+    if payment.advance_id:
+        filters.append(PosAdvance.id == payment.advance_id)
+    else:
+        filters.append(PosAdvance.barcode_value == payment.reference_code)
+    advance = db.execute(select(PosAdvance).where(*filters).with_for_update()).scalars().first()
+    if not advance:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "advance not found", "reference_code": payment.reference_code})
+
+    expire_advance_if_needed(db, advance, actor_user_id=actor_user_id, now=now)
+    if advance.status != "ACTIVE":
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={"message": "advance is not active", "status": advance.status, "advance_id": str(advance.id)},
+        )
+
+    issued_amount = Decimal(str(advance.issued_amount)).quantize(Decimal("0.01"))
+    if payment.amount != issued_amount:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "advance payment amount must equal issued amount", "expected": str(issued_amount), "received": str(payment.amount)},
+        )
+    return advance
 
 
 def _default_return_policy() -> ReturnPolicySettings:
@@ -2063,6 +2123,22 @@ def sale_action(
     total_due = sum((Decimal(str(line.line_total)) for line in lines), Decimal("0.00"))
     payments = payload.payments or []
     totals = _validate_payments(payments, total_due)
+    now = datetime.utcnow()
+    advance_payments = [payment for payment in payments if payment.method == "ADVANCE"]
+    if len(advance_payments) > 1:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "only one ADVANCE payment is supported per sale"})
+    resolved_advance: PosAdvance | None = None
+    if advance_payments:
+        if total_due < advance_payments[0].amount:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale total must be >= advance amount"})
+        resolved_advance = _resolve_advance_for_checkout(
+            db,
+            tenant_id=scoped_tenant_id,
+            store_id=str(sale.store_id),
+            payment=advance_payments[0],
+            actor_user_id=str(current_user.id),
+            now=now,
+        )
 
     cash_session = None
     if totals["cash_total"] > 0:
@@ -2086,7 +2162,6 @@ def sale_action(
             sale_id=str(sale.id),
         )
 
-    now = datetime.utcnow()
     for line in lines:
         if line.line_type == "EPC":
             stock_row = (
@@ -2196,6 +2271,22 @@ def sale_action(
         )
     if payment_records:
         db.add_all(payment_records)
+
+    if resolved_advance:
+        resolved_advance.status = "CONSUMED"
+        resolved_advance.consumed_sale_id = sale.id
+        resolved_advance.updated_at = now
+        db.add(
+            PosAdvanceEvent(
+                advance_id=resolved_advance.id,
+                tenant_id=resolved_advance.tenant_id,
+                store_id=resolved_advance.store_id,
+                action="CONSUMED",
+                payload={"sale_id": str(sale.id), "transaction_id": payload.transaction_id},
+                created_by_user_id=current_user.id,
+                created_at=now,
+            )
+        )
 
     if cash_session:
         net_cash_in = max(Decimal("0.00"), totals["cash_total"] - totals["change_due"])

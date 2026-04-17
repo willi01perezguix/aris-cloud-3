@@ -310,3 +310,34 @@ def test_cash_cut_complete_requires_counted_cash(client, db_session):
     )
     assert complete.status_code == 422
     assert complete.json()["details"]["message"] == "counted_cash is required"
+
+
+def test_cash_cut_void_keeps_completion_fields_unchanged(client, db_session):
+    seed_defaults(db_session)
+    _tenant, store, _other_store, user = create_tenant_user(db_session, suffix="cash-cut-void")
+    token = login(client, user.username, "Pass1234!")
+    _open_session(client, token, str(store.id), opening_amount=100.0)
+
+    create = client.post(
+        "/aris3/pos/cash/cuts",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"transaction_id": "txn-cut-void-create", "store_id": str(store.id), "use_last_cut_window": False},
+    )
+    assert create.status_code == 200
+    cut_id = create.json()["cut"]["id"]
+
+    void = client.post(
+        f"/aris3/pos/cash/cuts/{cut_id}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-cut-void-action",
+            "store_id": str(store.id),
+            "action": "VOID",
+        },
+    )
+    assert void.status_code == 200
+    void_cut = void.json()["cut"]
+    assert void_cut["status"] == "VOID"
+    assert void_cut["counted_cash"] is None
+    assert void_cut["difference"] is None
+    assert void_cut["notes"] is None

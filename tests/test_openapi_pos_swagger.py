@@ -103,3 +103,33 @@ def test_pos_cash_current_session_get_does_not_require_idempotency_header():
     params = operation.get("parameters", [])
     idempotency = next((param for param in params if param["name"] == "Idempotency-Key" and param["in"] == "header"), None)
     assert idempotency is None
+
+
+def test_pos_advances_paths_are_present_in_openapi():
+    paths = app.openapi()["paths"]
+    expected = {
+        ("/aris3/pos/advances", "post"),
+        ("/aris3/pos/advances", "get"),
+        ("/aris3/pos/advances/{advance_id}", "get"),
+        ("/aris3/pos/advances/lookup", "get"),
+        ("/aris3/pos/advances/{advance_id}/actions", "post"),
+        ("/aris3/pos/advances/alerts", "get"),
+    }
+    missing = [(path, method) for path, method in expected if method not in paths.get(path, {})]
+    assert not missing
+
+
+def test_pos_advances_tag_and_schemas_are_visible_in_openapi():
+    spec = app.openapi()
+    tags = {tag["name"] for tag in spec.get("tags", [])}
+    assert "pos-advances" in tags
+
+    schema_names = set(spec["components"]["schemas"].keys())
+    assert {
+        "PosAdvanceCreateRequest",
+        "PosAdvanceActionRequest",
+        "PosAdvanceSummary",
+        "PosAdvanceDetailResponse",
+        "PosAdvanceLookupResponse",
+        "PosAdvanceAlertsResponse",
+    }.issubset(schema_names)

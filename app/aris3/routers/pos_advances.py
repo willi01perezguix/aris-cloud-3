@@ -229,25 +229,6 @@ def list_advances(
     return PosAdvanceListResponse(page=page, page_size=page_size, total=total, rows=[_summary(r) for r in rows])
 
 
-@router.get("/aris3/pos/advances/{advance_id}", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
-def get_advance(
-    advance_id: str,
-    request: Request,
-    db=Depends(get_db),
-    current_user=Depends(require_active_user),
-    token_data=Depends(get_current_token_data),
-):
-    row = db.execute(select(PosAdvance).where(PosAdvance.id == advance_id)).scalars().first()
-    if not row:
-        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "advance not found"})
-    enforce_tenant_scope(token_data, str(row.tenant_id))
-    enforce_store_scope(token_data, str(row.store_id), db)
-    if expire_advance_if_needed(db, row, actor_user_id=str(current_user.id)):
-        db.commit()
-    events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
-    return PosAdvanceDetailResponse(**_summary(row).model_dump(), events=[_event_response(e) for e in events])
-
-
 @router.get("/aris3/pos/advances/lookup", response_model=PosAdvanceLookupResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def lookup_advance(
     code: str,
@@ -275,6 +256,58 @@ def lookup_advance(
     )
     db.commit()
     return PosAdvanceLookupResponse(found=True, advance=_summary(row))
+
+
+@router.get("/aris3/pos/advances/alerts", response_model=PosAdvanceAlertsResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def alerts_advances(
+    request: Request,
+    days: int = Query(default=5, ge=1, le=30),
+    tenant_id: str | None = Query(default=None),
+    store_id: str | None = Query(default=None),
+    db=Depends(get_db),
+    current_user=Depends(require_active_user),
+    token_data=Depends(get_current_token_data),
+):
+    scoped_tenant = _resolve_tenant_id(token_data, tenant_id)
+    scoped_store = _resolve_store_id(token_data, store_id)
+    enforce_tenant_scope(token_data, scoped_tenant)
+    enforce_store_scope(token_data, scoped_store, db)
+
+    now = datetime.utcnow()
+    window_end = now + timedelta(days=days)
+    sweep_expired_advances(db, tenant_id=scoped_tenant, store_id=scoped_store, actor_user_id=str(current_user.id), now=now)
+    db.commit()
+    rows = db.execute(
+        select(PosAdvance)
+        .where(
+            PosAdvance.tenant_id == scoped_tenant,
+            PosAdvance.store_id == scoped_store,
+            PosAdvance.status == "ACTIVE",
+            PosAdvance.expires_at >= now,
+            PosAdvance.expires_at <= window_end,
+        )
+        .order_by(PosAdvance.expires_at.asc())
+    ).scalars().all()
+    return PosAdvanceAlertsResponse(as_of=now, days=days, total=len(rows), rows=[_summary(r) for r in rows])
+
+
+@router.get("/aris3/pos/advances/{advance_id}", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
+def get_advance(
+    advance_id: str,
+    request: Request,
+    db=Depends(get_db),
+    current_user=Depends(require_active_user),
+    token_data=Depends(get_current_token_data),
+):
+    row = db.execute(select(PosAdvance).where(PosAdvance.id == advance_id)).scalars().first()
+    if not row:
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "advance not found"})
+    enforce_tenant_scope(token_data, str(row.tenant_id))
+    enforce_store_scope(token_data, str(row.store_id), db)
+    if expire_advance_if_needed(db, row, actor_user_id=str(current_user.id)):
+        db.commit()
+    events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
+    return PosAdvanceDetailResponse(**_summary(row).model_dump(), events=[_event_response(e) for e in events])
 
 
 @router.post("/aris3/pos/advances/{advance_id}/actions", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -347,39 +380,6 @@ def mutate_advance(
     db.commit()
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
     return PosAdvanceDetailResponse(**_summary(row).model_dump(), events=[_event_response(e) for e in events])
-
-
-@router.get("/aris3/pos/advances/alerts", response_model=PosAdvanceAlertsResponse, responses=POS_STANDARD_ERROR_RESPONSES)
-def alerts_advances(
-    request: Request,
-    days: int = Query(default=5, ge=1, le=30),
-    tenant_id: str | None = Query(default=None),
-    store_id: str | None = Query(default=None),
-    db=Depends(get_db),
-    current_user=Depends(require_active_user),
-    token_data=Depends(get_current_token_data),
-):
-    scoped_tenant = _resolve_tenant_id(token_data, tenant_id)
-    scoped_store = _resolve_store_id(token_data, store_id)
-    enforce_tenant_scope(token_data, scoped_tenant)
-    enforce_store_scope(token_data, scoped_store, db)
-
-    now = datetime.utcnow()
-    window_end = now + timedelta(days=days)
-    sweep_expired_advances(db, tenant_id=scoped_tenant, store_id=scoped_store, actor_user_id=str(current_user.id), now=now)
-    db.commit()
-    rows = db.execute(
-        select(PosAdvance)
-        .where(
-            PosAdvance.tenant_id == scoped_tenant,
-            PosAdvance.store_id == scoped_store,
-            PosAdvance.status == "ACTIVE",
-            PosAdvance.expires_at >= now,
-            PosAdvance.expires_at <= window_end,
-        )
-        .order_by(PosAdvance.expires_at.asc())
-    ).scalars().all()
-    return PosAdvanceAlertsResponse(as_of=now, days=days, total=len(rows), rows=[_summary(r) for r in rows])
 
 
 @router.post("/aris3/pos/advances/actions/sweep-expired", response_model=PosAdvanceSweepResponse, responses=POS_STANDARD_ERROR_RESPONSES)

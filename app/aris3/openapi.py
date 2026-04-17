@@ -21,6 +21,19 @@ TAG_METADATA = [
         "name": "Access Control (Self)",
         "description": "Self-service access-control read endpoints resolved from the authenticated request context.",
     },
+    {"name": "pos-sales", "description": "Point-of-sale sales issuance, listing, detail, and action workflows."},
+    {"name": "pos-returns", "description": "Point-of-sale return eligibility, quote, creation, and return action workflows."},
+    {"name": "pos-cash", "description": "Point-of-sale cash sessions, movements, reconciliation, day close, and cash cut workflows."},
+    {"name": "pos-drawer", "description": "Point-of-sale drawer events and lifecycle endpoints."},
+    {"name": "pos-advances", "description": "Point-of-sale customer advances issuance, lookup, alerts, detail, and action workflows."},
+    {"name": "stock", "description": "Inventory stock operations endpoints."},
+    {"name": "transfers", "description": "Inventory transfer create/list/detail and action workflows."},
+    {"name": "reports", "description": "Business reporting endpoints."},
+    {"name": "exports", "description": "Report export generation and download endpoints."},
+    {"name": "assets", "description": "Assets and image management endpoints."},
+    {"name": "users", "description": "User self-context endpoints."},
+    {"name": "auth", "description": "Authentication and token endpoints."},
+    {"name": "ops", "description": "Operational endpoints for platform monitoring."},
 ]
 
 _STATUS_CANONICAL_DESCRIPTION = (

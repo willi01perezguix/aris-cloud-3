@@ -169,6 +169,21 @@ def test_public_access_control_surface_only_exposes_self_endpoints():
         assert path not in paths
 
 
+def test_pos_advances_public_surface_is_exposed_in_openapi():
+    paths = app.openapi()["paths"]
+
+    expected_paths = {
+        "/aris3/pos/advances": {"get", "post"},
+        "/aris3/pos/advances/{advance_id}": {"get"},
+        "/aris3/pos/advances/lookup": {"get"},
+        "/aris3/pos/advances/{advance_id}/actions": {"post"},
+        "/aris3/pos/advances/alerts": {"get"},
+    }
+
+    for path, methods in expected_paths.items():
+        assert path in paths
+        assert methods.issubset(set(paths[path].keys()))
+
 
 
 def test_admin_error_response_shapes_expose_uniform_envelope_for_404_409_422():

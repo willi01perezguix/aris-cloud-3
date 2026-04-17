@@ -95,6 +95,7 @@ class PosCashCutActionRequest(PosBaseModel):
     )
     store_id: str | None = None
     action: Literal["COMPLETE", "VOID", "PRINT_MARK", "APPLY_CASH_OUT"]
+    counted_cash: Money | None = None
     amount: Money | None = None
     reason: str | None = None
     notes: str | None = None

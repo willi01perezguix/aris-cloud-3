@@ -95,11 +95,13 @@ SaleLineSelector = Annotated[SaleLineBySkuInput | SaleLineByEpcInput, Field(disc
 
 
 class PosPaymentCreate(PosBaseModel):
-    method: Literal["CASH", "CARD", "TRANSFER"]
+    method: Literal["CASH", "CARD", "TRANSFER", "ADVANCE"]
     amount: POSMoney = money_field("25.00", "125.50")
     authorization_code: str | None = None
     bank_name: str | None = None
     voucher_number: str | None = None
+    reference_code: str | None = Field(default=None, description="Required when method=ADVANCE (barcode/reference).")
+    advance_id: str | None = Field(default=None, description="Optional direct reference when method=ADVANCE.")
 
 
 class PosSaleCreateRequest(PosBaseModel):

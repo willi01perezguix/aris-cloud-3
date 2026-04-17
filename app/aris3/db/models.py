@@ -586,6 +586,54 @@ class PosPayment(Base):
     )
 
 
+class PosAdvance(Base):
+    __tablename__ = "pos_advances"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    advance_number: Mapped[int] = mapped_column(nullable=False)
+    barcode_value: Mapped[str] = mapped_column(String(100), nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    issued_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    issued_payment_method: Mapped[str] = mapped_column(String(20), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    consumed_sale_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("pos_sales.id"), nullable=True, index=True)
+    refunded_cash_movement_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("pos_cash_movements.id"), nullable=True, index=True)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "store_id", "advance_number", name="uq_pos_advances_store_number"),
+        UniqueConstraint("tenant_id", "barcode_value", name="uq_pos_advances_barcode"),
+        Index("ix_pos_advances_tenant_store_status_expires", "tenant_id", "store_id", "status", "expires_at"),
+    )
+
+
+class PosAdvanceEvent(Base):
+    __tablename__ = "pos_advance_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    advance_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("pos_advances.id"), index=True, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True, nullable=False)
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_pos_advance_events_advance_created", "advance_id", "created_at"),
+        Index("ix_pos_advance_events_tenant_store_created", "tenant_id", "store_id", "created_at"),
+    )
+
+
 class PosCashSession(Base):
     __tablename__ = "pos_cash_sessions"
 

@@ -1129,7 +1129,17 @@ def cash_cut_action(
     if payload.action == "VOID":
         cut.status = "VOID"
     elif payload.action == "COMPLETE":
+        if payload.counted_cash is None:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "counted_cash is required"},
+            )
+        counted_cash = Decimal(str(payload.counted_cash))
+        expected_cash = Decimal(str(cut.expected_cash or 0))
         cut.status = "COMPLETED"
+        cut.counted_cash = float(counted_cash)
+        cut.difference = float(counted_cash - expected_cash)
+        cut.notes = payload.notes
         cut.completed_at = now
     elif payload.action == "PRINT_MARK":
         cut.notes = f"{cut.notes or ''}\nprint_mark:{now.isoformat()}".strip()

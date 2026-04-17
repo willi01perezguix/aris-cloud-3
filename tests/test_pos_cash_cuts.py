@@ -232,3 +232,81 @@ def test_cash_cut_requires_open_session_and_store_scope(client, db_session):
         params={"store_id": str(other_store.id)},
     )
     assert leaked.status_code in (403, 404)
+
+
+def test_cash_cut_complete_persists_counted_cash_difference_and_notes(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="cash-cut-complete")
+    token = login(client, user.username, "Pass1234!")
+    _open_session(client, token, str(store.id), opening_amount=100.0)
+
+    create = client.post(
+        "/aris3/pos/cash/cuts",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"transaction_id": "txn-cut-complete-create", "store_id": str(store.id), "use_last_cut_window": False},
+    )
+    assert create.status_code == 200
+    cut = create.json()["cut"]
+    cut_id = cut["id"]
+    assert cut["status"] == "OPEN"
+    assert cut["counted_cash"] is None
+    assert cut["difference"] is None
+
+    complete = client.post(
+        f"/aris3/pos/cash/cuts/{cut_id}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-cut-complete-action",
+            "store_id": str(store.id),
+            "action": "COMPLETE",
+            "counted_cash": "98.00",
+            "notes": "partial cut test",
+        },
+    )
+    assert complete.status_code == 200
+    completed_cut = complete.json()["cut"]
+    assert completed_cut["status"] == "COMPLETED"
+    assert completed_cut["counted_cash"] == "98.00"
+    assert completed_cut["difference"] == "-2.00"
+    assert completed_cut["notes"] == "partial cut test"
+    assert completed_cut["completed_at"] is not None
+
+    detail = client.get(
+        f"/aris3/pos/cash/cuts/{cut_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"store_id": str(store.id)},
+    )
+    assert detail.status_code == 200
+    detailed_cut = detail.json()["cut"]
+    assert detailed_cut["status"] == "COMPLETED"
+    assert detailed_cut["counted_cash"] == "98.00"
+    assert detailed_cut["difference"] == "-2.00"
+    assert detailed_cut["notes"] == "partial cut test"
+
+
+def test_cash_cut_complete_requires_counted_cash(client, db_session):
+    seed_defaults(db_session)
+    _tenant, store, _other_store, user = create_tenant_user(db_session, suffix="cash-cut-complete-validation")
+    token = login(client, user.username, "Pass1234!")
+    _open_session(client, token, str(store.id), opening_amount=100.0)
+
+    create = client.post(
+        "/aris3/pos/cash/cuts",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"transaction_id": "txn-cut-complete-validation-create", "store_id": str(store.id), "use_last_cut_window": False},
+    )
+    assert create.status_code == 200
+    cut_id = create.json()["cut"]["id"]
+
+    complete = client.post(
+        f"/aris3/pos/cash/cuts/{cut_id}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-cut-complete-validation-action",
+            "store_id": str(store.id),
+            "action": "COMPLETE",
+            "notes": "missing counted cash",
+        },
+    )
+    assert complete.status_code == 422
+    assert complete.json()["details"]["message"] == "counted_cash is required"

@@ -6,11 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope, enforce_tenant_scope, is_superadmin
-from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosCashMovement, PosCashSession
+from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosCashMovement, PosCashSession, PosSale
 from app.aris3.db.models import Store
 from app.aris3.db.session import get_db
 from app.aris3.routers.pos_sales import _record_cash_movement
@@ -118,6 +119,26 @@ def _detail_response(db, row: PosAdvance, events: list[PosAdvanceEvent], *, appl
         applied_amount=applied_amount,
         remaining_amount_to_charge=remaining,
     )
+
+
+def _resolve_sale_id_for_consume(db, advance: PosAdvance, sale_id: str | None) -> UUID | None:
+    if not sale_id:
+        return None
+    try:
+        parsed_sale_id = UUID(sale_id)
+    except ValueError as exc:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale_id must be a valid UUID", "sale_id": sale_id}) from exc
+
+    sale_exists = db.execute(
+        select(PosSale.id).where(
+            PosSale.id == parsed_sale_id,
+            PosSale.tenant_id == advance.tenant_id,
+            PosSale.store_id == advance.store_id,
+        )
+    ).scalars().first()
+    if not sale_exists:
+        raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found", "sale_id": sale_id})
+    return parsed_sale_id
 
 
 def _alert_row(row: PosAdvance, *, now: datetime) -> PosAdvanceAlertRow:
@@ -393,6 +414,7 @@ def mutate_advance(
                 trace_id=getattr(request.state, "trace_id", None),
                 occurred_at=now,
             )
+            db.flush()
             movement = db.execute(select(PosCashMovement).where(PosCashMovement.transaction_id == payload.transaction_id).order_by(PosCashMovement.created_at.desc())).scalars().first()
             movement_id = movement.id if movement else None
         row.status = "REFUNDED"
@@ -412,8 +434,9 @@ def mutate_advance(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "sale total must be >= advance amount", "sale_total": str(payload.sale_total), "advance_amount": str(issued_amount)},
             )
+        consumed_sale_id = _resolve_sale_id_for_consume(db, row, payload.sale_id)
         row.status = "CONSUMED"
-        row.consumed_sale_id = UUID(payload.sale_id) if payload.sale_id else None
+        row.consumed_sale_id = consumed_sale_id
         row.updated_at = now
         action = "CONSUMED"
         remaining = (payload.sale_total - issued_amount).quantize(Decimal("0.01"))
@@ -446,7 +469,16 @@ def mutate_advance(
             created_at=now,
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if payload.action == "CONSUME" and payload.sale_id:
+            raise AppError(
+                ErrorCatalog.BUSINESS_CONFLICT,
+                details={"message": "consume failed due to sale integrity constraint", "sale_id": payload.sale_id},
+            ) from exc
+        raise
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
     return _detail_response(db, row, events, applied_amount=applied_amount, remaining=remaining)
 

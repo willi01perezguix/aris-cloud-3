@@ -3,8 +3,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from decimal import Decimal
+from uuid import UUID, uuid4
 
-from app.aris3.db.models import PosAdvance, PosCashMovement
+from app.aris3.db.models import PosAdvance, PosCashMovement, PosSale
 from tests.pos_sales_helpers import create_tenant_user, login, open_cash_session, seed_defaults
 
 
@@ -28,6 +29,22 @@ def _issue_advance(client, token: str, store_id: str, transaction_id: str, amoun
     )
     assert response.status_code == 200
     return response.json()
+
+
+def _create_sale(db_session, *, tenant_id: str, store_id: str, total_due: str = "150.00") -> PosSale:
+    sale = PosSale(
+        id=uuid4(),
+        tenant_id=UUID(tenant_id),
+        store_id=UUID(store_id),
+        status="PAID",
+        total_due=float(total_due),
+        paid_total=float(total_due),
+        balance_due=0.0,
+        change_due=0.0,
+    )
+    db_session.add(sale)
+    db_session.commit()
+    return sale
 
 
 def test_advances_runtime_flow_contract(client, db_session):
@@ -75,6 +92,7 @@ def test_advances_runtime_flow_contract(client, db_session):
     assert still_active.status_code == 200
     assert still_active.json()["status"] == "ACTIVE"
 
+    linked_sale = _create_sale(db_session, tenant_id=str(tenant.id), store_id=str(store.id), total_due="150.00")
     consume_high = client.post(
         f"/aris3/pos/advances/{created['id']}/actions",
         headers={"Authorization": f"Bearer {token}"},
@@ -82,12 +100,13 @@ def test_advances_runtime_flow_contract(client, db_session):
             "transaction_id": "txn-adv-consume-high",
             "action": "CONSUME",
             "sale_total": "150.00",
-            "sale_id": str(created["id"]),
+            "sale_id": str(linked_sale.id),
         },
     )
     assert consume_high.status_code == 200
     payload = consume_high.json()
     assert payload["status"] == "CONSUMED"
+    assert payload["consumed_sale_id"] == str(linked_sale.id)
     assert Decimal(payload["applied_amount"]) == Decimal("100.00")
     assert Decimal(payload["remaining_amount_to_charge"]) == Decimal("50.00")
 
@@ -101,6 +120,36 @@ def test_advances_runtime_flow_contract(client, db_session):
         },
     )
     assert consume_twice.status_code == 409
+
+
+def test_advances_consume_sale_id_validation_and_lookup(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="adv-runtime-sale-id")
+    token = login(client, user.username, "Pass1234!")
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+
+    invalid_format = _issue_advance(client, token, str(store.id), "txn-adv-sale-id-invalid", amount="50.00")
+    invalid_format_response = client.post(
+        f"/aris3/pos/advances/{invalid_format['id']}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"transaction_id": "txn-adv-sale-id-invalid-consume", "action": "CONSUME", "sale_total": "50.00", "sale_id": "qa-sale-exact-005"},
+    )
+    assert invalid_format_response.status_code == 422
+    assert invalid_format_response.json()["code"] == "VALIDATION_ERROR"
+
+    nonexistent_sale = _issue_advance(client, token, str(store.id), "txn-adv-sale-id-missing", amount="50.00")
+    nonexistent_response = client.post(
+        f"/aris3/pos/advances/{nonexistent_sale['id']}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-adv-sale-id-missing-consume",
+            "action": "CONSUME",
+            "sale_total": "50.00",
+            "sale_id": "11111111-1111-4111-8111-111111111111",
+        },
+    )
+    assert nonexistent_response.status_code == 404
+    assert nonexistent_response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
 def test_advances_refund_expiration_alerts_and_concurrency(client, db_session):
@@ -122,6 +171,7 @@ def test_advances_refund_expiration_alerts_and_concurrency(client, db_session):
     )
     assert refund.status_code == 200, refund.text
     assert refund.json()["status"] == "REFUNDED"
+    assert refund.json()["refunded_cash_movement_id"] is not None
 
     movement = (
         db_session.query(PosCashMovement)

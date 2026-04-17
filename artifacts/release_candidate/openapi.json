@@ -14965,7 +14965,8 @@
             "type": "string",
             "enum": [
               "REFUND",
-              "EXPIRE_NOW"
+              "EXPIRE_NOW",
+              "CONSUME"
             ],
             "title": "Action"
           },
@@ -14983,6 +14984,36 @@
               }
             ],
             "title": "Refund Method"
+          },
+          "sale_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{1,2}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Total",
+            "description": "Total de venta para validar consumo completo",
+            "examples": [
+              "250.00"
+            ]
+          },
+          "sale_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Id"
           },
           "reason": {
             "anyOf": [
@@ -15003,6 +15034,62 @@
         ],
         "title": "PosAdvanceActionRequest"
       },
+      "PosAdvanceAlertRow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "advance_number": {
+            "type": "integer",
+            "title": "Advance Number"
+          },
+          "customer_name": {
+            "type": "string",
+            "title": "Customer Name"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{2}$",
+            "title": "Amount",
+            "description": "Money serializado como string decimal de 2 decimales",
+            "examples": [
+              "100.00"
+            ],
+            "example": "25.00"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "days_to_expiry": {
+            "type": "integer",
+            "title": "Days To Expiry"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "advance_number",
+          "customer_name",
+          "amount",
+          "issued_at",
+          "expires_at",
+          "days_to_expiry",
+          "status"
+        ],
+        "title": "PosAdvanceAlertRow"
+      },
       "PosAdvanceAlertsResponse": {
         "properties": {
           "as_of": {
@@ -15020,7 +15107,7 @@
           },
           "rows": {
             "items": {
-              "$ref": "#/components/schemas/PosAdvanceSummary"
+              "$ref": "#/components/schemas/PosAdvanceAlertRow"
             },
             "type": "array",
             "title": "Rows"
@@ -15243,6 +15330,67 @@
             "type": "array",
             "title": "Events",
             "default": []
+          },
+          "store_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Name"
+          },
+          "barcode_type": {
+            "type": "string",
+            "title": "Barcode Type",
+            "default": "CODE128"
+          },
+          "legal_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Notice"
+          },
+          "applied_amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Amount",
+            "description": "Monto aplicado del anticipo",
+            "examples": [
+              "100.00"
+            ]
+          },
+          "remaining_amount_to_charge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Amount To Charge",
+            "description": "Monto restante por cobrar en la venta",
+            "examples": [
+              "150.00"
+            ]
           }
         },
         "type": "object",

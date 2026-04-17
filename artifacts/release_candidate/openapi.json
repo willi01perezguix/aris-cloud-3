@@ -2078,6 +2078,116 @@
         }
       }
     },
+    "/aris3/admin/tenants/{tenant_id}/wipe-content": {
+      "post": {
+        "tags": [
+          "Admin Tenants"
+        ],
+        "summary": "Wipe tenant content",
+        "description": "Deletes operational tenant content while preserving the tenant and store rows.",
+        "operationId": "post_aris3_admin_tenants_tenant_id_wipe-content",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Idempotency key required for mutating admin operations.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantContentWipeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantContentWipeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                },
+                "example": {
+                  "code": "RESOURCE_NOT_FOUND",
+                  "message": "Tenant not found",
+                  "details": {
+                    "path": "/aris3/admin/tenants/{tenant_id}/wipe-content",
+                    "reason": "resource does not exist"
+                  },
+                  "trace_id": "trace-123"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorResponse"
+                },
+                "example": {
+                  "code": "CONFLICT",
+                  "message": "Resource conflict",
+                  "details": {
+                    "reason": "business validation conflict"
+                  },
+                  "trace_id": "trace-123"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
     "/aris3/admin/tenants/{tenant_id}/actions": {
       "post": {
         "tags": [
@@ -2838,6 +2948,116 @@
                   "message": "Store not found",
                   "details": {
                     "path": "/aris3/admin/stores/{store_id}/purge",
+                    "reason": "resource does not exist"
+                  },
+                  "trace_id": "trace-123"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorResponse"
+                },
+                "example": {
+                  "code": "CONFLICT",
+                  "message": "Resource conflict",
+                  "details": {
+                    "reason": "business validation conflict"
+                  },
+                  "trace_id": "trace-123"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/admin/stores/{store_id}/wipe-content": {
+      "post": {
+        "tags": [
+          "Admin Stores"
+        ],
+        "summary": "Wipe store content",
+        "description": "Deletes operational store content while preserving store and tenant rows.",
+        "operationId": "post_aris3_admin_stores_store_id_wipe-content",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Idempotency key required for mutating admin operations.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreContentWipeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreContentWipeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Store not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                },
+                "example": {
+                  "code": "RESOURCE_NOT_FOUND",
+                  "message": "Store not found",
+                  "details": {
+                    "path": "/aris3/admin/stores/{store_id}/wipe-content",
                     "reason": "resource does not exist"
                   },
                   "trace_id": "trace-123"
@@ -4344,6 +4564,51 @@
               "default": "desc",
               "title": "Sort Dir"
             }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "self",
+                "tenant"
+              ],
+              "type": "string",
+              "default": "self",
+              "title": "Scope"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "operational",
+                "history",
+                "all"
+              ],
+              "type": "string",
+              "default": "operational",
+              "title": "View"
+            }
+          },
+          {
+            "name": "include_sold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Sold"
+            }
           }
         ],
         "responses": {
@@ -4585,13 +4850,1026 @@
         "description": "Operational stock mutation endpoint for inventory workflows. Not intended as a generic public catalog/product-discovery endpoint."
       }
     },
+    "/aris3/stock/preload-sessions": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Create Preload Session",
+        "operationId": "post_aris3_stock_preload-sessions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreloadSessionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreloadSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/aris3/stock/preload-sessions/{session_id}": {
+      "get": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Get Preload Session",
+        "operationId": "get_aris3_stock_preload-sessions_session_id",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreloadSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/preload-lines/{line_id}": {
+      "patch": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Patch Preload Line",
+        "operationId": "patch_aris3_stock_preload-lines_line_id",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Line Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreloadLinePatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreloadLineResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/preload-lines/{line_id}/save": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Save Preload Line",
+        "operationId": "post_aris3_stock_preload-lines_line_id_save",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Line Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreloadLineResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BUSINESS_CONFLICT when EPC is already assigned to another active in-stock item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/pending-epc": {
+      "get": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "List Pending Epc",
+        "operationId": "get_aris3_stock_pending-epc",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PreloadLineResponse"
+                  },
+                  "title": "Response List Pending Epc Aris3 Stock Pending Epc Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/pending-epc/{line_id}/assign-epc": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Assign Pending Epc",
+        "operationId": "post_aris3_stock_pending-epc_line_id_assign-epc",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Line Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PendingEpcAssignRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreloadLineResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BUSINESS_CONFLICT when EPC is already assigned to another active in-stock item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/epc/{epc}/history": {
+      "get": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Epc History",
+        "operationId": "get_aris3_stock_epc_epc_history",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "epc",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Epc"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpcAssignmentHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/epc/release": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Release Epc",
+        "operationId": "post_aris3_stock_epc_release",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpcReleaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpcReleaseResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BUSINESS_CONFLICT for invalid EPC release attempts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/catalog/sku/{sku}/images": {
+      "get": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "List Sku Images",
+        "operationId": "get_aris3_catalog_sku_sku_images",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sku"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkuImageResponse"
+                  },
+                  "title": "Response List Sku Images Aris3 Catalog Sku  Sku  Images Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Upsert Sku Images",
+        "operationId": "post_aris3_catalog_sku_sku_images",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sku"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional key for safe client retries of mutating requests."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkuImageUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkuImageResponse"
+                  },
+                  "title": "Response Upsert Sku Images Aris3 Catalog Sku  Sku  Images Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/catalog/sku/{sku}/images/{asset_id}/primary": {
+      "put": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Set Primary Sku Image",
+        "operationId": "put_aris3_catalog_sku_sku_images_asset_id_primary",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sku"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Asset Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional key for safe client retries of mutating requests."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkuImageResponse"
+                  },
+                  "title": "Response Set Primary Sku Image Aris3 Catalog Sku  Sku  Images  Asset Id  Primary Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/items/{item_uid}/mark-issue": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Mark Issue",
+        "operationId": "post_aris3_stock_items_item_uid_mark-issue",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Item Uid"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemIssueRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemIssueResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BUSINESS_CONFLICT for invalid issue/disposition state transitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/items/{item_uid}/resolve-issue": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Resolve Issue",
+        "operationId": "post_aris3_stock_items_item_uid_resolve-issue",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Item Uid"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemIssueResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemIssueResolveResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BUSINESS_CONFLICT for invalid issue/disposition state transitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
     "/aris3/transfers": {
       "get": {
         "tags": [
           "transfers"
         ],
         "summary": "List transfers",
-        "description": "Returns transfer headers and lines. Transfers are EPC/RFID only in this version; SKU transfer lines are not supported.",
+        "description": "Returns transfer headers and lines. Transfers support EPC/RFID and SKU/PENDING lines.",
         "operationId": "get_aris3_transfers",
         "security": [
           {
@@ -4806,7 +6084,7 @@
           "transfers"
         ],
         "summary": "Create transfer draft",
-        "description": "Creates a new transfer in DRAFT status. Transfers accept EPC/RFID lines only; SKU lines are rejected.",
+        "description": "Creates a new transfer in DRAFT status. Transfers accept both EPC/RFID and SKU/PENDING lines.",
         "operationId": "post_aris3_transfers",
         "security": [
           {
@@ -4901,22 +6179,6 @@
             "content": {
               "application/json": {
                 "examples": {
-                  "line_type_not_epc": {
-                    "value": {
-                      "code": "VALIDATION_ERROR",
-                      "message": "Validation error",
-                      "details": {
-                        "errors": [
-                          {
-                            "field": "lines[0].line_type",
-                            "message": "Transfers currently support EPC/RFID lines only",
-                            "type": "value_error"
-                          }
-                        ]
-                      },
-                      "trace_id": "trace-transfer-422-line-type"
-                    }
-                  },
                   "draft_stale": {
                     "value": {
                       "code": "VALIDATION_ERROR",
@@ -4944,7 +6206,18 @@
           "403": {
             "$ref": "#/components/responses/ForbiddenError"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
+          }
+        ]
       }
     },
     "/aris3/stores": {
@@ -4985,7 +6258,7 @@
           "transfers"
         ],
         "summary": "Update transfer draft",
-        "description": "Updates a transfer while it remains in DRAFT status. EPC/RFID lines only; SKU lines are not supported.",
+        "description": "Updates a transfer while it remains in DRAFT status. Supports EPC/RFID and SKU/PENDING lines.",
         "operationId": "patch_aris3_transfers_transfer_id",
         "security": [
           {
@@ -5001,6 +6274,15 @@
               "type": "string",
               "title": "Transfer Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
           }
         ],
         "requestBody": {
@@ -5106,22 +6388,6 @@
                       },
                       "trace_id": "trace-transfer-422-update-draft-only"
                     }
-                  },
-                  "line_type_not_epc": {
-                    "value": {
-                      "code": "VALIDATION_ERROR",
-                      "message": "Validation error",
-                      "details": {
-                        "errors": [
-                          {
-                            "field": "lines[0].line_type",
-                            "message": "Transfers currently support EPC/RFID lines only",
-                            "type": "value_error"
-                          }
-                        ]
-                      },
-                      "trace_id": "trace-transfer-422-line-type"
-                    }
                   }
                 }
               }
@@ -5141,7 +6407,7 @@
           "transfers"
         ],
         "summary": "Get transfer detail",
-        "description": "Returns transfer detail for EPC/RFID transfer lines. Includes draft and post-dispatch lifecycle states.",
+        "description": "Returns transfer detail for EPC/RFID and SKU/PENDING transfer lines. Includes draft and post-dispatch lifecycle states.",
         "operationId": "get_aris3_transfers_transfer_id",
         "security": [
           {
@@ -5381,7 +6647,7 @@
           "transfers"
         ],
         "summary": "Execute transfer action",
-        "description": "Executes transfer lifecycle actions for EPC/RFID transfers only (SKU is not supported). This endpoint documents and exemplifies dispatch, receive, and cancel actions.",
+        "description": "Executes transfer lifecycle actions for EPC/RFID and SKU/PENDING transfers. This endpoint documents and exemplifies dispatch, receive, and cancel actions.",
         "operationId": "post_aris3_transfers_transfer_id_actions",
         "security": [
           {
@@ -5397,6 +6663,15 @@
               "type": "string",
               "title": "Transfer Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
           }
         ],
         "requestBody": {
@@ -5720,22 +6995,6 @@
                         ]
                       },
                       "trace_id": "trace-transfer-422-receive-scope"
-                    }
-                  },
-                  "line_type_not_epc": {
-                    "value": {
-                      "code": "VALIDATION_ERROR",
-                      "message": "Validation error",
-                      "details": {
-                        "errors": [
-                          {
-                            "field": "lines[0].line_type",
-                            "message": "Transfers currently support EPC/RFID lines only",
-                            "type": "value_error"
-                          }
-                        ]
-                      },
-                      "trace_id": "trace-transfer-422-line-type"
                     }
                   }
                 }
@@ -6216,7 +7475,18 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
+          }
+        ]
       }
     },
     "/aris3/pos/sales/{sale_id}": {
@@ -6241,6 +7511,15 @@
               "type": "string",
               "title": "Sale Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
           }
         ],
         "requestBody": {
@@ -6615,7 +7894,7 @@
           "pos-sales"
         ],
         "summary": "Execute sale action",
-        "description": "Canonical actions are `CHECKOUT`, `CANCEL`, `REFUND_ITEMS`, and `EXCHANGE_ITEMS`. Legacy lowercase is accepted and normalized.",
+        "description": "Canonical POS flow uses `/aris3/pos/returns` for refunds/exchanges. `REFUND_ITEMS` and `EXCHANGE_ITEMS` are maintained as compatibility wrappers on sales actions. Legacy lowercase is accepted and normalized.",
         "operationId": "post_aris3_pos_sales_sale_id_actions",
         "security": [
           {
@@ -6631,6 +7910,15 @@
               "type": "string",
               "title": "Sale Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
           }
         ],
         "requestBody": {
@@ -7282,116 +8570,6 @@
         }
       }
     },
-    "/aris3/pos/returns/{return_id}": {
-      "get": {
-        "tags": [
-          "pos-returns"
-        ],
-        "summary": "Get Return",
-        "operationId": "get_aris3_pos_returns_return_id",
-        "parameters": [
-          {
-            "name": "return_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Return Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReturnDetail"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                },
-                "example": {
-                  "code": "INVALID_TOKEN",
-                  "message": "Authentication required",
-                  "details": {
-                    "message": "Bearer token is missing or expired"
-                  },
-                  "trace_id": "trace-returns-401"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                },
-                "example": {
-                  "code": "PERMISSION_DENIED",
-                  "message": "You do not have access to this store",
-                  "details": {
-                    "required_permission": "POS_RETURN_VIEW"
-                  },
-                  "trace_id": "trace-returns-403"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                },
-                "example": {
-                  "code": "RESOURCE_NOT_FOUND",
-                  "message": "return not found",
-                  "details": {
-                    "return_id": "00000000-0000-0000-0000-000000009999"
-                  },
-                  "trace_id": "trace-returns-404"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
-                },
-                "example": {
-                  "code": "VALIDATION_ERROR",
-                  "message": "Validation error",
-                  "details": {
-                    "errors": [
-                      {
-                        "field": "return_id",
-                        "message": "Invalid identifier format",
-                        "type": "value_error"
-                      }
-                    ]
-                  },
-                  "trace_id": "trace-returns-detail-422"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/aris3/pos/returns/eligibility": {
       "get": {
         "tags": [
@@ -7686,6 +8864,116 @@
                     ]
                   },
                   "trace_id": "trace-returns-quote-422"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/returns/{return_id}": {
+      "get": {
+        "tags": [
+          "pos-returns"
+        ],
+        "summary": "Get Return",
+        "operationId": "get_aris3_pos_returns_return_id",
+        "parameters": [
+          {
+            "name": "return_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Return Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "INVALID_TOKEN",
+                  "message": "Authentication required",
+                  "details": {
+                    "message": "Bearer token is missing or expired"
+                  },
+                  "trace_id": "trace-returns-401"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "PERMISSION_DENIED",
+                  "message": "You do not have access to this store",
+                  "details": {
+                    "required_permission": "POS_RETURN_VIEW"
+                  },
+                  "trace_id": "trace-returns-403"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "RESOURCE_NOT_FOUND",
+                  "message": "return not found",
+                  "details": {
+                    "return_id": "00000000-0000-0000-0000-000000009999"
+                  },
+                  "trace_id": "trace-returns-404"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                },
+                "example": {
+                  "code": "VALIDATION_ERROR",
+                  "message": "Validation error",
+                  "details": {
+                    "errors": [
+                      {
+                        "field": "return_id",
+                        "message": "Invalid identifier format",
+                        "type": "value_error"
+                      }
+                    ]
+                  },
+                  "trace_id": "trace-returns-detail-422"
                 }
               }
             }
@@ -8058,7 +9346,13 @@
         "summary": "Execute cash session action",
         "description": "Action request is discriminated by `action` (`OPEN`, `CASH_IN`, `CASH_OUT`, `CLOSE`) with action-specific required fields.",
         "operationId": "post_aris3_pos_cash_session_actions",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -8076,7 +9370,6 @@
                     "$ref": "#/components/schemas/CloseCashSessionRequest"
                   }
                 ],
-                "title": "Payload",
                 "discriminator": {
                   "propertyName": "action",
                   "mapping": {
@@ -8085,11 +9378,11 @@
                     "CLOSE": "#/components/schemas/CloseCashSessionRequest",
                     "OPEN": "#/components/schemas/OpenCashSessionRequest"
                   }
-                }
+                },
+                "title": "Payload"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -8212,9 +9505,15 @@
             }
           }
         },
-        "security": [
+        "parameters": [
           {
-            "OAuth2PasswordBearer": []
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
           }
         ]
       }
@@ -8428,6 +9727,515 @@
         }
       }
     },
+    "/aris3/pos/cash/cuts/quote": {
+      "post": {
+        "tags": [
+          "pos-cash"
+        ],
+        "summary": "Quote Cash Cut",
+        "operationId": "post_aris3_pos_cash_cuts_quote",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PosCashCutQuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosCashCutQuoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/aris3/pos/cash/cuts": {
+      "post": {
+        "tags": [
+          "pos-cash"
+        ],
+        "summary": "Create Cash Cut",
+        "operationId": "post_aris3_pos_cash_cuts",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PosCashCutCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosCashCutDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "pos-cash"
+        ],
+        "summary": "List Cash Cuts",
+        "operationId": "get_aris3_pos_cash_cuts",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "cash_session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cash Session Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosCashCutListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/cash/cuts/{cut_id}": {
+      "get": {
+        "tags": [
+          "pos-cash"
+        ],
+        "summary": "Get Cash Cut",
+        "operationId": "get_aris3_pos_cash_cuts_cut_id",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cut_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cut Id"
+            }
+          },
+          {
+            "name": "store_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosCashCutDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/cash/cuts/{cut_id}/actions": {
+      "post": {
+        "tags": [
+          "pos-cash"
+        ],
+        "summary": "Cash Cut Action",
+        "operationId": "post_aris3_pos_cash_cuts_cut_id_actions",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cut_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cut Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PosCashCutActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosCashCutDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/aris3/pos/cash/day-close/actions": {
       "post": {
         "tags": [
@@ -8436,15 +10244,20 @@
         "summary": "Execute cash day close",
         "description": "Performs day-close for the requested business date and timezone.",
         "operationId": "post_aris3_pos_cash_day-close_actions",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PosCashDayCloseActionRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -8552,9 +10365,15 @@
             }
           }
         },
-        "security": [
+        "parameters": [
           {
-            "OAuth2PasswordBearer": []
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Idempotency key required for mutation safety. Legacy alias X-Idempotency-Key is also accepted."
           }
         ]
       }
@@ -8880,6 +10699,921 @@
                     ]
                   },
                   "trace_id": "trace-reconciliation-422"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/drawer/events": {
+      "post": {
+        "tags": [
+          "pos-drawer"
+        ],
+        "summary": "Record drawer hardware event",
+        "operationId": "post_aris3_pos_drawer_events",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawerEventCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawerEventResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/aris3/pos/drawer/events/{event_id}/actions": {
+      "post": {
+        "tags": [
+          "pos-drawer"
+        ],
+        "summary": "Execute drawer event action",
+        "operationId": "post_aris3_pos_drawer_events_event_id_actions",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawerEventConfirmCloseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawerEventResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/advances": {
+      "post": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "Create Advance",
+        "operationId": "post_aris3_pos_advances",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PosAdvanceCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "List Advances",
+        "operationId": "get_aris3_pos_advances",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "store_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/advances/lookup": {
+      "get": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "Lookup Advance",
+        "operationId": "get_aris3_pos_advances_lookup",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceLookupResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/advances/alerts": {
+      "get": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "Alerts Advances",
+        "operationId": "get_aris3_pos_advances_alerts",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "default": 5,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "store_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceAlertsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/advances/{advance_id}": {
+      "get": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "Get Advance",
+        "operationId": "get_aris3_pos_advances_advance_id",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "advance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Advance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/advances/{advance_id}/actions": {
+      "post": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "Mutate Advance",
+        "operationId": "post_aris3_pos_advances_advance_id_actions",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "advance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Advance Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PosAdvanceActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/aris3/pos/advances/actions/sweep-expired": {
+      "post": {
+        "tags": [
+          "pos-advances"
+        ],
+        "summary": "Sweep Endpoint",
+        "operationId": "post_aris3_pos_advances_actions_sweep-expired",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "store_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosAdvanceSweepResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Business conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiValidationErrorResponse"
                 }
               }
             }
@@ -10447,6 +13181,443 @@
         ],
         "title": "CompleteReturnActionRequest"
       },
+      "DrawerEventConfirmCloseRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "CONFIRM_CLOSE",
+            "title": "Action",
+            "default": "CONFIRM_CLOSE"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id",
+            "description": "Tenant scope. Required for superadmin roles; ignored/validated against token for tenant-scoped roles."
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "closed_confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Confirmed At"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "type": "object",
+        "title": "DrawerEventConfirmCloseRequest"
+      },
+      "DrawerEventCreateRequest": {
+        "properties": {
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id",
+            "description": "Tenant scope. Required for superadmin roles; ignored/validated against token for tenant-scoped roles."
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id",
+            "description": "Store scope. Optional for broad roles, inferred from token when bound."
+          },
+          "terminal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Id"
+          },
+          "cash_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Session Id"
+          },
+          "sale_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Id"
+          },
+          "movement_type": {
+            "type": "string",
+            "enum": [
+              "CHECKOUT",
+              "CASH_IN",
+              "CASH_OUT",
+              "MANUAL",
+              "TEST",
+              "UNKNOWN"
+            ],
+            "title": "Movement Type",
+            "default": "UNKNOWN"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "CHECKOUT_CASH_DRAWER_OPEN",
+              "CHECKOUT_CASH_DRAWER_OPEN_FAILED",
+              "CHECKOUT_PRINT_CASH_DRAWER_OPEN",
+              "CASH_IN_DRAWER_OPEN",
+              "CASH_OUT_DRAWER_OPEN",
+              "MANUAL_DRAWER_OPEN",
+              "TEST_DRAWER_OPEN",
+              "DRAWER_CLOSE_CONFIRMED"
+            ],
+            "title": "Event Type"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "printer_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Name"
+          },
+          "machine_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Name"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "executed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed At"
+          },
+          "closed_confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Confirmed At"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "FAILED"
+            ],
+            "title": "Result"
+          },
+          "details_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details Json"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_type",
+          "result"
+        ],
+        "title": "DrawerEventCreateRequest"
+      },
+      "DrawerEventResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "terminal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "cash_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Session Id"
+          },
+          "sale_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Id"
+          },
+          "movement_type": {
+            "type": "string",
+            "title": "Movement Type"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "printer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Printer Name"
+          },
+          "machine_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Name"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "executed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed At"
+          },
+          "closed_confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Confirmed At"
+          },
+          "result": {
+            "type": "string",
+            "title": "Result"
+          },
+          "details_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details Json"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "store_id",
+          "movement_type",
+          "event_type",
+          "result",
+          "created_at"
+        ],
+        "title": "DrawerEventResponse"
+      },
       "EffectivePermissionItem": {
         "properties": {
           "key": {
@@ -10600,6 +13771,92 @@
           "user"
         ],
         "title": "EffectivePermissionsTrace"
+      },
+      "EpcAssignmentHistoryResponse": {
+        "properties": {
+          "epc": {
+            "type": "string",
+            "title": "Epc"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "History"
+          }
+        },
+        "type": "object",
+        "required": [
+          "epc",
+          "current",
+          "history"
+        ],
+        "title": "EpcAssignmentHistoryResponse"
+      },
+      "EpcReleaseRequest": {
+        "properties": {
+          "epc": {
+            "type": "string",
+            "title": "Epc"
+          },
+          "item_uid": {
+            "type": "string",
+            "title": "Item Uid"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "epc",
+          "item_uid",
+          "reason"
+        ],
+        "title": "EpcReleaseRequest"
+      },
+      "EpcReleaseResponse": {
+        "properties": {
+          "released": {
+            "type": "boolean",
+            "title": "Released"
+          },
+          "epc": {
+            "type": "string",
+            "title": "Epc"
+          },
+          "item_uid": {
+            "type": "string",
+            "title": "Item Uid"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "released",
+          "epc",
+          "item_uid",
+          "reason"
+        ],
+        "title": "EpcReleaseResponse"
       },
       "ExchangeItemsSaleActionRequest": {
         "properties": {
@@ -11201,6 +14458,160 @@
         ],
         "title": "ImageUploadResponse"
       },
+      "ItemIssueRequest": {
+        "properties": {
+          "issue_state": {
+            "type": "string",
+            "enum": [
+              "DAMAGED",
+              "STOLEN",
+              "DONATED",
+              "LOST",
+              "ADDED_BY_ERROR",
+              "REVIEW",
+              "WRITE_OFF_CONFIRMED"
+            ],
+            "title": "Issue State"
+          },
+          "release_epc": {
+            "type": "boolean",
+            "title": "Release Epc"
+          },
+          "release_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Reason"
+          },
+          "keep_epc_assigned": {
+            "type": "boolean",
+            "title": "Keep Epc Assigned",
+            "default": false
+          },
+          "special_permission_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Special Permission Token"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "issue_state",
+          "release_epc"
+        ],
+        "title": "ItemIssueRequest"
+      },
+      "ItemIssueResolveRequest": {
+        "properties": {
+          "item_status": {
+            "type": "string",
+            "title": "Item Status"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_status"
+        ],
+        "title": "ItemIssueResolveRequest"
+      },
+      "ItemIssueResolveResponse": {
+        "properties": {
+          "item_uid": {
+            "type": "string",
+            "title": "Item Uid"
+          },
+          "item_status": {
+            "type": "string",
+            "title": "Item Status"
+          },
+          "issue_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_uid",
+          "item_status",
+          "issue_state"
+        ],
+        "title": "ItemIssueResolveResponse"
+      },
+      "ItemIssueResponse": {
+        "properties": {
+          "item_uid": {
+            "type": "string",
+            "title": "Item Uid"
+          },
+          "item_status": {
+            "type": "string",
+            "title": "Item Status"
+          },
+          "issue_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue State"
+          },
+          "epc_status": {
+            "type": "string",
+            "title": "Epc Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_uid",
+          "item_status",
+          "issue_state",
+          "epc_status"
+        ],
+        "title": "ItemIssueResponse"
+      },
       "ListPaginationMeta": {
         "properties": {
           "total": {
@@ -11405,6 +14816,19 @@
         "type": "object",
         "title": "PatchOverridesRequest"
       },
+      "PendingEpcAssignRequest": {
+        "properties": {
+          "epc": {
+            "type": "string",
+            "title": "Epc"
+          }
+        },
+        "type": "object",
+        "required": [
+          "epc"
+        ],
+        "title": "PendingEpcAssignRequest"
+      },
       "PermissionCatalogItem": {
         "properties": {
           "code": {
@@ -11530,6 +14954,1166 @@
         },
         "type": "object",
         "title": "PolicyLayerTrace"
+      },
+      "PosAdvanceActionRequest": {
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "title": "Transaction Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "REFUND",
+              "EXPIRE_NOW"
+            ],
+            "title": "Action"
+          },
+          "refund_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "CASH",
+                  "TRANSFER"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refund Method"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "action"
+        ],
+        "title": "PosAdvanceActionRequest"
+      },
+      "PosAdvanceAlertsResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PosAdvanceSummary"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "days",
+          "total",
+          "rows"
+        ],
+        "title": "PosAdvanceAlertsResponse"
+      },
+      "PosAdvanceCreateRequest": {
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "title": "Transaction Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "customer_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Customer Name"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{1,2}$"
+              }
+            ],
+            "title": "Amount",
+            "description": "Money serializado como string decimal de 2 decimales",
+            "examples": [
+              "100.00"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "CASH",
+              "TRANSFER"
+            ],
+            "title": "Payment Method"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "store_id",
+          "customer_name",
+          "amount",
+          "payment_method"
+        ],
+        "title": "PosAdvanceCreateRequest"
+      },
+      "PosAdvanceDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "advance_number": {
+            "type": "integer",
+            "title": "Advance Number"
+          },
+          "barcode_value": {
+            "type": "string",
+            "title": "Barcode Value"
+          },
+          "customer_name": {
+            "type": "string",
+            "title": "Customer Name"
+          },
+          "issued_amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{2}$",
+            "title": "Issued Amount",
+            "description": "Money serializado como string decimal de 2 decimales",
+            "examples": [
+              "100.00"
+            ],
+            "example": "25.00"
+          },
+          "issued_payment_method": {
+            "type": "string",
+            "title": "Issued Payment Method"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "consumed_sale_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed Sale Id"
+          },
+          "refunded_cash_movement_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refunded Cash Movement Id"
+          },
+          "refunded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refunded At"
+          },
+          "expired_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expired At"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/PosAdvanceEventResponse"
+            },
+            "type": "array",
+            "title": "Events",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "store_id",
+          "advance_number",
+          "barcode_value",
+          "customer_name",
+          "issued_amount",
+          "issued_payment_method",
+          "issued_at",
+          "expires_at",
+          "status",
+          "created_at"
+        ],
+        "title": "PosAdvanceDetailResponse"
+      },
+      "PosAdvanceEventResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "created_at"
+        ],
+        "title": "PosAdvanceEventResponse"
+      },
+      "PosAdvanceListResponse": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PosAdvanceSummary"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "page_size",
+          "total",
+          "rows"
+        ],
+        "title": "PosAdvanceListResponse"
+      },
+      "PosAdvanceLookupResponse": {
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "title": "Found"
+          },
+          "advance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PosAdvanceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "found"
+        ],
+        "title": "PosAdvanceLookupResponse"
+      },
+      "PosAdvanceSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "advance_number": {
+            "type": "integer",
+            "title": "Advance Number"
+          },
+          "barcode_value": {
+            "type": "string",
+            "title": "Barcode Value"
+          },
+          "customer_name": {
+            "type": "string",
+            "title": "Customer Name"
+          },
+          "issued_amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\\\d*)\\\\.\\\\d{2}$",
+            "title": "Issued Amount",
+            "description": "Money serializado como string decimal de 2 decimales",
+            "examples": [
+              "100.00"
+            ],
+            "example": "25.00"
+          },
+          "issued_payment_method": {
+            "type": "string",
+            "title": "Issued Payment Method"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "consumed_sale_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed Sale Id"
+          },
+          "refunded_cash_movement_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refunded Cash Movement Id"
+          },
+          "refunded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refunded At"
+          },
+          "expired_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expired At"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "store_id",
+          "advance_number",
+          "barcode_value",
+          "customer_name",
+          "issued_amount",
+          "issued_payment_method",
+          "issued_at",
+          "expires_at",
+          "status",
+          "created_at"
+        ],
+        "title": "PosAdvanceSummary"
+      },
+      "PosAdvanceSweepResponse": {
+        "properties": {
+          "expired_count": {
+            "type": "integer",
+            "title": "Expired Count"
+          },
+          "expired_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Expired Ids"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expired_count",
+          "expired_ids",
+          "as_of"
+        ],
+        "title": "PosAdvanceSweepResponse"
+      },
+      "PosCashCutActionRequest": {
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "title": "Transaction Id"
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "COMPLETE",
+              "VOID",
+              "PRINT_MARK",
+              "APPLY_CASH_OUT"
+            ],
+            "title": "Action"
+          },
+          "counted_cash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counted Cash"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "action"
+        ],
+        "title": "PosCashCutActionRequest"
+      },
+      "PosCashCutCreateRequest": {
+        "properties": {
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "cash_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Session Id"
+          },
+          "use_last_cut_window": {
+            "type": "boolean",
+            "title": "Use Last Cut Window",
+            "default": true
+          },
+          "from_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From At"
+          },
+          "to_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To At"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "cut_type": {
+            "type": "string",
+            "enum": [
+              "PARTIAL",
+              "SHIFT_HANDOFF",
+              "BANK_DEPOSIT"
+            ],
+            "title": "Cut Type",
+            "default": "PARTIAL"
+          },
+          "transaction_id": {
+            "type": "string",
+            "title": "Transaction Id"
+          },
+          "counted_cash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counted Cash"
+          },
+          "deposit_removed_amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Removed Amount"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "auto_apply_cash_out": {
+            "type": "boolean",
+            "title": "Auto Apply Cash Out",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "transaction_id"
+        ],
+        "title": "PosCashCutCreateRequest"
+      },
+      "PosCashCutDetailResponse": {
+        "properties": {
+          "cut": {
+            "$ref": "#/components/schemas/PosCashCutSummary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cut"
+        ],
+        "title": "PosCashCutDetailResponse"
+      },
+      "PosCashCutListResponse": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PosCashCutSummary"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "page_size",
+          "total",
+          "rows"
+        ],
+        "title": "PosCashCutListResponse"
+      },
+      "PosCashCutQuoteRequest": {
+        "properties": {
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "cash_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Session Id"
+          },
+          "use_last_cut_window": {
+            "type": "boolean",
+            "title": "Use Last Cut Window",
+            "default": true
+          },
+          "from_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From At"
+          },
+          "to_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To At"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "cut_type": {
+            "type": "string",
+            "enum": [
+              "PARTIAL",
+              "SHIFT_HANDOFF",
+              "BANK_DEPOSIT"
+            ],
+            "title": "Cut Type",
+            "default": "PARTIAL"
+          }
+        },
+        "type": "object",
+        "title": "PosCashCutQuoteRequest"
+      },
+      "PosCashCutQuoteResponse": {
+        "properties": {
+          "quote": {
+            "$ref": "#/components/schemas/PosCashCutSummary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quote"
+        ],
+        "title": "PosCashCutQuoteResponse"
+      },
+      "PosCashCutSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "cash_session_id": {
+            "type": "string",
+            "title": "Cash Session Id"
+          },
+          "cut_number": {
+            "type": "integer",
+            "title": "Cut Number"
+          },
+          "cut_type": {
+            "type": "string",
+            "title": "Cut Type"
+          },
+          "from_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "From At"
+          },
+          "to_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "To At"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "opening_amount_snapshot": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Opening Amount Snapshot",
+            "example": "25.00"
+          },
+          "cash_sales_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Cash Sales Total",
+            "example": "25.00"
+          },
+          "card_sales_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Card Sales Total",
+            "example": "25.00"
+          },
+          "transfer_sales_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Transfer Sales Total",
+            "example": "25.00"
+          },
+          "mixed_cash_component_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Mixed Cash Component Total",
+            "example": "25.00"
+          },
+          "mixed_card_component_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Mixed Card Component Total",
+            "example": "25.00"
+          },
+          "mixed_transfer_component_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Mixed Transfer Component Total",
+            "example": "25.00"
+          },
+          "cash_in_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Cash In Total",
+            "example": "25.00"
+          },
+          "cash_out_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Cash Out Total",
+            "example": "25.00"
+          },
+          "cash_refunds_total": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Cash Refunds Total",
+            "example": "25.00"
+          },
+          "expected_cash": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+            "title": "Expected Cash",
+            "example": "25.00"
+          },
+          "counted_cash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counted Cash"
+          },
+          "difference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference"
+          },
+          "deposit_removed_amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9]\\d*)\\.\\d{2}$",
+                "example": "25.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Removed Amount"
+          },
+          "deposit_cash_movement_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Cash Movement Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "title": "Created By User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "store_id",
+          "cash_session_id",
+          "cut_number",
+          "cut_type",
+          "from_at",
+          "to_at",
+          "timezone",
+          "opening_amount_snapshot",
+          "cash_sales_total",
+          "card_sales_total",
+          "transfer_sales_total",
+          "mixed_cash_component_total",
+          "mixed_card_component_total",
+          "mixed_transfer_component_total",
+          "cash_in_total",
+          "cash_out_total",
+          "cash_refunds_total",
+          "expected_cash",
+          "status",
+          "created_by_user_id",
+          "created_at"
+        ],
+        "title": "PosCashCutSummary"
       },
       "PosCashDayCloseActionRequest": {
         "properties": {
@@ -12380,7 +16964,8 @@
             "enum": [
               "CASH",
               "CARD",
-              "TRANSFER"
+              "TRANSFER",
+              "ADVANCE"
             ],
             "title": "Method"
           },
@@ -12433,6 +17018,30 @@
               }
             ],
             "title": "Voucher Number"
+          },
+          "reference_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Code",
+            "description": "Required when method=ADVANCE (barcode/reference)."
+          },
+          "advance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advance Id",
+            "description": "Optional direct reference when method=ADVANCE."
           }
         },
         "type": "object",
@@ -12994,6 +17603,18 @@
       },
       "PosSaleLineSnapshot": {
         "properties": {
+          "item_uid": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Uid"
+          },
           "sku": {
             "anyOf": [
               {
@@ -13198,6 +17819,690 @@
           ],
           "transaction_id": "txn-sale-update-1002"
         }
+      },
+      "PreloadLineInput": {
+        "properties": {
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "epc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epc"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "var1_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Var1 Value"
+          },
+          "var2_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Var2 Value"
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool"
+          },
+          "location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Code"
+          },
+          "vendible": {
+            "type": "boolean",
+            "title": "Vendible",
+            "default": true
+          },
+          "cost_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{1,2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Price"
+          },
+          "suggested_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{1,2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Price"
+          },
+          "sale_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{1,2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Price"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation"
+          },
+          "image_mode": {
+            "type": "string",
+            "enum": [
+              "existing",
+              "replace",
+              "add",
+              "blank"
+            ],
+            "title": "Image Mode",
+            "default": "blank"
+          },
+          "image_asset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Asset Id"
+          },
+          "source_row_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Row Number"
+          },
+          "qty": {
+            "type": "integer",
+            "title": "Qty",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "PreloadLineInput"
+      },
+      "PreloadLinePatchRequest": {
+        "properties": {
+          "sale_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{1,2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Price"
+          },
+          "epc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epc"
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool"
+          },
+          "location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Code"
+          },
+          "vendible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendible"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation"
+          },
+          "image_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "existing",
+                  "replace",
+                  "add",
+                  "blank"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Mode"
+          },
+          "image_asset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Asset Id"
+          }
+        },
+        "type": "object",
+        "title": "PreloadLinePatchRequest"
+      },
+      "PreloadLineResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "preload_session_id": {
+            "type": "string",
+            "title": "Preload Session Id"
+          },
+          "item_uid": {
+            "type": "string",
+            "title": "Item Uid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "epc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epc"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "var1_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Var1 Value"
+          },
+          "var2_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Var2 Value"
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool"
+          },
+          "location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Code"
+          },
+          "vendible": {
+            "type": "boolean",
+            "title": "Vendible"
+          },
+          "cost_price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Price"
+          },
+          "suggested_price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Price"
+          },
+          "sale_price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,10}(?:\\.\\d{2})?$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Price"
+          },
+          "item_status": {
+            "type": "string",
+            "title": "Item Status"
+          },
+          "epc_status": {
+            "type": "string",
+            "title": "Epc Status"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation"
+          },
+          "image_mode": {
+            "type": "string",
+            "title": "Image Mode"
+          },
+          "image_asset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Asset Id"
+          },
+          "print_status": {
+            "type": "string",
+            "title": "Print Status"
+          },
+          "source_file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File Name"
+          },
+          "source_row_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Row Number"
+          },
+          "lifecycle_state": {
+            "type": "string",
+            "title": "Lifecycle State"
+          },
+          "saved_stock_item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Stock Item Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "preload_session_id",
+          "item_uid",
+          "tenant_id",
+          "store_id",
+          "sku",
+          "epc",
+          "description",
+          "var1_value",
+          "var2_value",
+          "pool",
+          "location_code",
+          "vendible",
+          "item_status",
+          "epc_status",
+          "observation",
+          "image_mode",
+          "image_asset_id",
+          "print_status",
+          "source_file_name",
+          "source_row_number",
+          "lifecycle_state",
+          "saved_stock_item_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PreloadLineResponse"
+      },
+      "PreloadSessionCreateRequest": {
+        "properties": {
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "source_file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File Name"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PreloadLineInput"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lines"
+        ],
+        "title": "PreloadSessionCreateRequest"
+      },
+      "PreloadSessionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "source_file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PreloadLineResponse"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "store_id",
+          "source_file_name",
+          "status",
+          "created_at",
+          "updated_at",
+          "lines"
+        ],
+        "title": "PreloadSessionResponse"
       },
       "RefundItemsSaleActionRequest": {
         "properties": {
@@ -15172,6 +20477,111 @@
         ],
         "title": "ServiceHealthResponse"
       },
+      "SkuImageResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "asset_id": {
+            "type": "string",
+            "title": "Asset Id"
+          },
+          "file_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Hash"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "sku",
+          "asset_id",
+          "file_hash",
+          "is_primary",
+          "sort_order",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SkuImageResponse"
+      },
+      "SkuImageUpsertRequest": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "use_existing",
+              "replace",
+              "add",
+              "blank"
+            ],
+            "title": "Mode",
+            "default": "add"
+          },
+          "file_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id"
+        ],
+        "title": "SkuImageUpsertRequest"
+      },
       "StockActionRequest": {
         "properties": {
           "transaction_id": {
@@ -16471,6 +21881,23 @@
               "desc"
             ],
             "title": "Sort Dir"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "self",
+              "tenant"
+            ],
+            "title": "Scope"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "operational",
+              "history",
+              "all"
+            ],
+            "title": "View"
           }
         },
         "type": "object",
@@ -16478,7 +21905,9 @@
           "page",
           "page_size",
           "sort_by",
-          "sort_dir"
+          "sort_dir",
+          "scope",
+          "view"
         ],
         "title": "StockQueryMeta"
       },
@@ -16523,6 +21952,13 @@
           "total_units": {
             "type": "integer",
             "title": "Total Units"
+          },
+          "totals_by_store": {
+            "items": {
+              "$ref": "#/components/schemas/StockTotalsByStore"
+            },
+            "type": "array",
+            "title": "Totals By Store"
           }
         },
         "type": "object",
@@ -16672,6 +22108,28 @@
             ],
             "title": "Store Id"
           },
+          "store_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Name"
+          },
+          "is_current_store": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Current Store"
+          },
           "status": {
             "anyOf": [
               {
@@ -16743,6 +22201,62 @@
             ],
             "title": "Image Updated At"
           },
+          "available_for_sale": {
+            "type": "boolean",
+            "title": "Available For Sale"
+          },
+          "available_for_transfer": {
+            "type": "boolean",
+            "title": "Available For Transfer"
+          },
+          "sale_mode": {
+            "type": "string",
+            "enum": [
+              "EPC",
+              "SKU",
+              "NONE"
+            ],
+            "title": "Sale Mode"
+          },
+          "transfer_mode": {
+            "type": "string",
+            "enum": [
+              "EPC",
+              "SKU",
+              "NONE"
+            ],
+            "title": "Transfer Mode"
+          },
+          "is_historical": {
+            "type": "boolean",
+            "title": "Is Historical"
+          },
+          "available_qty": {
+            "type": "integer",
+            "title": "Available Qty"
+          },
+          "display_pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Pool"
+          },
+          "display_location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Location Code"
+          },
           "id": {
             "type": "string",
             "title": "Id"
@@ -16786,6 +22300,14 @@
           "image_thumb_url",
           "image_source",
           "image_updated_at",
+          "available_for_sale",
+          "available_for_transfer",
+          "sale_mode",
+          "transfer_mode",
+          "is_historical",
+          "available_qty",
+          "display_pool",
+          "display_location_code",
           "id",
           "tenant_id",
           "created_at",
@@ -16842,6 +22364,254 @@
           "var1_value": "Blue",
           "var2_value": "L"
         }
+      },
+      "StockTotalsByStore": {
+        "properties": {
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "store_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Name"
+          },
+          "is_current_store": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Current Store"
+          },
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "store_id",
+          "total_rows"
+        ],
+        "title": "StockTotalsByStore"
+      },
+      "StoreContentWipeCounts": {
+        "properties": {
+          "transfer_movements": {
+            "type": "integer",
+            "title": "Transfer Movements"
+          },
+          "transfer_lines": {
+            "type": "integer",
+            "title": "Transfer Lines"
+          },
+          "transfers": {
+            "type": "integer",
+            "title": "Transfers"
+          },
+          "sale_lines": {
+            "type": "integer",
+            "title": "Sale Lines"
+          },
+          "payments": {
+            "type": "integer",
+            "title": "Payments"
+          },
+          "returns": {
+            "type": "integer",
+            "title": "Returns"
+          },
+          "sales": {
+            "type": "integer",
+            "title": "Sales"
+          },
+          "cash_movements": {
+            "type": "integer",
+            "title": "Cash Movements"
+          },
+          "cash_sessions": {
+            "type": "integer",
+            "title": "Cash Sessions"
+          },
+          "cash_day_closes": {
+            "type": "integer",
+            "title": "Cash Day Closes"
+          },
+          "exports": {
+            "type": "integer",
+            "title": "Exports"
+          },
+          "stock_items": {
+            "type": "integer",
+            "title": "Stock Items"
+          },
+          "store_audit_events": {
+            "type": "integer",
+            "title": "Store Audit Events",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "transfer_movements",
+          "transfer_lines",
+          "transfers",
+          "sale_lines",
+          "payments",
+          "returns",
+          "sales",
+          "cash_movements",
+          "cash_sessions",
+          "cash_day_closes",
+          "exports",
+          "stock_items"
+        ],
+        "title": "StoreContentWipeCounts"
+      },
+      "StoreContentWipeRequest": {
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Confirm",
+            "description": "Strong confirmation phrase: `WIPE CONTENT <store_id>`."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "If true, computes exact counts but does not delete data.",
+            "default": true
+          },
+          "delete_spaces_objects": {
+            "type": "boolean",
+            "title": "Delete Spaces Objects",
+            "description": "If true, deletes Spaces objects under `aris3/images/{tenant_id}/{store_id}/`.",
+            "default": false
+          },
+          "preserve_audit_events": {
+            "type": "boolean",
+            "title": "Preserve Audit Events",
+            "description": "If true, keep store audit history.",
+            "default": true
+          },
+          "delete_store_audit_events": {
+            "type": "boolean",
+            "title": "Delete Store Audit Events",
+            "description": "If true, deletes store audit events when preserve_audit_events=false.",
+            "default": false
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "title": "StoreContentWipeRequest"
+      },
+      "StoreContentWipeResponse": {
+        "properties": {
+          "resource": {
+            "type": "string",
+            "const": "store",
+            "title": "Resource",
+            "default": "store"
+          },
+          "resource_id": {
+            "type": "string",
+            "title": "Resource Id"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRY_RUN",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "title": "Status"
+          },
+          "would_delete_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreContentWipeCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreContentWipeCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_spaces_objects": {
+            "type": "integer",
+            "title": "Deleted Spaces Objects",
+            "default": 0
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "preserve_audit_events": {
+            "type": "boolean",
+            "title": "Preserve Audit Events"
+          },
+          "trace_id": {
+            "type": "string",
+            "title": "Trace Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resource_id",
+          "dry_run",
+          "status",
+          "preserve_audit_events",
+          "trace_id"
+        ],
+        "title": "StoreContentWipeResponse"
       },
       "StoreCreateRequest": {
         "properties": {
@@ -17278,6 +23048,218 @@
         ],
         "title": "TenantActionResponse"
       },
+      "TenantContentWipeCounts": {
+        "properties": {
+          "transfer_movements": {
+            "type": "integer",
+            "title": "Transfer Movements"
+          },
+          "transfer_lines": {
+            "type": "integer",
+            "title": "Transfer Lines"
+          },
+          "transfers": {
+            "type": "integer",
+            "title": "Transfers"
+          },
+          "sale_lines": {
+            "type": "integer",
+            "title": "Sale Lines"
+          },
+          "payments": {
+            "type": "integer",
+            "title": "Payments"
+          },
+          "returns": {
+            "type": "integer",
+            "title": "Returns"
+          },
+          "sales": {
+            "type": "integer",
+            "title": "Sales"
+          },
+          "cash_movements": {
+            "type": "integer",
+            "title": "Cash Movements"
+          },
+          "cash_sessions": {
+            "type": "integer",
+            "title": "Cash Sessions"
+          },
+          "cash_day_closes": {
+            "type": "integer",
+            "title": "Cash Day Closes"
+          },
+          "exports": {
+            "type": "integer",
+            "title": "Exports"
+          },
+          "stock_items": {
+            "type": "integer",
+            "title": "Stock Items"
+          },
+          "tenant_audit_events": {
+            "type": "integer",
+            "title": "Tenant Audit Events",
+            "default": 0
+          },
+          "tenant_idempotency_records": {
+            "type": "integer",
+            "title": "Tenant Idempotency Records",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "transfer_movements",
+          "transfer_lines",
+          "transfers",
+          "sale_lines",
+          "payments",
+          "returns",
+          "sales",
+          "cash_movements",
+          "cash_sessions",
+          "cash_day_closes",
+          "exports",
+          "stock_items"
+        ],
+        "title": "TenantContentWipeCounts"
+      },
+      "TenantContentWipeRequest": {
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Confirm",
+            "description": "Strong confirmation phrase: `WIPE CONTENT <tenant_id>`."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "If true, computes exact counts but does not delete data.",
+            "default": true
+          },
+          "delete_spaces_objects": {
+            "type": "boolean",
+            "title": "Delete Spaces Objects",
+            "description": "If true, deletes Spaces objects under `aris3/images/{tenant_id}/`.",
+            "default": false
+          },
+          "preserve_audit_events": {
+            "type": "boolean",
+            "title": "Preserve Audit Events",
+            "description": "If true, keep tenant audit history.",
+            "default": true
+          },
+          "delete_tenant_audit_events": {
+            "type": "boolean",
+            "title": "Delete Tenant Audit Events",
+            "description": "If true, deletes tenant audit events when preserve_audit_events=false.",
+            "default": false
+          },
+          "delete_tenant_idempotency_records": {
+            "type": "boolean",
+            "title": "Delete Tenant Idempotency Records",
+            "description": "If true, deletes tenant idempotency_records.",
+            "default": false
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "title": "TenantContentWipeRequest"
+      },
+      "TenantContentWipeResponse": {
+        "properties": {
+          "resource": {
+            "type": "string",
+            "const": "tenant",
+            "title": "Resource",
+            "default": "tenant"
+          },
+          "resource_id": {
+            "type": "string",
+            "title": "Resource Id"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRY_RUN",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "title": "Status"
+          },
+          "would_delete_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantContentWipeCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantContentWipeCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_spaces_objects": {
+            "type": "integer",
+            "title": "Deleted Spaces Objects",
+            "default": 0
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "preserve_audit_events": {
+            "type": "boolean",
+            "title": "Preserve Audit Events"
+          },
+          "trace_id": {
+            "type": "string",
+            "title": "Trace Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resource_id",
+          "dry_run",
+          "status",
+          "preserve_audit_events",
+          "trace_id"
+        ],
+        "title": "TenantContentWipeResponse"
+      },
       "TenantCreateRequest": {
         "properties": {
           "name": {
@@ -17688,7 +23670,7 @@
             },
             "type": "array",
             "title": "Lines",
-            "description": "Transfer lines. Only EPC/RFID lines are supported."
+            "description": "Transfer lines. Supports EPC/RFID and SKU/PENDING lines."
           }
         },
         "additionalProperties": false,
@@ -17905,9 +23887,12 @@
         "properties": {
           "line_type": {
             "type": "string",
-            "const": "EPC",
+            "enum": [
+              "EPC",
+              "SKU"
+            ],
             "title": "Line Type",
-            "description": "Transfers support EPC/RFID lines only in this version. SKU lines are not supported."
+            "description": "Transfer line type. Use EPC for RFID-tagged items and SKU for quantity-based pending stock."
           },
           "qty": {
             "type": "integer",
@@ -18719,7 +24704,7 @@
               }
             ],
             "title": "Lines",
-            "description": "Replacement transfer lines for draft update. Only EPC/RFID lines are supported."
+            "description": "Replacement transfer lines for draft update. Supports EPC/RFID and SKU/PENDING lines."
           }
         },
         "additionalProperties": false,
@@ -19777,6 +25762,58 @@
     {
       "name": "Access Control (Self)",
       "description": "Self-service access-control read endpoints resolved from the authenticated request context."
+    },
+    {
+      "name": "pos-sales",
+      "description": "Point-of-sale sales issuance, listing, detail, and action workflows."
+    },
+    {
+      "name": "pos-returns",
+      "description": "Point-of-sale return eligibility, quote, creation, and return action workflows."
+    },
+    {
+      "name": "pos-cash",
+      "description": "Point-of-sale cash sessions, movements, reconciliation, day close, and cash cut workflows."
+    },
+    {
+      "name": "pos-drawer",
+      "description": "Point-of-sale drawer events and lifecycle endpoints."
+    },
+    {
+      "name": "pos-advances",
+      "description": "Point-of-sale customer advances issuance, lookup, alerts, detail, and action workflows."
+    },
+    {
+      "name": "stock",
+      "description": "Inventory stock operations endpoints."
+    },
+    {
+      "name": "transfers",
+      "description": "Inventory transfer create/list/detail and action workflows."
+    },
+    {
+      "name": "reports",
+      "description": "Business reporting endpoints."
+    },
+    {
+      "name": "exports",
+      "description": "Report export generation and download endpoints."
+    },
+    {
+      "name": "assets",
+      "description": "Assets and image management endpoints."
+    },
+    {
+      "name": "users",
+      "description": "User self-context endpoints."
+    },
+    {
+      "name": "auth",
+      "description": "Authentication and token endpoints."
+    },
+    {
+      "name": "ops",
+      "description": "Operational endpoints for platform monitoring."
     }
   ]
 }

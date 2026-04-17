@@ -334,6 +334,11 @@ def _ensure_non_negative_balance(next_balance: Decimal) -> None:
         )
 
 
+def _compute_cash_difference(*, counted_cash: Decimal, expected_cash: Decimal) -> Decimal:
+    """Canonical cash reconciliation sign convention: counted - expected."""
+    return counted_cash - expected_cash
+
+
 def _cash_cut_summary(cut: PosCashCut) -> PosCashCutSummary:
     return PosCashCutSummary(
         id=_normalize_uuid(cut.id),
@@ -1136,9 +1141,10 @@ def cash_cut_action(
             )
         counted_cash = Decimal(str(payload.counted_cash))
         expected_cash = Decimal(str(cut.expected_cash or 0))
+        difference = _compute_cash_difference(counted_cash=counted_cash, expected_cash=expected_cash)
         cut.status = "COMPLETED"
         cut.counted_cash = float(counted_cash)
-        cut.difference = float(counted_cash - expected_cash)
+        cut.difference = float(difference)
         cut.notes = payload.notes
         cut.completed_at = now
     elif payload.action == "PRINT_MARK":
@@ -1175,7 +1181,9 @@ def cash_cut_action(
         db.flush()
         cut.deposit_removed_amount = float(amount)
         cut.deposit_cash_movement_id = movement.id
+    db.flush()
     db.commit()
+    db.refresh(cut)
     return PosCashCutDetailResponse(cut=_cash_cut_summary(cut))
 
 

@@ -139,6 +139,70 @@ def test_cuts_quote_works_for_valid_current_open_session(client, db_session):
     assert quote.json()["quote"]["cash_session_id"] == str(current_session.id)
 
 
+def test_cuts_quote_with_explicit_window_works_for_valid_current_open_session(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="cash-stale-cut-explicit")
+    token = login(client, user.username, "Pass1234!")
+    current_session = _insert_open_session(
+        db_session,
+        tenant_id=str(tenant.id),
+        store_id=str(store.id),
+        cashier_user_id=str(user.id),
+        business_date=date.today(),
+    )
+    from_at = current_session.opened_at + timedelta(minutes=1)
+    to_at = from_at + timedelta(minutes=20)
+
+    quote = client.post(
+        "/aris3/pos/cash/cuts/quote",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "cash_session_id": str(current_session.id),
+            "use_last_cut_window": False,
+            "from_at": from_at.isoformat() + "Z",
+            "to_at": to_at.isoformat() + "Z",
+            "timezone": "America/Guatemala",
+            "cut_type": "PARTIAL",
+        },
+    )
+    assert quote.status_code == 200
+    payload = quote.json()["quote"]
+    assert payload["cash_session_id"] == str(current_session.id)
+    assert payload["from_at"].startswith(from_at.replace(microsecond=0).isoformat())
+    assert payload["to_at"].startswith(to_at.replace(microsecond=0).isoformat())
+
+
+def test_cuts_quote_rejects_invalid_explicit_window(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="cash-stale-cut-window-invalid")
+    token = login(client, user.username, "Pass1234!")
+    current_session = _insert_open_session(
+        db_session,
+        tenant_id=str(tenant.id),
+        store_id=str(store.id),
+        cashier_user_id=str(user.id),
+        business_date=date.today(),
+    )
+    from_at = current_session.opened_at + timedelta(minutes=5)
+    to_at = from_at
+
+    quote = client.post(
+        "/aris3/pos/cash/cuts/quote",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "cash_session_id": str(current_session.id),
+            "use_last_cut_window": False,
+            "from_at": from_at.isoformat() + "Z",
+            "to_at": to_at.isoformat() + "Z",
+        },
+    )
+    assert quote.status_code == 422
+    assert quote.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
+    assert quote.json()["details"]["message"] == "to_at must be greater than from_at"
+
+
 def test_cuts_quote_rejects_finalized_day_session_when_directly_referenced(client, db_session):
     seed_defaults(db_session)
     tenant, store, _other_store, user = create_tenant_user(db_session, suffix="cash-stale-cut-reject")
@@ -169,7 +233,13 @@ def test_cuts_quote_rejects_finalized_day_session_when_directly_referenced(clien
     quote = client.post(
         "/aris3/pos/cash/cuts/quote",
         headers={"Authorization": f"Bearer {token}"},
-        json={"store_id": str(store.id), "cash_session_id": str(stale_session.id)},
+        json={
+            "store_id": str(store.id),
+            "cash_session_id": str(stale_session.id),
+            "use_last_cut_window": False,
+            "from_at": (datetime.utcnow() - timedelta(minutes=20)).isoformat() + "Z",
+            "to_at": datetime.utcnow().isoformat() + "Z",
+        },
     )
     assert quote.status_code == 422
     assert quote.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code

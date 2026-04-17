@@ -184,6 +184,10 @@ def test_pos_advances_public_surface_is_exposed_in_openapi():
         assert path in paths
         assert methods.issubset(set(paths[path].keys()))
 
+    summary_schema = app.openapi()["components"]["schemas"]["PosAdvanceSummary"]["properties"]
+    assert "advance_number" in summary_schema
+    assert "barcode_value" in summary_schema
+
 
 
 def test_admin_error_response_shapes_expose_uniform_envelope_for_404_409_422():

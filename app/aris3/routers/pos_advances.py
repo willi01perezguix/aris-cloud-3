@@ -11,11 +11,13 @@ from app.aris3.core.deps import get_current_token_data, require_active_user
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope, enforce_tenant_scope, is_superadmin
 from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosCashMovement, PosCashSession
+from app.aris3.db.models import Store
 from app.aris3.db.session import get_db
 from app.aris3.routers.pos_sales import _record_cash_movement
 from app.aris3.schemas.pos_advances import (
     PosAdvanceActionRequest,
     PosAdvanceAlertsResponse,
+    PosAdvanceAlertRow,
     PosAdvanceCreateRequest,
     PosAdvanceDetailResponse,
     PosAdvanceEventResponse,
@@ -28,6 +30,10 @@ from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorRespons
 from app.aris3.services.pos_advances import expire_advance_if_needed, sweep_expired_advances
 
 router = APIRouter()
+ADVANCE_LEGAL_NOTICE_ES = (
+    "Este anticipo vence a los 60 días de su emisión. Pasada la fecha, el saldo caduca y no es reembolsable. "
+    "El consumo debe ser por el total del monto."
+)
 
 POS_STANDARD_ERROR_RESPONSES = {
     401: {"description": "Unauthorized", "model": ApiErrorResponse},
@@ -94,6 +100,37 @@ def _event_response(event: PosAdvanceEvent) -> PosAdvanceEventResponse:
         payload=event.payload,
         created_by_user_id=str(event.created_by_user_id) if event.created_by_user_id else None,
         created_at=event.created_at,
+    )
+
+
+def _store_name(db, store_id: str) -> str | None:
+    store = db.execute(select(Store).where(Store.id == store_id)).scalars().first()
+    return store.name if store else None
+
+
+def _detail_response(db, row: PosAdvance, events: list[PosAdvanceEvent], *, applied_amount: Decimal | None = None, remaining: Decimal | None = None) -> PosAdvanceDetailResponse:
+    return PosAdvanceDetailResponse(
+        **_summary(row).model_dump(),
+        events=[_event_response(e) for e in events],
+        store_name=_store_name(db, str(row.store_id)),
+        barcode_type="CODE128",
+        legal_notice=ADVANCE_LEGAL_NOTICE_ES,
+        applied_amount=applied_amount,
+        remaining_amount_to_charge=remaining,
+    )
+
+
+def _alert_row(row: PosAdvance, *, now: datetime) -> PosAdvanceAlertRow:
+    days_to_expiry = max(0, (row.expires_at.date() - now.date()).days)
+    return PosAdvanceAlertRow(
+        id=str(row.id),
+        advance_number=row.advance_number,
+        customer_name=row.customer_name,
+        amount=Decimal(str(row.issued_amount)),
+        issued_at=row.issued_at,
+        expires_at=row.expires_at,
+        days_to_expiry=days_to_expiry,
+        status=row.status,
     )
 
 
@@ -192,8 +229,7 @@ def create_advance(
 
     db.commit()
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
-    response = PosAdvanceDetailResponse(**_summary(row).model_dump(), events=[_event_response(e) for e in events])
-    return response
+    return _detail_response(db, row, events)
 
 
 @router.get("/aris3/pos/advances", response_model=PosAdvanceListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -237,12 +273,18 @@ def lookup_advance(
     current_user=Depends(require_active_user),
     token_data=Depends(get_current_token_data),
 ):
-    row = db.execute(select(PosAdvance).where(PosAdvance.barcode_value == code)).scalars().first()
+    parsed_number = None
+    if code.isdigit():
+        parsed_number = int(code)
+    criteria = [PosAdvance.barcode_value == code]
+    if parsed_number is not None:
+        criteria.append(PosAdvance.advance_number == parsed_number)
+    row = db.execute(select(PosAdvance).where(or_(*criteria))).scalars().first()
     if not row:
         return PosAdvanceLookupResponse(found=False, advance=None)
     enforce_tenant_scope(token_data, str(row.tenant_id))
     enforce_store_scope(token_data, str(row.store_id), db)
-    changed = expire_advance_if_needed(db, row, actor_user_id=str(current_user.id))
+    expire_advance_if_needed(db, row, actor_user_id=str(current_user.id))
     db.add(
         PosAdvanceEvent(
             advance_id=row.id,
@@ -288,7 +330,7 @@ def alerts_advances(
         )
         .order_by(PosAdvance.expires_at.asc())
     ).scalars().all()
-    return PosAdvanceAlertsResponse(as_of=now, days=days, total=len(rows), rows=[_summary(r) for r in rows])
+    return PosAdvanceAlertsResponse(as_of=now, days=days, total=len(rows), rows=[_alert_row(r, now=now) for r in rows])
 
 
 @router.get("/aris3/pos/advances/{advance_id}", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -307,7 +349,7 @@ def get_advance(
     if expire_advance_if_needed(db, row, actor_user_id=str(current_user.id)):
         db.commit()
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
-    return PosAdvanceDetailResponse(**_summary(row).model_dump(), events=[_event_response(e) for e in events])
+    return _detail_response(db, row, events)
 
 
 @router.post("/aris3/pos/advances/{advance_id}/actions", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -359,12 +401,39 @@ def mutate_advance(
         row.updated_at = now
         action = "REFUNDED"
         event_payload = {"refund_method": payload.refund_method, "transaction_id": payload.transaction_id, "reason": payload.reason}
+        applied_amount = None
+        remaining = None
+    elif payload.action == "CONSUME":
+        if payload.sale_total is None:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale_total is required for CONSUME"})
+        issued_amount = Decimal(str(row.issued_amount)).quantize(Decimal("0.01"))
+        if payload.sale_total < issued_amount:
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "sale total must be >= advance amount", "sale_total": str(payload.sale_total), "advance_amount": str(issued_amount)},
+            )
+        row.status = "CONSUMED"
+        row.consumed_sale_id = UUID(payload.sale_id) if payload.sale_id else None
+        row.updated_at = now
+        action = "CONSUMED"
+        remaining = (payload.sale_total - issued_amount).quantize(Decimal("0.01"))
+        applied_amount = issued_amount
+        event_payload = {
+            "transaction_id": payload.transaction_id,
+            "sale_total": str(payload.sale_total),
+            "applied_amount": str(issued_amount),
+            "remaining_amount_to_charge": str(remaining),
+            "sale_id": payload.sale_id,
+            "reason": payload.reason,
+        }
     else:
         row.status = "EXPIRED"
         row.expired_at = now
         row.updated_at = now
         action = "EXPIRED"
         event_payload = {"trigger": "manual", "transaction_id": payload.transaction_id, "reason": payload.reason}
+        applied_amount = None
+        remaining = None
 
     db.add(
         PosAdvanceEvent(
@@ -379,7 +448,7 @@ def mutate_advance(
     )
     db.commit()
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
-    return PosAdvanceDetailResponse(**_summary(row).model_dump(), events=[_event_response(e) for e in events])
+    return _detail_response(db, row, events, applied_amount=applied_amount, remaining=remaining)
 
 
 @router.post("/aris3/pos/advances/actions/sweep-expired", response_model=PosAdvanceSweepResponse, responses=POS_STANDARD_ERROR_RESPONSES)

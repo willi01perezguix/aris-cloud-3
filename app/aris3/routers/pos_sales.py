@@ -382,7 +382,7 @@ def _record_cash_movement(
         )
 
     expected_before = Decimal(str(session.expected_cash or 0))
-    if action in {"SALE"}:
+    if action in {"SALE", "CASH_IN"}:
         expected_after = expected_before + amount
     else:
         expected_after = expected_before - amount

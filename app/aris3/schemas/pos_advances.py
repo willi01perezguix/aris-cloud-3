@@ -20,8 +20,10 @@ class PosAdvanceCreateRequest(PosBaseModel):
 
 class PosAdvanceActionRequest(PosBaseModel):
     transaction_id: str
-    action: Literal["REFUND", "EXPIRE_NOW"]
+    action: Literal["REFUND", "EXPIRE_NOW", "CONSUME"]
     refund_method: Literal["CASH", "TRANSFER"] | None = None
+    sale_total: POSMoney | None = Field(default=None, description="Total de venta para validar consumo completo", examples=["250.00"])
+    sale_id: str | None = None
     reason: str | None = None
 
 
@@ -57,6 +59,11 @@ class PosAdvanceSummary(PosBaseModel):
 
 class PosAdvanceDetailResponse(PosAdvanceSummary):
     events: list[PosAdvanceEventResponse] = []
+    store_name: str | None = None
+    barcode_type: str = "CODE128"
+    legal_notice: str | None = None
+    applied_amount: POSMoney | None = Field(default=None, description="Monto aplicado del anticipo", examples=["100.00"])
+    remaining_amount_to_charge: POSMoney | None = Field(default=None, description="Monto restante por cobrar en la venta", examples=["150.00"])
 
 
 class PosAdvanceListResponse(PosBaseModel):
@@ -75,7 +82,18 @@ class PosAdvanceAlertsResponse(PosBaseModel):
     as_of: datetime
     days: int
     total: int
-    rows: list[PosAdvanceSummary]
+    rows: list["PosAdvanceAlertRow"]
+
+
+class PosAdvanceAlertRow(PosBaseModel):
+    id: str
+    advance_number: int
+    customer_name: str
+    amount: POSMoney = money_field("100.00")
+    issued_at: datetime
+    expires_at: datetime
+    days_to_expiry: int
+    status: str
 
 
 class PosAdvanceSweepResponse(PosBaseModel):

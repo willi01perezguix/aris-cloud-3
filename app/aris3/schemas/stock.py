@@ -510,3 +510,96 @@ class ItemIssueResolveResponse(BaseModel):
     item_uid: str
     item_status: str
     issue_state: str | None
+
+
+AiDocumentType = Literal[
+    "invoice",
+    "packing_list",
+    "handwritten_note",
+    "product_labels",
+    "product_photo",
+    "spreadsheet",
+    "word_document",
+    "mixed",
+    "other",
+    "unknown",
+]
+AiPricingMode = Literal["markup_percent", "margin_percent", "multiplier", "manual"]
+
+
+class AiPreloadWarning(BaseModel):
+    message: str
+    severity: Literal["info", "warning", "error"] = "warning"
+
+
+class AiPreloadLine(BaseModel):
+    row_key: str
+    sku: str | None = None
+    suggested_sku: str | None = None
+    description: str
+    variant_1: str | None = None
+    variant_2: str | None = None
+    pool: str | None = None
+    location_code: str | None = None
+    sellable: bool = True
+    quantity: int = Field(ge=1)
+    original_cost: str | None = None
+    source_currency: str | None = None
+    exchange_rate_to_gtq: str | None = None
+    cost_gtq: str | None = None
+    suggested_price_gtq: str | None = None
+    needs_review: bool = True
+    confidence: float | None = None
+    notes: str | None = None
+    source_file_name: str | None = None
+    source_row_number: int | None = None
+
+
+class AiPreloadDocumentSummary(BaseModel):
+    document_type: AiDocumentType = "unknown"
+    supplier_name: str | None = None
+    document_number: str | None = None
+    document_date: str | None = None
+    detected_currency: str | None = None
+    overall_confidence: float | None = None
+
+
+class AiPreloadPricingSummary(BaseModel):
+    source_currency: str = "GTQ"
+    exchange_rate_to_gtq: str | None = None
+    pricing_mode: AiPricingMode = "manual"
+    markup_percent: str | None = None
+    margin_percent: str | None = None
+    multiplier: str | None = None
+    rounding_step: str = "1.00"
+
+
+class AiPreloadAnalyzeResponse(BaseModel):
+    extraction_id: str
+    store_id: str
+    document_summary: AiPreloadDocumentSummary
+    pricing: AiPreloadPricingSummary
+    total_lines: int
+    lines: list[AiPreloadLine]
+    warnings: list[AiPreloadWarning]
+
+
+class AiPreloadConfirmRequest(BaseModel):
+    store_id: str
+    extraction_id: str | None = None
+    source_currency: str = "GTQ"
+    exchange_rate_to_gtq: str | None = None
+    pricing_mode: AiPricingMode = "manual"
+    markup_percent: str | None = None
+    margin_percent: str | None = None
+    multiplier: str | None = None
+    rounding_step: str = "1.00"
+    lines: list[AiPreloadLine]
+
+
+class AiPreloadConfirmResponse(BaseModel):
+    preload_session_id: str
+    created_lines_count: int
+    review_required_count: int
+    warnings: list[AiPreloadWarning]
+    trace_id: str

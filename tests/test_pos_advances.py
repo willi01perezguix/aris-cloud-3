@@ -191,6 +191,8 @@ def test_issue_gift_card_cash_records_liability_and_drawer_event(client, db_sess
     assert payload["status"] == "ACTIVE"
     assert payload["drawer_open_required"] is True
     assert payload["issued_cash_movement_id"] is not None
+    assert payload["drawer_event_instruction"]["already_recorded"] is True
+    assert payload["drawer_event_instruction"]["event_type"] == "CASH_IN_DRAWER_OPEN"
 
     advance = db_session.query(PosAdvance).filter(PosAdvance.id == payload["id"]).one()
     assert advance.voucher_type == "GIFT_CARD"
@@ -200,6 +202,7 @@ def test_issue_gift_card_cash_records_liability_and_drawer_event(client, db_sess
     drawer = db_session.query(DrawerEvent).filter(DrawerEvent.sale_id == advance.id).order_by(DrawerEvent.created_at.desc()).first()
     assert drawer is not None
     assert drawer.event_type == "CASH_IN_DRAWER_OPEN"
+    assert payload["drawer_event_instruction"]["drawer_event_id"] == str(drawer.id)
 
 
 def test_issue_advance_card_creates_non_cash_movement_without_drawer_open(client, db_session):
@@ -222,6 +225,7 @@ def test_issue_advance_card_creates_non_cash_movement_without_drawer_open(client
     payload = response.json()
     assert payload["voucher_type"] == "ADVANCE"
     assert payload["drawer_open_required"] is False
+    assert payload["drawer_event_instruction"] is None
     movement = db_session.query(PosCashMovement).filter(PosCashMovement.id == payload["issued_cash_movement_id"]).one()
     assert movement.action == "ADVANCE_ISSUANCE"
     assert Decimal(str(movement.amount)) == Decimal("90.00")

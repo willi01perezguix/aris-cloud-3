@@ -234,26 +234,27 @@ def _record_drawer_event_for_voucher(
     event_type: str,
     reason: str,
     trace_id: str | None,
-) -> None:
-    db.add(
-        DrawerEvent(
-            tenant_id=row.tenant_id,
-            store_id=row.store_id,
-            terminal_id=None,
-            user_id=user_id,
-            cash_session_id=cash_session_id,
-            sale_id=row.id,
-            movement_type=movement_type,
-            event_type=event_type,
-            reason=reason,
-            requested_at=now,
-            executed_at=now,
-            result="SUCCESS",
-            details_json={"voucher_id": str(row.id), "voucher_type": row.voucher_type or "ADVANCE"},
-            trace_id=trace_id,
-            created_at=now,
-        )
+) -> DrawerEvent:
+    event = DrawerEvent(
+        tenant_id=row.tenant_id,
+        store_id=row.store_id,
+        terminal_id=None,
+        user_id=user_id,
+        cash_session_id=cash_session_id,
+        sale_id=row.id,
+        movement_type=movement_type,
+        event_type=event_type,
+        reason=reason,
+        requested_at=now,
+        executed_at=now,
+        result="SUCCESS",
+        details_json={"voucher_id": str(row.id), "voucher_type": row.voucher_type or "ADVANCE"},
+        trace_id=trace_id,
+        created_at=now,
     )
+    db.add(event)
+    db.flush()
+    return event
 
 
 @router.post("/aris3/pos/advances", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -317,6 +318,7 @@ def create_advance(
     )
 
     drawer_open_required = False
+    drawer_event: DrawerEvent | None = None
     if payload.payment_method == "CASH":
         session = _active_session(db, tenant_id=tenant_id, store_id=store_id, cashier_user_id=str(current_user.id))
         if session is None:
@@ -341,7 +343,7 @@ def create_advance(
             .first()
         )
         row.issued_cash_movement_id = issued_movement.id if issued_movement else None
-        _record_drawer_event_for_voucher(
+        drawer_event = _record_drawer_event_for_voucher(
             db,
             row=row,
             cash_session_id=session.id,
@@ -374,6 +376,15 @@ def create_advance(
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
     response = _detail_response(db, row, events)
     response.drawer_open_required = drawer_open_required
+    if drawer_event is not None:
+        response.drawer_event_instruction = {
+            "already_recorded": True,
+            "drawer_event_id": str(drawer_event.id),
+            "event_type": drawer_event.event_type,
+            "movement_type": drawer_event.movement_type,
+            "result": drawer_event.result,
+            "next_step": "Do not call /aris3/pos/drawer/events for this issuance; only trigger local hardware side effects if needed.",
+        }
     return response
 
 

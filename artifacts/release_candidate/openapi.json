@@ -15789,7 +15789,8 @@
               "EXPIRE_NOW",
               "CONSUME"
             ],
-            "title": "Action"
+            "title": "Action",
+            "description": "`CONSUME` applies to standalone voucher consumption. If checkout includes an `ADVANCE` payment, checkout consumes it atomically and this action must not be called again."
           },
           "refund_method": {
             "anyOf": [
@@ -16244,6 +16245,19 @@
             "type": "boolean",
             "title": "Drawer Open Required",
             "default": false
+          },
+          "drawer_event_instruction": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drawer Event Instruction",
+            "description": "Instruction payload for drawer handling. When `already_recorded=true`, backend already persisted the drawer event and client should not POST `/aris3/pos/drawer/events` again."
           }
         },
         "type": "object",

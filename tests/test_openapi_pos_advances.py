@@ -29,6 +29,10 @@ def test_pos_advances_critical_public_fields_and_alert_contract_are_documented()
     assert "barcode_type" in detail_schema["properties"]
     assert "legal_notice" in detail_schema["properties"]
     assert "drawer_open_required" in detail_schema["properties"]
+    assert "drawer_event_instruction" in detail_schema["properties"]
+
+    action_schema = openapi["components"]["schemas"]["PosAdvanceActionRequest"]
+    assert "checkout includes an `ADVANCE` payment" in action_schema["properties"]["action"]["description"]
 
     alerts_schema = openapi["components"]["schemas"]["PosAdvanceAlertRow"]
     assert {"days_to_expiry", "amount", "advance_number"}.issubset(alerts_schema["properties"].keys())

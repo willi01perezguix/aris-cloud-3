@@ -21,7 +21,9 @@ class PosAdvanceCreateRequest(PosBaseModel):
 
 class PosAdvanceActionRequest(PosBaseModel):
     transaction_id: str
-    action: Literal["REFUND", "EXPIRE_NOW", "CONSUME"]
+    action: Literal["REFUND", "EXPIRE_NOW", "CONSUME"] = Field(
+        description="`CONSUME` applies to standalone voucher consumption. If checkout includes an `ADVANCE` payment, checkout consumes it atomically and this action must not be called again.",
+    )
     refund_method: Literal["CASH", "CARD", "TRANSFER"] | None = None
     sale_total: POSMoney | None = Field(default=None, description="Total de venta para validar consumo completo", examples=["250.00"])
     sale_id: str | None = None
@@ -68,6 +70,10 @@ class PosAdvanceDetailResponse(PosAdvanceSummary):
     applied_amount: POSMoney | None = Field(default=None, description="Monto aplicado del anticipo", examples=["100.00"])
     remaining_amount_to_charge: POSMoney | None = Field(default=None, description="Monto restante por cobrar en la venta", examples=["150.00"])
     drawer_open_required: bool = False
+    drawer_event_instruction: dict | None = Field(
+        default=None,
+        description="Instruction payload for drawer handling. When `already_recorded=true`, backend already persisted the drawer event and client should not POST `/aris3/pos/drawer/events` again.",
+    )
 
 
 class PosAdvanceListResponse(PosBaseModel):

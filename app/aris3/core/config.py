@@ -34,5 +34,10 @@ class Settings(BaseSettings):
     ARIS3_IMAGE_SOURCE: str = "digitalocean_spaces"
     SCHEMA_DRIFT_GUARD_ENABLED: bool = True
     SCHEMA_DRIFT_GUARD_ENFORCE: bool = True
+    OPENAI_API_KEY: str = ""
+    OPENAI_INVENTORY_MODEL: str = "gpt-4.1-mini"
+    AI_PRELOAD_MAX_FILES: int = 10
+    AI_PRELOAD_MAX_FILE_BYTES: int = 10 * 1024 * 1024
+    AI_PRELOAD_MAX_TOTAL_BYTES: int = 30 * 1024 * 1024
 
 settings = Settings()

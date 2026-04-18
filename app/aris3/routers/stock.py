@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 import logging
 import re
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import String, cast, func, select
@@ -15,7 +16,7 @@ from app.aris3.core.deps import get_current_token_data, require_active_user, req
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import can_read_tenant_scope, can_write_stock_or_assets, is_superadmin
 from app.aris3.db.session import get_db
-from app.aris3.db.models import EpcAssignment, PreloadLine, PreloadSession, SkuImage, StockItem, Store
+from app.aris3.db.models import EpcAssignment, PreloadLine, PreloadSession, SkuImage, StockAiExtraction, StockAiExtractionFile, StockItem, Store
 from app.aris3.repos.stock import StockQueryFilters, StockRepository
 from app.aris3.schemas.stock import (
     StockImportEpcRequest,
@@ -43,6 +44,13 @@ from app.aris3.schemas.stock import (
     PreloadLineResponse,
     PreloadSessionCreateRequest,
     PreloadSessionResponse,
+    AiPreloadAnalyzeResponse,
+    AiPreloadConfirmRequest,
+    AiPreloadConfirmResponse,
+    AiPreloadPricingSummary,
+    AiPreloadDocumentSummary,
+    AiPreloadWarning,
+    AiPreloadLine,
     SkuImageResponse,
     SkuImageUpsertRequest,
     StockQueryMeta,
@@ -54,6 +62,7 @@ from app.aris3.schemas.errors import ApiErrorResponse
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
 from app.aris3.services.stock_rules import compute_operational_state
+from app.aris3.services.stock_ai_preload import StockAiPreloadService, UploadedSource
 
 
 router = APIRouter()
@@ -1239,6 +1248,299 @@ def _preload_line_response(line: PreloadLine) -> PreloadLineResponse:
         image_asset_id=str(line.image_asset_id) if line.image_asset_id else None, print_status=line.print_status,
         source_file_name=line.source_file_name, source_row_number=line.source_row_number, lifecycle_state=line.lifecycle_state,
         saved_stock_item_id=str(line.saved_stock_item_id) if line.saved_stock_item_id else None, created_at=line.created_at, updated_at=line.updated_at,
+    )
+
+
+def _serialize_ai_line(row_key: int, line: dict) -> AiPreloadLine:
+    return AiPreloadLine(
+        row_key=str(row_key),
+        sku=line.get("sku"),
+        suggested_sku=line.get("suggested_sku"),
+        description=line.get("description") or "",
+        variant_1=line.get("variant_1"),
+        variant_2=line.get("variant_2"),
+        pool=line.get("pool"),
+        location_code=line.get("location_code"),
+        sellable=bool(line.get("sellable", True)),
+        quantity=max(1, int(line.get("quantity") or 1)),
+        original_cost=line.get("original_cost"),
+        source_currency=line.get("source_currency"),
+        exchange_rate_to_gtq=line.get("exchange_rate_to_gtq"),
+        cost_gtq=line.get("cost_gtq"),
+        suggested_price_gtq=line.get("suggested_price_gtq"),
+        needs_review=bool(line.get("needs_review", True)),
+        confidence=line.get("confidence"),
+        notes=line.get("notes"),
+        source_file_name=line.get("source_file_name"),
+        source_row_number=line.get("source_row_number"),
+    )
+
+
+def _build_ai_prompt(*, free_text: str | None, deterministic_rows: list[dict], operator_notes: str | None, document_type: str | None) -> str:
+    parts = [
+        "Extrae líneas de inventario. No incluyas EPC ni precio de venta final.",
+        f"document_type={document_type or 'unknown'}",
+    ]
+    if free_text:
+        parts.append(f"texto_libre:\\n{free_text}")
+    if deterministic_rows:
+        parts.append(f"filas_deterministicas={deterministic_rows}")
+    if operator_notes:
+        parts.append(f"notas_operador={operator_notes}")
+    return "\\n\\n".join(parts)
+
+
+@router.post("/aris3/stock/ai/preload/analyze", response_model=AiPreloadAnalyzeResponse)
+async def analyze_ai_preload(
+    request: Request,
+    store_id: str = Form(...),
+    free_text: str | None = Form(default=None),
+    document_type: str | None = Form(default=None),
+    source_currency: str = Form(default="GTQ"),
+    exchange_rate_to_gtq: str | None = Form(default=None),
+    pricing_mode: str = Form(default="manual"),
+    markup_percent: str | None = Form(default=None),
+    margin_percent: str | None = Form(default=None),
+    multiplier: str | None = Form(default=None),
+    rounding_step: str = Form(default="1.00"),
+    operator_notes: str | None = Form(default=None),
+    files: list[UploadFile] = File(default_factory=list),
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, None)
+    _require_tenant_admin(token_data)
+    _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
+    service = StockAiPreloadService()
+    uploads: list[UploadedSource] = []
+    deterministic_rows: list[dict] = []
+    warnings: list[AiPreloadWarning] = []
+    for file in files:
+        content = await file.read()
+        uploads.append(UploadedSource(filename=file.filename or "upload.bin", content_type=file.content_type or "application/octet-stream", content=content))
+    service.validate_files(uploads)
+    for file in uploads:
+        if file.content_type in {"text/csv", "text/tab-separated-values", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"}:
+            rows, sheet_warnings = service.extract_spreadsheet_rows(file)
+            deterministic_rows.extend(rows)
+            warnings.extend(AiPreloadWarning(**w) for w in sheet_warnings)
+        if file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            free_text = (free_text or "") + "\n" + service.extract_docx_text(file.content)
+    prompt = _build_ai_prompt(free_text=free_text, deterministic_rows=deterministic_rows, operator_notes=operator_notes, document_type=document_type)
+    ai_result = service.openai_client.extract(prompt=prompt, attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}])
+    markup_decimal = service.parse_decimal(markup_percent)
+    margin_decimal = service.parse_decimal(margin_percent)
+    multiplier_decimal = service.parse_decimal(multiplier)
+    rounding_decimal = service.parse_decimal(rounding_step) or Decimal("1.00")
+    exchange_rate_decimal = service.parse_decimal(exchange_rate_to_gtq)
+    normalized_lines: list[AiPreloadLine] = []
+    raw_lines = ai_result.get("lines", [])
+    for idx, raw_line in enumerate(raw_lines, start=1):
+        priced = service.apply_pricing(
+            line=raw_line,
+            source_currency=source_currency,
+            exchange_rate_to_gtq=exchange_rate_decimal,
+            pricing_mode=pricing_mode,
+            markup_percent=markup_decimal,
+            margin_percent=margin_decimal,
+            multiplier=multiplier_decimal,
+            rounding_step=rounding_decimal,
+        )
+        normalized_lines.append(_serialize_ai_line(idx, priced))
+    warnings.extend(AiPreloadWarning(**w) for w in ai_result.get("warnings", []))
+    warnings.append(AiPreloadWarning(severity="info", message="EPC y precio de venta final fueron excluidos del resultado asistido."))
+
+    now = datetime.utcnow()
+    extraction = StockAiExtraction(
+        tenant_id=scoped_tenant_id,
+        store_id=store_id,
+        created_by_user_id=token_data.sub,
+        document_type=document_type,
+        source_currency=source_currency,
+        exchange_rate_to_gtq=exchange_rate_decimal,
+        pricing_mode=pricing_mode,
+        markup_percent=markup_decimal,
+        margin_percent=margin_decimal,
+        multiplier=multiplier_decimal,
+        rounding_step=rounding_decimal,
+        status="DRAFT",
+        raw_ai_result=ai_result,
+        normalized_result={"lines": [line.model_dump() for line in normalized_lines]},
+        warnings=[w.model_dump() for w in warnings],
+        model_used=service.openai_client._model,
+        trace_id=getattr(request.state, "trace_id", None),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(extraction)
+    db.flush()
+    for file in uploads:
+        db.add(
+            StockAiExtractionFile(
+                extraction_id=extraction.id,
+                original_filename=file.filename,
+                content_type=file.content_type,
+                size_bytes=len(file.content),
+                created_at=now,
+            )
+        )
+    db.commit()
+    return AiPreloadAnalyzeResponse(
+        extraction_id=str(extraction.id),
+        store_id=store_id,
+        document_summary=AiPreloadDocumentSummary(**(ai_result.get("document_summary", {}) or {})),
+        pricing=AiPreloadPricingSummary(
+            source_currency=source_currency,
+            exchange_rate_to_gtq=format(exchange_rate_decimal, "f") if exchange_rate_decimal is not None else None,
+            pricing_mode=pricing_mode,
+            markup_percent=format(markup_decimal, "f") if markup_decimal is not None else None,
+            margin_percent=format(margin_decimal, "f") if margin_decimal is not None else None,
+            multiplier=format(multiplier_decimal, "f") if multiplier_decimal is not None else None,
+            rounding_step=format(rounding_decimal, "f"),
+        ),
+        total_lines=len(normalized_lines),
+        lines=normalized_lines,
+        warnings=warnings,
+    )
+
+
+@router.get("/aris3/stock/ai/preload/{extraction_id}", response_model=AiPreloadAnalyzeResponse)
+def get_ai_preload_extraction(extraction_id: str, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+    scoped_tenant_id = _resolve_tenant_id(token_data, None)
+    extraction = db.get(StockAiExtraction, extraction_id)
+    if not extraction or str(extraction.tenant_id) != scoped_tenant_id:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "AI extraction not found"})
+    normalized = extraction.normalized_result or {}
+    lines = [AiPreloadLine(**line) for line in normalized.get("lines", [])]
+    return AiPreloadAnalyzeResponse(
+        extraction_id=str(extraction.id),
+        store_id=str(extraction.store_id),
+        document_summary=AiPreloadDocumentSummary(**((extraction.raw_ai_result or {}).get("document_summary", {}) or {})),
+        pricing=AiPreloadPricingSummary(
+            source_currency=extraction.source_currency,
+            exchange_rate_to_gtq=format(extraction.exchange_rate_to_gtq, "f") if extraction.exchange_rate_to_gtq is not None else None,
+            pricing_mode=extraction.pricing_mode,
+            markup_percent=format(extraction.markup_percent, "f") if extraction.markup_percent is not None else None,
+            margin_percent=format(extraction.margin_percent, "f") if extraction.margin_percent is not None else None,
+            multiplier=format(extraction.multiplier, "f") if extraction.multiplier is not None else None,
+            rounding_step=format(extraction.rounding_step, "f"),
+        ),
+        total_lines=len(lines),
+        lines=lines,
+        warnings=[AiPreloadWarning(**item) for item in (extraction.warnings or [])],
+    )
+
+
+@router.post("/aris3/stock/ai/preload/confirm", response_model=AiPreloadConfirmResponse)
+def confirm_ai_preload(
+    payload: AiPreloadConfirmRequest,
+    request: Request,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, None)
+    _require_tenant_admin(token_data)
+    _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=payload.store_id)
+    service = StockAiPreloadService()
+    exchange_rate = service.parse_decimal(payload.exchange_rate_to_gtq)
+    rounding_step = service.parse_decimal(payload.rounding_step) or Decimal("1.00")
+    markup_percent = service.parse_decimal(payload.markup_percent)
+    margin_percent = service.parse_decimal(payload.margin_percent)
+    multiplier = service.parse_decimal(payload.multiplier)
+    preload_lines = []
+    review_required_count = 0
+    for line in payload.lines:
+        if line.quantity <= 0:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "quantity must be greater than zero"})
+        raw = line.model_dump()
+        raw.pop("sale_price", None)
+        raw.pop("epc", None)
+        priced = service.apply_pricing(
+            line=raw,
+            source_currency=payload.source_currency,
+            exchange_rate_to_gtq=exchange_rate,
+            pricing_mode=payload.pricing_mode,
+            markup_percent=markup_percent,
+            margin_percent=margin_percent,
+            multiplier=multiplier,
+            rounding_step=rounding_step,
+        )
+        if payload.source_currency.upper() != "GTQ" and exchange_rate is None:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "exchange_rate_to_gtq is required when source_currency is not GTQ"})
+        cost_gtq = service.parse_decimal(priced.get("cost_gtq"))
+        if cost_gtq is None:
+            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "cost_gtq is required"})
+        if priced.get("needs_review"):
+            review_required_count += 1
+        preload_lines.append(
+            {
+                "sku": line.sku or line.suggested_sku,
+                "epc": None,
+                "description": line.description,
+                "var1_value": line.variant_1,
+                "var2_value": line.variant_2,
+                "pool": line.pool or _DEFAULT_IMPORT_POOL,
+                "location_code": line.location_code or _DEFAULT_IMPORT_LOCATION,
+                "vendible": line.sellable,
+                "cost_price": cost_gtq,
+                "suggested_price": service.parse_decimal(priced.get("suggested_price_gtq")),
+                "sale_price": None,
+                "observation": line.notes,
+                "source_row_number": line.source_row_number,
+                "qty": line.quantity,
+            }
+        )
+    now = datetime.utcnow()
+    session = PreloadSession(tenant_id=scoped_tenant_id, store_id=payload.store_id, source_file_name="ai_preload_review", status="ACTIVE", created_by_user_id=token_data.sub, created_at=now, updated_at=now)
+    db.add(session)
+    db.flush()
+    created_lines = 0
+    for row in preload_lines:
+        for _ in range(max(1, row["qty"])):
+            db.add(
+                PreloadLine(
+                    preload_session_id=session.id,
+                    tenant_id=scoped_tenant_id,
+                    store_id=payload.store_id,
+                    sku=row["sku"],
+                    epc=None,
+                    description=row["description"],
+                    var1_value=row["var1_value"],
+                    var2_value=row["var2_value"],
+                    pool=row["pool"],
+                    location_code=row["location_code"],
+                    vendible=row["vendible"],
+                    cost_price=row["cost_price"],
+                    suggested_price=row["suggested_price"],
+                    sale_price=None,
+                    item_status="PENDING",
+                    epc_status="AVAILABLE",
+                    observation=row["observation"],
+                    image_mode="blank",
+                    source_file_name="ai_preload_review",
+                    source_row_number=row["source_row_number"],
+                    lifecycle_state="STAGING",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            created_lines += 1
+    if payload.extraction_id:
+        extraction = db.get(StockAiExtraction, payload.extraction_id)
+        if extraction and str(extraction.tenant_id) == scoped_tenant_id:
+            extraction.status = "CONFIRMED"
+            extraction.preload_session_id = session.id
+            extraction.confirmed_at = now
+            extraction.updated_at = now
+    db.commit()
+    return AiPreloadConfirmResponse(
+        preload_session_id=str(session.id),
+        created_lines_count=created_lines,
+        review_required_count=review_required_count,
+        warnings=[AiPreloadWarning(severity="info", message="EPC y precio Venta(Q) se mantienen vacíos para el flujo de precarga.")],
+        trace_id=getattr(request.state, "trace_id", ""),
     )
 
 

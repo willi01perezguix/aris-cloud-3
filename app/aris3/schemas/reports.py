@@ -28,6 +28,16 @@ class ReportTotals(ReportModel):
     net_profit: Decimal
     orders_paid_count: int
     average_ticket: Decimal
+    liability_issued_advances: Decimal = Decimal("0.00")
+    liability_issued_gift_cards: Decimal = Decimal("0.00")
+    liability_redeemed_advances: Decimal = Decimal("0.00")
+    liability_redeemed_gift_cards: Decimal = Decimal("0.00")
+    liability_refunded_advances: Decimal = Decimal("0.00")
+    liability_refunded_gift_cards: Decimal = Decimal("0.00")
+    tender_cash_received: Decimal = Decimal("0.00")
+    tender_card_received: Decimal = Decimal("0.00")
+    tender_transfer_received: Decimal = Decimal("0.00")
+    tender_total_received: Decimal = Decimal("0.00")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -104,6 +114,16 @@ class ReportDailyRow(ReportModel):
     net_profit: Decimal
     orders_paid_count: int
     average_ticket: Decimal
+    liability_issued_advances: Decimal = Decimal("0.00")
+    liability_issued_gift_cards: Decimal = Decimal("0.00")
+    liability_redeemed_advances: Decimal = Decimal("0.00")
+    liability_redeemed_gift_cards: Decimal = Decimal("0.00")
+    liability_refunded_advances: Decimal = Decimal("0.00")
+    liability_refunded_gift_cards: Decimal = Decimal("0.00")
+    tender_cash_received: Decimal = Decimal("0.00")
+    tender_card_received: Decimal = Decimal("0.00")
+    tender_transfer_received: Decimal = Decimal("0.00")
+    tender_total_received: Decimal = Decimal("0.00")
 
     model_config = ConfigDict(
         json_schema_extra={

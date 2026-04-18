@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import Select, func, select
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.db.models import PosPayment, PosReturnEvent, PosSale, PosSaleLine
+from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosPayment, PosReturnEvent, PosSale, PosSaleLine
 
 
 class ReportDateRange:
@@ -241,6 +241,112 @@ def build_daily_report_rows(
     return rows
 
 
+def _daily_liability_and_tender(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    tz: ZoneInfo,
+) -> dict[date, dict[str, Decimal]]:
+    rows: dict[date, dict[str, Decimal]] = defaultdict(
+        lambda: defaultdict(lambda: Decimal("0.00"))
+    )
+
+    issued = db.execute(
+        select(PosAdvance.issued_at, PosAdvance.voucher_type, PosAdvance.issued_amount, PosAdvance.issued_payment_method)
+        .where(
+            PosAdvance.tenant_id == tenant_id,
+            PosAdvance.store_id == store_id,
+            PosAdvance.issued_at >= start_utc,
+            PosAdvance.issued_at <= end_utc,
+        )
+    ).all()
+    for issued_at, voucher_type, amount, payment_method in issued:
+        day = _ensure_utc(issued_at).astimezone(tz).date()
+        kind = (voucher_type or "ADVANCE").upper()
+        method = (payment_method or "").upper()
+        numeric = Decimal(str(amount or 0))
+        if kind == "GIFT_CARD":
+            rows[day]["liability_issued_gift_cards"] += numeric
+        else:
+            rows[day]["liability_issued_advances"] += numeric
+        if method == "CASH":
+            rows[day]["tender_cash_received"] += numeric
+        elif method == "CARD":
+            rows[day]["tender_card_received"] += numeric
+        elif method == "TRANSFER":
+            rows[day]["tender_transfer_received"] += numeric
+
+    redeemed = db.execute(
+        select(PosAdvanceEvent.created_at, PosAdvance.voucher_type, PosAdvance.issued_amount)
+        .join(PosAdvance, PosAdvance.id == PosAdvanceEvent.advance_id)
+        .where(
+            PosAdvanceEvent.tenant_id == tenant_id,
+            PosAdvanceEvent.store_id == store_id,
+            PosAdvanceEvent.action == "CONSUMED",
+            PosAdvanceEvent.created_at >= start_utc,
+            PosAdvanceEvent.created_at <= end_utc,
+        )
+    ).all()
+    for created_at, voucher_type, amount in redeemed:
+        day = _ensure_utc(created_at).astimezone(tz).date()
+        numeric = Decimal(str(amount or 0))
+        if (voucher_type or "ADVANCE").upper() == "GIFT_CARD":
+            rows[day]["liability_redeemed_gift_cards"] += numeric
+        else:
+            rows[day]["liability_redeemed_advances"] += numeric
+
+    refunded = db.execute(
+        select(PosAdvance.refunded_at, PosAdvance.voucher_type, PosAdvance.issued_amount)
+        .where(
+            PosAdvance.tenant_id == tenant_id,
+            PosAdvance.store_id == store_id,
+            PosAdvance.status == "REFUNDED",
+            PosAdvance.refunded_at.is_not(None),
+            PosAdvance.refunded_at >= start_utc,
+            PosAdvance.refunded_at <= end_utc,
+        )
+    ).all()
+    for refunded_at, voucher_type, amount in refunded:
+        day = _ensure_utc(refunded_at).astimezone(tz).date()
+        numeric = Decimal(str(amount or 0))
+        if (voucher_type or "ADVANCE").upper() == "GIFT_CARD":
+            rows[day]["liability_refunded_gift_cards"] += numeric
+        else:
+            rows[day]["liability_refunded_advances"] += numeric
+
+    sales_tenders = db.execute(
+        select(PosSale.checked_out_at, PosPayment.method, PosPayment.amount)
+        .join(PosSale, PosSale.id == PosPayment.sale_id)
+        .where(
+            PosSale.tenant_id == tenant_id,
+            PosSale.store_id == store_id,
+            PosSale.status == "PAID",
+            PosSale.checked_out_at.is_not(None),
+            PosSale.checked_out_at >= start_utc,
+            PosSale.checked_out_at <= end_utc,
+        )
+    ).all()
+    for checked_out_at, method, amount in sales_tenders:
+        day = _ensure_utc(checked_out_at).astimezone(tz).date()
+        numeric = Decimal(str(amount or 0))
+        method = (method or "").upper()
+        if method == "CASH":
+            rows[day]["tender_cash_received"] += numeric
+        elif method == "CARD":
+            rows[day]["tender_card_received"] += numeric
+        elif method == "TRANSFER":
+            rows[day]["tender_transfer_received"] += numeric
+
+    for values in rows.values():
+        values["tender_total_received"] = (
+            values["tender_cash_received"] + values["tender_card_received"] + values["tender_transfer_received"]
+        )
+    return rows
+
+
 def build_report_totals(rows: list[dict[str, Decimal | date | int]]) -> dict[str, Decimal | int]:
     gross_sales = sum((row["gross_sales"] for row in rows), Decimal("0.00"))
     refunds_total = sum((row["refunds_total"] for row in rows), Decimal("0.00"))
@@ -251,6 +357,15 @@ def build_report_totals(rows: list[dict[str, Decimal | date | int]]) -> dict[str
     net_profit = sum((row["net_profit"] for row in rows), Decimal("0.00"))
     orders_paid_count = sum((row["orders_paid_count"] for row in rows), 0)
     average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
+    liability_issued_advances = sum((row["liability_issued_advances"] for row in rows), Decimal("0.00"))
+    liability_issued_gift_cards = sum((row["liability_issued_gift_cards"] for row in rows), Decimal("0.00"))
+    liability_redeemed_advances = sum((row["liability_redeemed_advances"] for row in rows), Decimal("0.00"))
+    liability_redeemed_gift_cards = sum((row["liability_redeemed_gift_cards"] for row in rows), Decimal("0.00"))
+    liability_refunded_advances = sum((row["liability_refunded_advances"] for row in rows), Decimal("0.00"))
+    liability_refunded_gift_cards = sum((row["liability_refunded_gift_cards"] for row in rows), Decimal("0.00"))
+    tender_cash_received = sum((row["tender_cash_received"] for row in rows), Decimal("0.00"))
+    tender_card_received = sum((row["tender_card_received"] for row in rows), Decimal("0.00"))
+    tender_transfer_received = sum((row["tender_transfer_received"] for row in rows), Decimal("0.00"))
     return {
         "gross_sales": gross_sales,
         "refunds_total": refunds_total,
@@ -261,6 +376,16 @@ def build_report_totals(rows: list[dict[str, Decimal | date | int]]) -> dict[str
         "net_profit": net_profit,
         "orders_paid_count": orders_paid_count,
         "average_ticket": average_ticket.quantize(Decimal("0.01")),
+        "liability_issued_advances": liability_issued_advances,
+        "liability_issued_gift_cards": liability_issued_gift_cards,
+        "liability_redeemed_advances": liability_redeemed_advances,
+        "liability_redeemed_gift_cards": liability_redeemed_gift_cards,
+        "liability_refunded_advances": liability_refunded_advances,
+        "liability_refunded_gift_cards": liability_refunded_gift_cards,
+        "tender_cash_received": tender_cash_received,
+        "tender_card_received": tender_card_received,
+        "tender_transfer_received": tender_transfer_received,
+        "tender_total_received": tender_cash_received + tender_card_received + tender_transfer_received,
     }
 
 
@@ -329,3 +454,37 @@ def daily_sales_refunds(
         refunds_by_date[local_date] += Decimal(str(refund_total or 0.0))
 
     return sales_by_date, orders_by_date, refunds_by_date
+
+
+def apply_liability_and_tender_rows(
+    db,
+    *,
+    rows_data: list[dict[str, Decimal | date | int]],
+    tenant_id: str,
+    store_id: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    tz: ZoneInfo,
+) -> list[dict[str, Decimal | date | int]]:
+    by_day = _daily_liability_and_tender(
+        db,
+        tenant_id=tenant_id,
+        store_id=store_id,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        tz=tz,
+    )
+    for row in rows_data:
+        day = row["business_date"]
+        extras = by_day.get(day, {})
+        row["liability_issued_advances"] = extras.get("liability_issued_advances", Decimal("0.00"))
+        row["liability_issued_gift_cards"] = extras.get("liability_issued_gift_cards", Decimal("0.00"))
+        row["liability_redeemed_advances"] = extras.get("liability_redeemed_advances", Decimal("0.00"))
+        row["liability_redeemed_gift_cards"] = extras.get("liability_redeemed_gift_cards", Decimal("0.00"))
+        row["liability_refunded_advances"] = extras.get("liability_refunded_advances", Decimal("0.00"))
+        row["liability_refunded_gift_cards"] = extras.get("liability_refunded_gift_cards", Decimal("0.00"))
+        row["tender_cash_received"] = extras.get("tender_cash_received", Decimal("0.00"))
+        row["tender_card_received"] = extras.get("tender_card_received", Decimal("0.00"))
+        row["tender_transfer_received"] = extras.get("tender_transfer_received", Decimal("0.00"))
+        row["tender_total_received"] = extras.get("tender_total_received", Decimal("0.00"))
+    return rows_data

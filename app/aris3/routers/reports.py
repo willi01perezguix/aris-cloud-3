@@ -23,6 +23,7 @@ from app.aris3.schemas.reports import (
     ReportTotals,
 )
 from app.aris3.services.reports import (
+    apply_liability_and_tender_rows,
     build_daily_report_rows,
     build_report_totals,
     daily_sales_refunds,
@@ -126,6 +127,15 @@ def report_overview(
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
+    rows_data = apply_liability_and_tender_rows(
+        db,
+        rows_data=rows_data,
+        tenant_id=str(store.tenant_id),
+        store_id=resolved_store_id,
+        start_utc=date_range.start_utc,
+        end_utc=date_range.end_utc,
+        tz=tz,
+    )
     rows = [ReportDailyRow(**row) for row in rows_data]
     totals = ReportTotals(**build_report_totals(rows_data))
     query_ms = (time.perf_counter() - start_time) * 1000
@@ -211,6 +221,15 @@ def report_daily(
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
+    rows_data = apply_liability_and_tender_rows(
+        db,
+        rows_data=rows_data,
+        tenant_id=str(store.tenant_id),
+        store_id=resolved_store_id,
+        start_utc=date_range.start_utc,
+        end_utc=date_range.end_utc,
+        tz=tz,
+    )
     rows = [ReportDailyRow(**row) for row in rows_data]
     totals = ReportTotals(**build_report_totals(rows_data))
     query_ms = (time.perf_counter() - start_time) * 1000
@@ -295,6 +314,15 @@ def report_calendar(
         refunds_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
+    )
+    daily_rows_data = apply_liability_and_tender_rows(
+        db,
+        rows_data=daily_rows_data,
+        tenant_id=str(store.tenant_id),
+        store_id=resolved_store_id,
+        start_utc=date_range.start_utc,
+        end_utc=date_range.end_utc,
+        tz=tz,
     )
     daily_rows = [ReportDailyRow(**row) for row in daily_rows_data]
     calendar_rows = [

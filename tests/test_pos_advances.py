@@ -1,4 +1,6 @@
-from app.aris3.db.models import PosAdvance
+from decimal import Decimal
+
+from app.aris3.db.models import DrawerEvent, PosAdvance, PosCashMovement
 from tests.pos_sales_helpers import create_stock_item, create_tenant_user, login, open_cash_session, sale_line, sale_payload, seed_defaults
 
 
@@ -110,3 +112,101 @@ def test_advance_cannot_be_reused_after_consumption(client, db_session):
         },
     )
     assert checkout_2.status_code == 409
+
+
+def test_issue_gift_card_cash_records_liability_and_drawer_event(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="gift-card-cash")
+    token = login(client, user.username, "Pass1234!")
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+
+    response = client.post(
+        "/aris3/pos/advances",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-gift-card-issue-1",
+            "store_id": str(store.id),
+            "customer_name": "Gift Customer",
+            "amount": "150.00",
+            "payment_method": "CASH",
+            "voucher_type": "GIFT_CARD",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["voucher_type"] == "GIFT_CARD"
+    assert payload["status"] == "ACTIVE"
+    assert payload["drawer_open_required"] is True
+    assert payload["issued_cash_movement_id"] is not None
+
+    advance = db_session.query(PosAdvance).filter(PosAdvance.id == payload["id"]).one()
+    assert advance.voucher_type == "GIFT_CARD"
+    movement = db_session.query(PosCashMovement).filter(PosCashMovement.id == payload["issued_cash_movement_id"]).one()
+    assert movement.action == "CASH_IN"
+    assert Decimal(str(movement.amount)) == Decimal("150.00")
+    drawer = db_session.query(DrawerEvent).filter(DrawerEvent.sale_id == advance.id).order_by(DrawerEvent.created_at.desc()).first()
+    assert drawer is not None
+    assert drawer.event_type == "CASH_IN_DRAWER_OPEN"
+
+
+def test_issue_advance_card_creates_non_cash_movement_without_drawer_open(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="adv-card")
+    token = login(client, user.username, "Pass1234!")
+
+    response = client.post(
+        "/aris3/pos/advances",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-adv-card-1",
+            "store_id": str(store.id),
+            "customer_name": "Card Customer",
+            "amount": "90.00",
+            "payment_method": "CARD",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["voucher_type"] == "ADVANCE"
+    assert payload["drawer_open_required"] is False
+    movement = db_session.query(PosCashMovement).filter(PosCashMovement.id == payload["issued_cash_movement_id"]).one()
+    assert movement.action == "ADVANCE_ISSUANCE"
+    assert Decimal(str(movement.amount)) == Decimal("90.00")
+
+
+def test_refund_gift_card_cash_creates_cash_out_and_marks_terminal(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="gift-refund")
+    token = login(client, user.username, "Pass1234!")
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+
+    issue = client.post(
+        "/aris3/pos/advances",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-gift-refund-issue",
+            "store_id": str(store.id),
+            "customer_name": "Refundable Gift",
+            "amount": "40.00",
+            "payment_method": "CASH",
+            "voucher_type": "GIFT_CARD",
+        },
+    )
+    assert issue.status_code == 200
+    advance_id = issue.json()["id"]
+
+    refund = client.post(
+        f"/aris3/pos/advances/{advance_id}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-gift-refund-1",
+            "action": "REFUND",
+            "refund_method": "CASH",
+        },
+    )
+    assert refund.status_code == 200
+    payload = refund.json()
+    assert payload["status"] == "REFUNDED"
+    assert payload["refunded_cash_movement_id"] is not None
+    movement = db_session.query(PosCashMovement).filter(PosCashMovement.id == payload["refunded_cash_movement_id"]).one()
+    assert movement.action == "CASH_OUT"

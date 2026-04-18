@@ -14976,6 +14976,7 @@
                 "type": "string",
                 "enum": [
                   "CASH",
+                  "CARD",
                   "TRANSFER"
                 ]
               },
@@ -15158,9 +15159,19 @@
             "type": "string",
             "enum": [
               "CASH",
+              "CARD",
               "TRANSFER"
             ],
             "title": "Payment Method"
+          },
+          "voucher_type": {
+            "type": "string",
+            "enum": [
+              "ADVANCE",
+              "GIFT_CARD"
+            ],
+            "title": "Voucher Type",
+            "default": "ADVANCE"
           },
           "notes": {
             "anyOf": [
@@ -15206,6 +15217,11 @@
             "type": "string",
             "title": "Barcode Value"
           },
+          "voucher_type": {
+            "type": "string",
+            "title": "Voucher Type",
+            "default": "ADVANCE"
+          },
           "customer_name": {
             "type": "string",
             "title": "Customer Name"
@@ -15223,6 +15239,17 @@
           "issued_payment_method": {
             "type": "string",
             "title": "Issued Payment Method"
+          },
+          "issued_cash_movement_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued Cash Movement Id"
           },
           "issued_at": {
             "type": "string",
@@ -15391,6 +15418,11 @@
             "examples": [
               "150.00"
             ]
+          },
+          "drawer_open_required": {
+            "type": "boolean",
+            "title": "Drawer Open Required",
+            "default": false
           }
         },
         "type": "object",
@@ -15533,6 +15565,11 @@
             "type": "string",
             "title": "Barcode Value"
           },
+          "voucher_type": {
+            "type": "string",
+            "title": "Voucher Type",
+            "default": "ADVANCE"
+          },
           "customer_name": {
             "type": "string",
             "title": "Customer Name"
@@ -15550,6 +15587,17 @@
           "issued_payment_method": {
             "type": "string",
             "title": "Issued Payment Method"
+          },
+          "issued_cash_movement_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued Cash Movement Id"
           },
           "issued_at": {
             "type": "string",
@@ -18963,6 +19011,66 @@
             "type": "string",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Average Ticket"
+          },
+          "liability_issued_advances": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Issued Advances",
+            "default": "0.00"
+          },
+          "liability_issued_gift_cards": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Issued Gift Cards",
+            "default": "0.00"
+          },
+          "liability_redeemed_advances": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Redeemed Advances",
+            "default": "0.00"
+          },
+          "liability_redeemed_gift_cards": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Redeemed Gift Cards",
+            "default": "0.00"
+          },
+          "liability_refunded_advances": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Refunded Advances",
+            "default": "0.00"
+          },
+          "liability_refunded_gift_cards": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Refunded Gift Cards",
+            "default": "0.00"
+          },
+          "tender_cash_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Cash Received",
+            "default": "0.00"
+          },
+          "tender_card_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Card Received",
+            "default": "0.00"
+          },
+          "tender_transfer_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Transfer Received",
+            "default": "0.00"
+          },
+          "tender_total_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Total Received",
+            "default": "0.00"
           }
         },
         "type": "object",
@@ -19185,6 +19293,66 @@
             "type": "string",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Average Ticket"
+          },
+          "liability_issued_advances": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Issued Advances",
+            "default": "0.00"
+          },
+          "liability_issued_gift_cards": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Issued Gift Cards",
+            "default": "0.00"
+          },
+          "liability_redeemed_advances": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Redeemed Advances",
+            "default": "0.00"
+          },
+          "liability_redeemed_gift_cards": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Redeemed Gift Cards",
+            "default": "0.00"
+          },
+          "liability_refunded_advances": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Refunded Advances",
+            "default": "0.00"
+          },
+          "liability_refunded_gift_cards": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Liability Refunded Gift Cards",
+            "default": "0.00"
+          },
+          "tender_cash_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Cash Received",
+            "default": "0.00"
+          },
+          "tender_card_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Card Received",
+            "default": "0.00"
+          },
+          "tender_transfer_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Transfer Received",
+            "default": "0.00"
+          },
+          "tender_total_received": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tender Total Received",
+            "default": "0.00"
           }
         },
         "type": "object",

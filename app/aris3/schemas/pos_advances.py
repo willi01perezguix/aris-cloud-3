@@ -14,14 +14,15 @@ class PosAdvanceCreateRequest(PosBaseModel):
     store_id: str
     customer_name: str = Field(min_length=1, max_length=255)
     amount: POSMoney = money_field("100.00")
-    payment_method: Literal["CASH", "TRANSFER"]
+    payment_method: Literal["CASH", "CARD", "TRANSFER"]
+    voucher_type: Literal["ADVANCE", "GIFT_CARD"] = "ADVANCE"
     notes: str | None = None
 
 
 class PosAdvanceActionRequest(PosBaseModel):
     transaction_id: str
     action: Literal["REFUND", "EXPIRE_NOW", "CONSUME"]
-    refund_method: Literal["CASH", "TRANSFER"] | None = None
+    refund_method: Literal["CASH", "CARD", "TRANSFER"] | None = None
     sale_total: POSMoney | None = Field(default=None, description="Total de venta para validar consumo completo", examples=["250.00"])
     sale_id: str | None = None
     reason: str | None = None
@@ -41,9 +42,11 @@ class PosAdvanceSummary(PosBaseModel):
     store_id: str
     advance_number: int
     barcode_value: str
+    voucher_type: str = "ADVANCE"
     customer_name: str
     issued_amount: POSMoney = money_field("100.00")
     issued_payment_method: str
+    issued_cash_movement_id: str | None = None
     issued_at: datetime
     expires_at: datetime
     status: str
@@ -64,6 +67,7 @@ class PosAdvanceDetailResponse(PosAdvanceSummary):
     legal_notice: str | None = None
     applied_amount: POSMoney | None = Field(default=None, description="Monto aplicado del anticipo", examples=["100.00"])
     remaining_amount_to_charge: POSMoney | None = Field(default=None, description="Monto restante por cobrar en la venta", examples=["150.00"])
+    drawer_open_required: bool = False
 
 
 class PosAdvanceListResponse(PosBaseModel):

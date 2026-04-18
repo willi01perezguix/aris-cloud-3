@@ -22,10 +22,13 @@ def test_pos_advances_critical_public_fields_and_alert_contract_are_documented()
     summary_schema = openapi["components"]["schemas"]["PosAdvanceSummary"]
     assert "advance_number" in summary_schema["properties"]
     assert "barcode_value" in summary_schema["properties"]
+    assert "voucher_type" in summary_schema["properties"]
+    assert "issued_cash_movement_id" in summary_schema["properties"]
 
     detail_schema = openapi["components"]["schemas"]["PosAdvanceDetailResponse"]
     assert "barcode_type" in detail_schema["properties"]
     assert "legal_notice" in detail_schema["properties"]
+    assert "drawer_open_required" in detail_schema["properties"]
 
     alerts_schema = openapi["components"]["schemas"]["PosAdvanceAlertRow"]
     assert {"days_to_expiry", "amount", "advance_number"}.issubset(alerts_schema["properties"].keys())

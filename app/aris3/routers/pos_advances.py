@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.aris3.core.deps import get_current_token_data, require_active_user
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope, enforce_tenant_scope, is_superadmin
-from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosCashMovement, PosCashSession, PosSale
+from app.aris3.db.models import DrawerEvent, PosAdvance, PosAdvanceEvent, PosCashMovement, PosCashSession, PosSale
 from app.aris3.db.models import Store
 from app.aris3.db.session import get_db
 from app.aris3.routers.pos_sales import _record_cash_movement
@@ -35,6 +35,14 @@ ADVANCE_LEGAL_NOTICE_ES = (
     "Este anticipo vence a los 60 días de su emisión. Pasada la fecha, el saldo caduca y no es reembolsable. "
     "El consumo debe ser por el total del monto."
 )
+VOUCHER_ISSUANCE_REASON = {
+    "ADVANCE": "ADVANCE_ISSUANCE",
+    "GIFT_CARD": "GIFT_CARD_ISSUANCE",
+}
+VOUCHER_REFUND_REASON = {
+    "ADVANCE": "ADVANCE_REFUND",
+    "GIFT_CARD": "GIFT_CARD_REFUND",
+}
 
 POS_STANDARD_ERROR_RESPONSES = {
     401: {"description": "Unauthorized", "model": ApiErrorResponse},
@@ -77,9 +85,11 @@ def _summary(row: PosAdvance) -> PosAdvanceSummary:
         store_id=str(row.store_id),
         advance_number=row.advance_number,
         barcode_value=row.barcode_value,
+        voucher_type=(row.voucher_type or "ADVANCE"),
         customer_name=row.customer_name,
         issued_amount=Decimal(str(row.issued_amount)),
         issued_payment_method=row.issued_payment_method,
+        issued_cash_movement_id=str(row.issued_cash_movement_id) if row.issued_cash_movement_id else None,
         issued_at=row.issued_at,
         expires_at=row.expires_at,
         status=row.status,
@@ -118,6 +128,7 @@ def _detail_response(db, row: PosAdvance, events: list[PosAdvanceEvent], *, appl
         legal_notice=ADVANCE_LEGAL_NOTICE_ES,
         applied_amount=applied_amount,
         remaining_amount_to_charge=remaining,
+        drawer_open_required=False,
     )
 
 
@@ -173,6 +184,78 @@ def _active_session(db, *, tenant_id: str, store_id: str, cashier_user_id: str) 
     )
 
 
+def _record_non_cash_voucher_movement(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    cashier_user_id: UUID,
+    actor_user_id: UUID,
+    now: datetime,
+    transaction_id: str,
+    amount: Decimal,
+    action: str,
+    reason: str,
+    sale_id: UUID,
+    trace_id: str | None,
+) -> PosCashMovement:
+    movement = PosCashMovement(
+        tenant_id=UUID(tenant_id),
+        store_id=UUID(store_id),
+        cash_session_id=None,
+        cashier_user_id=cashier_user_id,
+        actor_user_id=actor_user_id,
+        business_date=now.date(),
+        timezone="UTC",
+        sale_id=sale_id,
+        action=action,
+        amount=float(amount),
+        expected_balance_before=0.0,
+        expected_balance_after=0.0,
+        transaction_id=transaction_id,
+        reason=reason,
+        trace_id=trace_id,
+        occurred_at=now,
+        created_at=now,
+    )
+    db.add(movement)
+    db.flush()
+    return movement
+
+
+def _record_drawer_event_for_voucher(
+    db,
+    *,
+    row: PosAdvance,
+    cash_session_id: UUID | None,
+    user_id: UUID,
+    now: datetime,
+    movement_type: str,
+    event_type: str,
+    reason: str,
+    trace_id: str | None,
+) -> None:
+    db.add(
+        DrawerEvent(
+            tenant_id=row.tenant_id,
+            store_id=row.store_id,
+            terminal_id=None,
+            user_id=user_id,
+            cash_session_id=cash_session_id,
+            sale_id=row.id,
+            movement_type=movement_type,
+            event_type=event_type,
+            reason=reason,
+            requested_at=now,
+            executed_at=now,
+            result="SUCCESS",
+            details_json={"voucher_id": str(row.id), "voucher_type": row.voucher_type or "ADVANCE"},
+            trace_id=trace_id,
+            created_at=now,
+        )
+    )
+
+
 @router.post("/aris3/pos/advances", response_model=PosAdvanceDetailResponse, responses=POS_STANDARD_ERROR_RESPONSES)
 def create_advance(
     payload: PosAdvanceCreateRequest,
@@ -201,11 +284,13 @@ def create_advance(
     ) + 1
     barcode = f"ADV-{str(store_id).replace('-', '')[:8]}-{next_number:08d}"
 
+    voucher_type = payload.voucher_type.upper()
     row = PosAdvance(
         tenant_id=UUID(tenant_id),
         store_id=UUID(store_id),
         advance_number=next_number,
         barcode_value=barcode,
+        voucher_type=voucher_type,
         customer_name=payload.customer_name.strip(),
         issued_amount=payload.amount,
         issued_payment_method=payload.payment_method,
@@ -225,32 +310,71 @@ def create_advance(
             tenant_id=row.tenant_id,
             store_id=row.store_id,
             action="ISSUED",
-            payload={"transaction_id": payload.transaction_id, "payment_method": payload.payment_method},
+            payload={"transaction_id": payload.transaction_id, "payment_method": payload.payment_method, "voucher_type": voucher_type},
             created_by_user_id=current_user.id,
             created_at=now,
         )
     )
 
+    drawer_open_required = False
     if payload.payment_method == "CASH":
         session = _active_session(db, tenant_id=tenant_id, store_id=store_id, cashier_user_id=str(current_user.id))
-        if session:
-            _record_cash_movement(
-                db,
-                session=session,
-                tenant_id=tenant_id,
-                store_id=store_id,
-                sale_id=row.id,
-                action="CASH_IN",
-                amount=Decimal(str(payload.amount)),
-                transaction_id=payload.transaction_id,
-                actor_user_id=str(current_user.id),
-                trace_id=getattr(request.state, "trace_id", None),
-                occurred_at=now,
-            )
+        if session is None:
+            raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "open cash session required for CASH issuance"})
+        _record_cash_movement(
+            db,
+            session=session,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            sale_id=row.id,
+            action="CASH_IN",
+            amount=Decimal(str(payload.amount)),
+            transaction_id=payload.transaction_id,
+            actor_user_id=str(current_user.id),
+            trace_id=getattr(request.state, "trace_id", None),
+            occurred_at=now,
+        )
+        db.flush()
+        issued_movement = (
+            db.execute(select(PosCashMovement).where(PosCashMovement.transaction_id == payload.transaction_id).order_by(PosCashMovement.created_at.desc()))
+            .scalars()
+            .first()
+        )
+        row.issued_cash_movement_id = issued_movement.id if issued_movement else None
+        _record_drawer_event_for_voucher(
+            db,
+            row=row,
+            cash_session_id=session.id,
+            user_id=current_user.id,
+            now=now,
+            movement_type="CASH_IN",
+            event_type="CASH_IN_DRAWER_OPEN",
+            reason=VOUCHER_ISSUANCE_REASON[voucher_type],
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+        drawer_open_required = True
+    else:
+        issued_movement = _record_non_cash_voucher_movement(
+            db,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            cashier_user_id=current_user.id,
+            actor_user_id=current_user.id,
+            now=now,
+            transaction_id=payload.transaction_id,
+            amount=Decimal(str(payload.amount)),
+            action=VOUCHER_ISSUANCE_REASON[voucher_type],
+            reason=f"{VOUCHER_ISSUANCE_REASON[voucher_type]}:{payload.payment_method}",
+            sale_id=row.id,
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+        row.issued_cash_movement_id = issued_movement.id
 
     db.commit()
     events = db.execute(select(PosAdvanceEvent).where(PosAdvanceEvent.advance_id == row.id).order_by(PosAdvanceEvent.created_at)).scalars().all()
-    return _detail_response(db, row, events)
+    response = _detail_response(db, row, events)
+    response.drawer_open_required = drawer_open_required
+    return response
 
 
 @router.get("/aris3/pos/advances", response_model=PosAdvanceListResponse, responses=POS_STANDARD_ERROR_RESPONSES)
@@ -417,6 +541,33 @@ def mutate_advance(
             db.flush()
             movement = db.execute(select(PosCashMovement).where(PosCashMovement.transaction_id == payload.transaction_id).order_by(PosCashMovement.created_at.desc())).scalars().first()
             movement_id = movement.id if movement else None
+            _record_drawer_event_for_voucher(
+                db,
+                row=row,
+                cash_session_id=session.id,
+                user_id=current_user.id,
+                now=now,
+                movement_type="CASH_OUT",
+                event_type="CASH_OUT_DRAWER_OPEN",
+                reason=VOUCHER_REFUND_REASON[row.voucher_type or "ADVANCE"],
+                trace_id=getattr(request.state, "trace_id", None),
+            )
+        else:
+            movement = _record_non_cash_voucher_movement(
+                db,
+                tenant_id=str(row.tenant_id),
+                store_id=str(row.store_id),
+                cashier_user_id=current_user.id,
+                actor_user_id=current_user.id,
+                now=now,
+                transaction_id=payload.transaction_id,
+                amount=Decimal(str(row.issued_amount)),
+                action=VOUCHER_REFUND_REASON[row.voucher_type or "ADVANCE"],
+                reason=f"{VOUCHER_REFUND_REASON[row.voucher_type or 'ADVANCE']}:{payload.refund_method}",
+                sale_id=row.id,
+                trace_id=getattr(request.state, "trace_id", None),
+            )
+            movement_id = movement.id
         row.status = "REFUNDED"
         row.refunded_cash_movement_id = movement_id
         row.refunded_at = now

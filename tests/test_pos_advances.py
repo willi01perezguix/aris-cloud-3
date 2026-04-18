@@ -114,6 +114,59 @@ def test_advance_cannot_be_reused_after_consumption(client, db_session):
     assert checkout_2.status_code == 409
 
 
+def test_consume_action_after_checkout_consumption_returns_conflict(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="adv-double-consume")
+    token = login(client, user.username, "Pass1234!")
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+
+    create_stock_item(db_session, tenant_id=str(tenant.id), sku="SKU-ADV", epc=None, location_code="LOC-1", pool="P1", status="PENDING")
+    create_stock_item(db_session, tenant_id=str(tenant.id), sku="SKU-ADV", epc=None, location_code="LOC-1", pool="P1", status="PENDING")
+
+    issue_response = client.post(
+        "/aris3/pos/advances",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-adv-issue-double-consume",
+            "store_id": str(store.id),
+            "customer_name": "Cliente Tres",
+            "amount": "8.00",
+            "payment_method": "CARD",
+        },
+    )
+    assert issue_response.status_code == 200
+    advance = issue_response.json()
+
+    sale_id = _create_sale(client, token, str(store.id), "txn-sale-adv-double-consume")
+    checkout_response = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "sale-checkout-adv-double-consume"},
+        json={
+            "transaction_id": "txn-sale-checkout-adv-double-consume",
+            "action": "CHECKOUT",
+            "payments": [
+                {"method": "ADVANCE", "amount": "8.00", "reference_code": advance["barcode_value"]},
+                {"method": "CASH", "amount": "2.00"},
+            ],
+        },
+    )
+    assert checkout_response.status_code == 200
+
+    consume_response = client.post(
+        f"/aris3/pos/advances/{advance['id']}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-adv-consume-after-checkout",
+            "action": "CONSUME",
+            "sale_id": sale_id,
+        },
+    )
+    assert consume_response.status_code == 409
+    body = consume_response.json()
+    assert body["code"] == "BUSINESS_CONFLICT"
+    assert body["details"]["status"] == "CONSUMED"
+
+
 def test_issue_gift_card_cash_records_liability_and_drawer_event(client, db_session):
     seed_defaults(db_session)
     tenant, store, _other_store, user = create_tenant_user(db_session, suffix="gift-card-cash")

@@ -39,6 +39,19 @@ class ReportDateRange:
 
 UTC_ALIASES = {"UTC", "Z", "Etc/UTC"}
 REPORTABLE_RETURN_ACTIONS = ("REFUND_ITEMS", "EXCHANGE_ITEMS")
+_MONETARY_DEFAULT = Decimal("0.00")
+_LIABILITY_TENDER_FIELDS = (
+    "liability_issued_advances",
+    "liability_issued_gift_cards",
+    "liability_redeemed_advances",
+    "liability_redeemed_gift_cards",
+    "liability_refunded_advances",
+    "liability_refunded_gift_cards",
+    "tender_cash_received",
+    "tender_card_received",
+    "tender_transfer_received",
+    "tender_total_received",
+)
 
 
 def _normalize_timezone_name(timezone_name: str | None) -> str:
@@ -236,6 +249,16 @@ def build_daily_report_rows(
                 "net_profit": net_sales,
                 "orders_paid_count": orders_paid_count,
                 "average_ticket": average_ticket.quantize(Decimal("0.01")),
+                "liability_issued_advances": _MONETARY_DEFAULT,
+                "liability_issued_gift_cards": _MONETARY_DEFAULT,
+                "liability_redeemed_advances": _MONETARY_DEFAULT,
+                "liability_redeemed_gift_cards": _MONETARY_DEFAULT,
+                "liability_refunded_advances": _MONETARY_DEFAULT,
+                "liability_refunded_gift_cards": _MONETARY_DEFAULT,
+                "tender_cash_received": _MONETARY_DEFAULT,
+                "tender_card_received": _MONETARY_DEFAULT,
+                "tender_transfer_received": _MONETARY_DEFAULT,
+                "tender_total_received": _MONETARY_DEFAULT,
             }
         )
     return rows
@@ -348,24 +371,31 @@ def _daily_liability_and_tender(
 
 
 def build_report_totals(rows: list[dict[str, Decimal | date | int]]) -> dict[str, Decimal | int]:
-    gross_sales = sum((row["gross_sales"] for row in rows), Decimal("0.00"))
-    refunds_total = sum((row["refunds_total"] for row in rows), Decimal("0.00"))
-    net_sales = sum((row["net_sales"] for row in rows), Decimal("0.00"))
-    cogs_gross = sum((row["cogs_gross"] for row in rows), Decimal("0.00"))
-    cogs_reversed = sum((row["cogs_reversed_from_returns"] for row in rows), Decimal("0.00"))
-    net_cogs = sum((row["net_cogs"] for row in rows), Decimal("0.00"))
-    net_profit = sum((row["net_profit"] for row in rows), Decimal("0.00"))
-    orders_paid_count = sum((row["orders_paid_count"] for row in rows), 0)
+    gross_sales = sum((Decimal(str(row.get("gross_sales", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    refunds_total = sum((Decimal(str(row.get("refunds_total", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    net_sales = sum((Decimal(str(row.get("net_sales", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    cogs_gross = sum((Decimal(str(row.get("cogs_gross", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    cogs_reversed = sum((Decimal(str(row.get("cogs_reversed_from_returns", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    net_cogs = sum((Decimal(str(row.get("net_cogs", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    net_profit = sum((Decimal(str(row.get("net_profit", _MONETARY_DEFAULT))) for row in rows), _MONETARY_DEFAULT)
+    orders_paid_count = sum((int(row.get("orders_paid_count", 0)) for row in rows), 0)
     average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
-    liability_issued_advances = sum((row["liability_issued_advances"] for row in rows), Decimal("0.00"))
-    liability_issued_gift_cards = sum((row["liability_issued_gift_cards"] for row in rows), Decimal("0.00"))
-    liability_redeemed_advances = sum((row["liability_redeemed_advances"] for row in rows), Decimal("0.00"))
-    liability_redeemed_gift_cards = sum((row["liability_redeemed_gift_cards"] for row in rows), Decimal("0.00"))
-    liability_refunded_advances = sum((row["liability_refunded_advances"] for row in rows), Decimal("0.00"))
-    liability_refunded_gift_cards = sum((row["liability_refunded_gift_cards"] for row in rows), Decimal("0.00"))
-    tender_cash_received = sum((row["tender_cash_received"] for row in rows), Decimal("0.00"))
-    tender_card_received = sum((row["tender_card_received"] for row in rows), Decimal("0.00"))
-    tender_transfer_received = sum((row["tender_transfer_received"] for row in rows), Decimal("0.00"))
+    safe_rows: list[dict[str, Decimal | date | int]] = []
+    for row in rows:
+        normalized = dict(row)
+        for field in _LIABILITY_TENDER_FIELDS:
+            normalized[field] = Decimal(str(normalized.get(field, _MONETARY_DEFAULT)))
+        safe_rows.append(normalized)
+
+    liability_issued_advances = sum((row["liability_issued_advances"] for row in safe_rows), _MONETARY_DEFAULT)
+    liability_issued_gift_cards = sum((row["liability_issued_gift_cards"] for row in safe_rows), _MONETARY_DEFAULT)
+    liability_redeemed_advances = sum((row["liability_redeemed_advances"] for row in safe_rows), _MONETARY_DEFAULT)
+    liability_redeemed_gift_cards = sum((row["liability_redeemed_gift_cards"] for row in safe_rows), _MONETARY_DEFAULT)
+    liability_refunded_advances = sum((row["liability_refunded_advances"] for row in safe_rows), _MONETARY_DEFAULT)
+    liability_refunded_gift_cards = sum((row["liability_refunded_gift_cards"] for row in safe_rows), _MONETARY_DEFAULT)
+    tender_cash_received = sum((row["tender_cash_received"] for row in safe_rows), _MONETARY_DEFAULT)
+    tender_card_received = sum((row["tender_card_received"] for row in safe_rows), _MONETARY_DEFAULT)
+    tender_transfer_received = sum((row["tender_transfer_received"] for row in safe_rows), _MONETARY_DEFAULT)
     return {
         "gross_sales": gross_sales,
         "refunds_total": refunds_total,

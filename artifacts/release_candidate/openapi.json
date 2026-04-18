@@ -4850,6 +4850,163 @@
         "description": "Operational stock mutation endpoint for inventory workflows. Not intended as a generic public catalog/product-discovery endpoint."
       }
     },
+    "/aris3/stock/ai/preload/analyze": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Analyze Ai Preload",
+        "operationId": "post_aris3_stock_ai_preload_analyze",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_analyze_ai_preload_aris3_stock_ai_preload_analyze_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreloadAnalyzeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/aris3/stock/ai/preload/{extraction_id}": {
+      "get": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Get Ai Preload Extraction",
+        "operationId": "get_aris3_stock_ai_preload_extraction_id",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "extraction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Extraction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreloadAnalyzeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/stock/ai/preload/confirm": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Confirm Ai Preload",
+        "operationId": "post_aris3_stock_ai_preload_confirm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiPreloadConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreloadConfirmResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/aris3/stock/preload-sessions": {
       "post": {
         "tags": [
@@ -12691,6 +12848,557 @@
           "trace_id": "trace-validation-001"
         }
       },
+      "AiPreloadAnalyzeResponse": {
+        "properties": {
+          "extraction_id": {
+            "type": "string",
+            "title": "Extraction Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "document_summary": {
+            "$ref": "#/components/schemas/AiPreloadDocumentSummary"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/AiPreloadPricingSummary"
+          },
+          "total_lines": {
+            "type": "integer",
+            "title": "Total Lines"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/AiPreloadLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AiPreloadWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "extraction_id",
+          "store_id",
+          "document_summary",
+          "pricing",
+          "total_lines",
+          "lines",
+          "warnings"
+        ],
+        "title": "AiPreloadAnalyzeResponse"
+      },
+      "AiPreloadConfirmRequest": {
+        "properties": {
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "extraction_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Id"
+          },
+          "source_currency": {
+            "type": "string",
+            "title": "Source Currency",
+            "default": "GTQ"
+          },
+          "exchange_rate_to_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Rate To Gtq"
+          },
+          "pricing_mode": {
+            "type": "string",
+            "enum": [
+              "markup_percent",
+              "margin_percent",
+              "multiplier",
+              "manual"
+            ],
+            "title": "Pricing Mode",
+            "default": "manual"
+          },
+          "markup_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markup Percent"
+          },
+          "margin_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Percent"
+          },
+          "multiplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multiplier"
+          },
+          "rounding_step": {
+            "type": "string",
+            "title": "Rounding Step",
+            "default": "1.00"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/AiPreloadLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "store_id",
+          "lines"
+        ],
+        "title": "AiPreloadConfirmRequest"
+      },
+      "AiPreloadConfirmResponse": {
+        "properties": {
+          "preload_session_id": {
+            "type": "string",
+            "title": "Preload Session Id"
+          },
+          "created_lines_count": {
+            "type": "integer",
+            "title": "Created Lines Count"
+          },
+          "review_required_count": {
+            "type": "integer",
+            "title": "Review Required Count"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AiPreloadWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "trace_id": {
+            "type": "string",
+            "title": "Trace Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preload_session_id",
+          "created_lines_count",
+          "review_required_count",
+          "warnings",
+          "trace_id"
+        ],
+        "title": "AiPreloadConfirmResponse"
+      },
+      "AiPreloadDocumentSummary": {
+        "properties": {
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "invoice",
+              "packing_list",
+              "handwritten_note",
+              "product_labels",
+              "product_photo",
+              "spreadsheet",
+              "word_document",
+              "mixed",
+              "other",
+              "unknown"
+            ],
+            "title": "Document Type",
+            "default": "unknown"
+          },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Name"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          },
+          "document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "detected_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Currency"
+          },
+          "overall_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Confidence"
+          }
+        },
+        "type": "object",
+        "title": "AiPreloadDocumentSummary"
+      },
+      "AiPreloadLine": {
+        "properties": {
+          "row_key": {
+            "type": "string",
+            "title": "Row Key"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "suggested_sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Sku"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "variant_1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant 1"
+          },
+          "variant_2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant 2"
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool"
+          },
+          "location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Code"
+          },
+          "sellable": {
+            "type": "boolean",
+            "title": "Sellable",
+            "default": true
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Quantity"
+          },
+          "original_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cost"
+          },
+          "source_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Currency"
+          },
+          "exchange_rate_to_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Rate To Gtq"
+          },
+          "cost_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Gtq"
+          },
+          "suggested_price_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Price Gtq"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review",
+            "default": true
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "source_file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File Name"
+          },
+          "source_row_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Row Number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_key",
+          "description",
+          "quantity"
+        ],
+        "title": "AiPreloadLine"
+      },
+      "AiPreloadPricingSummary": {
+        "properties": {
+          "source_currency": {
+            "type": "string",
+            "title": "Source Currency",
+            "default": "GTQ"
+          },
+          "exchange_rate_to_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Rate To Gtq"
+          },
+          "pricing_mode": {
+            "type": "string",
+            "enum": [
+              "markup_percent",
+              "margin_percent",
+              "multiplier",
+              "manual"
+            ],
+            "title": "Pricing Mode",
+            "default": "manual"
+          },
+          "markup_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markup Percent"
+          },
+          "margin_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Percent"
+          },
+          "multiplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multiplier"
+          },
+          "rounding_step": {
+            "type": "string",
+            "title": "Rounding Step",
+            "default": "1.00"
+          }
+        },
+        "type": "object",
+        "title": "AiPreloadPricingSummary"
+      },
+      "AiPreloadWarning": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Severity",
+            "default": "warning"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "AiPreloadWarning"
+      },
       "ApiErrorResponse": {
         "properties": {
           "code": {
@@ -12842,6 +13550,119 @@
           "message": "Validation error",
           "trace_id": "trace-validation-001"
         }
+      },
+      "Body_analyze_ai_preload_aris3_stock_ai_preload_analyze_post": {
+        "properties": {
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "free_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Text"
+          },
+          "document_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Type"
+          },
+          "source_currency": {
+            "type": "string",
+            "title": "Source Currency",
+            "default": "GTQ"
+          },
+          "exchange_rate_to_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Rate To Gtq"
+          },
+          "pricing_mode": {
+            "type": "string",
+            "title": "Pricing Mode",
+            "default": "manual"
+          },
+          "markup_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markup Percent"
+          },
+          "margin_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Percent"
+          },
+          "multiplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multiplier"
+          },
+          "rounding_step": {
+            "type": "string",
+            "title": "Rounding Step",
+            "default": "1.00"
+          },
+          "operator_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Notes"
+          },
+          "files": {
+            "items": {
+              "type": "string",
+              "format": "binary"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "store_id"
+        ],
+        "title": "Body_analyze_ai_preload_aris3_stock_ai_preload_analyze_post"
       },
       "Body_upload_image_aris3_assets_upload_image_post": {
         "properties": {

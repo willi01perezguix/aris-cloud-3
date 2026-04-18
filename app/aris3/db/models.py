@@ -222,6 +222,45 @@ class PreloadLine(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class StockAiExtraction(Base):
+    __tablename__ = "stock_ai_extractions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    store_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("stores.id"), nullable=False, index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True, index=True)
+    document_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source_currency: Mapped[str] = mapped_column(String(12), nullable=False, default="GTQ")
+    exchange_rate_to_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    pricing_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="manual")
+    markup_percent: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    multiplier: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    rounding_step: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("1.00"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+    raw_ai_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    normalized_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    warnings: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    preload_session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("preload_sessions.id"), nullable=True, index=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class StockAiExtractionFile(Base):
+    __tablename__ = "stock_ai_extraction_files"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    extraction_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("stock_ai_extractions.id"), nullable=False, index=True)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(nullable=False)
+    storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Transfer(Base):
     __tablename__ = "transfers"
 

@@ -35,6 +35,29 @@ SUPPORTED_CONTENT_TYPES = {
 
 EPC_KEYS = {"epc", "rfid", "tag"}
 SALE_KEYS = {"venta", "sale", "sale_price", "precio venta"}
+LOGISTICS_HINTS = {"en transito", "en camino", "entregado", "recibido", "enviado", "shipping", "delivery", "express"}
+NON_SELLABLE_PHRASES = {
+    "no vender",
+    "not for sale",
+    "muestra",
+    "sample",
+    "exhibición",
+    "display only",
+    "dañado",
+    "damaged",
+    "defectuoso",
+    "defective",
+    "cancelado",
+    "canceled",
+    "reembolsado",
+    "refunded",
+    "faltante",
+    "missing",
+    "devuelto",
+    "returned",
+    "uso interno",
+    "internal use",
+}
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 _MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$")
 OPENAI_TOTAL_TIMEOUT_SECONDS = 18.0
@@ -76,8 +99,14 @@ INVENTORY_PRELOAD_SCHEMA: dict[str, Any] = {
                     "description": {"type": ["string", "null"]},
                     "variant_1": {"type": ["string", "null"]},
                     "variant_2": {"type": ["string", "null"]},
+                    "brand": {"type": ["string", "null"]},
+                    "category": {"type": ["string", "null"]},
+                    "style": {"type": ["string", "null"]},
+                    "color": {"type": ["string", "null"]},
+                    "size": {"type": ["string", "null"]},
                     "pool": {"type": ["string", "null"]},
                     "location_code": {"type": ["string", "null"]},
+                    "logistics_status": {"type": ["string", "null"]},
                     "sellable": {"type": ["boolean", "null"]},
                     "quantity": {"type": ["integer", "null"]},
                     "original_cost": {"type": ["string", "null"]},
@@ -85,6 +114,11 @@ INVENTORY_PRELOAD_SCHEMA: dict[str, Any] = {
                     "needs_review": {"type": ["boolean", "null"]},
                     "confidence": {"type": ["number", "null"]},
                     "notes": {"type": ["string", "null"]},
+                    "source_order_number": {"type": ["string", "null"]},
+                    "source_order_date": {"type": ["string", "null"]},
+                    "source_supplier": {"type": ["string", "null"]},
+                    "reference_price_original": {"type": ["string", "null"]},
+                    "reference_price_gtq": {"type": ["string", "null"]},
                     "source_file_name": {"type": ["string", "null"]},
                     "source_row_number": {"type": ["integer", "null"]},
                 },
@@ -94,8 +128,14 @@ INVENTORY_PRELOAD_SCHEMA: dict[str, Any] = {
                     "description",
                     "variant_1",
                     "variant_2",
+                    "brand",
+                    "category",
+                    "style",
+                    "color",
+                    "size",
                     "pool",
                     "location_code",
+                    "logistics_status",
                     "sellable",
                     "quantity",
                     "original_cost",
@@ -103,6 +143,11 @@ INVENTORY_PRELOAD_SCHEMA: dict[str, Any] = {
                     "needs_review",
                     "confidence",
                     "notes",
+                    "source_order_number",
+                    "source_order_date",
+                    "source_supplier",
+                    "reference_price_original",
+                    "reference_price_gtq",
                     "source_file_name",
                     "source_row_number",
                 ],
@@ -419,6 +464,103 @@ class StockAiPreloadService:
             warnings.append({"severity": "info", "message": "Sale price values were detected but not imported. Final sale price must be set later."})
         return rows, warnings
 
+    def map_deterministic_row(self, row: dict[str, str], *, source_file_name: str | None = None) -> tuple[dict[str, Any], list[str]]:
+        warnings: list[str] = []
+        get = lambda *keys: next((row.get(k, "").strip() for k in keys if row.get(k, "").strip()), "")
+        sku = get("sku", "skc", "item code", "codigo", "código")
+        description = get("descripción", "descripcion", "description", "product title")
+        variant_1 = get("color", "variante 1", "variant_1")
+        variant_2 = get("talla", "size", "variante 2", "variant_2")
+        quantity_raw = get("cantidad", "qty", "quantity")
+        quantity = int(quantity_raw) if quantity_raw.isdigit() else 1
+        line: dict[str, Any] = {
+            "sku": sku or None,
+            "description": description or "",
+            "variant_1": variant_1 or None,
+            "variant_2": variant_2 or None,
+            "color": variant_1 or None,
+            "size": variant_2 or None,
+            "brand": get("marca", "brand") or None,
+            "category": get("categoría", "categoria", "category") or None,
+            "style": get("estilo", "style") or None,
+            "source_order_number": get("número de pedido", "numero de pedido", "order number") or None,
+            "source_order_date": get("fecha pedido", "fecha", "order date") or None,
+            "source_supplier": get("supplier", "proveedor", "supplier name") or None,
+            "pool": "BODEGA",
+            "location_code": "RECEPCION",
+            "logistics_status": None,
+            "sellable": True,
+            "quantity": max(1, quantity),
+            "needs_review": False,
+            "source_file_name": source_file_name,
+            "source_row_number": int((row.get("_row_number") or "0") or "0") or None,
+        }
+        precio_costo_gtq = get("precio costo (q)", "costo q", "costo gtq", "quetzales")
+        precio_usd = get("precio (usd)", "precio usd", "usd", "unit price(usd)")
+        precio_final = get("precio final (q)", "precio final")
+        precio_sugerido = get("precio venta sugerido (q)", "precio sugerido", "suggested price")
+        location_raw = get("ubicación", "ubicacion", "location", "estado envío", "estado envio")
+        if location_raw:
+            lowered = location_raw.lower()
+            if any(hint in lowered for hint in LOGISTICS_HINTS):
+                line["logistics_status"] = location_raw.upper().replace(" ", "_")
+                line["notes"] = f"Logistics source value preserved: {location_raw}"
+                warnings.append("logistics location not mapped to ARIS location")
+            elif re.match(r"^[A-Za-z0-9_-]{2,24}$", location_raw):
+                line["location_code"] = location_raw.upper()
+            else:
+                line["notes"] = f"Location source value preserved: {location_raw}"
+                warnings.append("logistics location not mapped to ARIS location")
+
+        if precio_costo_gtq:
+            line["cost_gtq"] = str(self.parse_decimal(precio_costo_gtq))
+            line["source_currency"] = "GTQ"
+            line["exchange_rate_to_gtq"] = "1.00"
+        if precio_usd:
+            line["original_cost"] = str(self.parse_decimal(precio_usd))
+            line["source_currency"] = "USD"
+        symbol_price = get("precio", "price")
+        if symbol_price.startswith("$") and not line.get("source_currency"):
+            line["source_currency"] = "unknown"
+            line["needs_review"] = True
+            warnings.append("Confirmar moneda antes de calcular Costo(Q).")
+        if precio_final:
+            line["reference_price_gtq"] = str(self.parse_decimal(precio_final))
+            warnings.append("final sale price detected but not imported")
+        if precio_sugerido:
+            line["suggested_price_gtq"] = str(self.parse_decimal(precio_sugerido))
+
+        if line.get("original_cost") and line.get("cost_gtq"):
+            try:
+                implied = (Decimal(line["cost_gtq"]) / Decimal(line["original_cost"])).quantize(Decimal("0.01"))
+                line["exchange_rate_to_gtq"] = format(implied, "f")
+            except (InvalidOperation, ZeroDivisionError):
+                line["needs_review"] = True
+
+        self.apply_sellable_rules(line)
+        if not line.get("sku"):
+            line["needs_review"] = True
+            warnings.append("missing SKU")
+        if not line.get("quantity"):
+            line["needs_review"] = True
+            warnings.append("missing quantity")
+        if not (line.get("original_cost") or line.get("cost_gtq")):
+            line["needs_review"] = True
+            warnings.append("missing cost")
+        return line, warnings
+
+    def apply_sellable_rules(self, line: dict[str, Any]) -> None:
+        notes = (line.get("notes") or "").lower()
+        description = (line.get("description") or "").lower()
+        joined = f"{notes} {description}"
+        hit = next((phrase for phrase in NON_SELLABLE_PHRASES if phrase in joined), None)
+        if hit:
+            line["sellable"] = False
+            line["needs_review"] = True
+            line["notes"] = (line.get("notes") or "") + f" Explicit non-sellable phrase: {hit}"
+        else:
+            line["sellable"] = True
+
     def extract_docx_text(self, content: bytes) -> str:
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
             xml_data = archive.read("word/document.xml")
@@ -450,6 +592,9 @@ class StockAiPreloadService:
     ) -> dict[str, Any]:
         needs_review = bool(line.get("needs_review", False))
         original_cost = self.parse_decimal(line.get("original_cost"))
+        existing_cost_gtq = self.parse_decimal(line.get("cost_gtq"))
+        reference_price_original = self.parse_decimal(line.get("reference_price_original"))
+        reference_price_gtq = self.parse_decimal(line.get("reference_price_gtq"))
         line_currency = (line.get("source_currency") or source_currency or "GTQ").upper()
         if original_cost is not None:
             if line_currency == "GTQ":
@@ -458,10 +603,19 @@ class StockAiPreloadService:
                 rate = exchange_rate_to_gtq
                 if rate is None:
                     needs_review = True
-            if rate is not None:
+            if existing_cost_gtq is not None:
+                cost_gtq = existing_cost_gtq
+                if original_cost > 0:
+                    implied_rate = (cost_gtq / original_cost).quantize(Decimal("0.01"))
+                    line["exchange_rate_to_gtq"] = format(implied_rate, "f")
+            elif rate is not None:
                 cost_gtq = (original_cost * rate).quantize(Decimal("0.01"))
                 line["cost_gtq"] = format(cost_gtq, "f")
                 line["exchange_rate_to_gtq"] = format(rate, "f")
+            else:
+                cost_gtq = None
+            if cost_gtq is not None:
+                line["cost_gtq"] = format(cost_gtq, "f")
                 if pricing_mode == "markup_percent" and markup_percent is not None:
                     base = cost_gtq * (Decimal("1") + (markup_percent / Decimal("100")))
                     line["suggested_price_gtq"] = format(self.round_up(base, rounding_step).quantize(Decimal("0.01")), "f")
@@ -472,8 +626,12 @@ class StockAiPreloadService:
                     base = cost_gtq * multiplier
                     line["suggested_price_gtq"] = format(self.round_up(base, rounding_step).quantize(Decimal("0.01")), "f")
                 elif pricing_mode == "manual":
-                    line["suggested_price_gtq"] = None
+                    line["suggested_price_gtq"] = line.get("suggested_price_gtq")
                     needs_review = True
+        if reference_price_original is not None and line_currency == "GTQ":
+            line["reference_price_gtq"] = format(reference_price_original, "f")
+        if reference_price_gtq is not None:
+            line["reference_price_gtq"] = format(reference_price_gtq, "f")
         line["source_currency"] = line_currency
         line["needs_review"] = needs_review
         return line

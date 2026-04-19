@@ -147,6 +147,204 @@ def test_ai_confirm_catalog_only_creates_catalog_without_stock(client, db_sessio
     assert db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).count() == 0
 
 
+def test_ai_confirm_catalog_and_preload_updates_existing_catalog_and_links_preload_line(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "ai-cat-preload-update")
+    token = _login(client, user.username, "Pass1234!")
+
+    existing = CatalogProduct(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        sku="SKU-EXIST-1",
+        normalized_sku="SKU-EXIST-1",
+        variant_1="NEGRO",
+        normalized_variant_1="NEGRO",
+        variant_2="M",
+        normalized_variant_2="M",
+        description="Producto anterior",
+        last_cost_gtq="100.00",
+        suggested_price_gtq="150.00",
+    )
+    db_session.add(existing)
+    db_session.commit()
+
+    confirm = client.post(
+        "/aris3/stock/ai/preload/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_currency": "GTQ",
+            "pricing_mode": "manual",
+            "confirm_mode": "CATALOG_AND_PRELOAD",
+            "lines": [
+                {
+                    "row_key": "1",
+                    "sku": "SKU-EXIST-1",
+                    "description": "Producto actualizado",
+                    "variant_1": "NEGRO",
+                    "variant_2": "M",
+                    "quantity": 1,
+                    "cost_gtq": "111.38",
+                    "suggested_price_gtq": "160.00",
+                    "needs_review": False,
+                }
+            ],
+        },
+    )
+    assert confirm.status_code == 200
+    payload = confirm.json()
+    assert payload["catalog_created_count"] == 0
+    assert payload["catalog_updated_count"] == 1
+    assert payload["created_lines_count"] == 1
+
+    session = client.get(
+        f"/aris3/stock/preload-sessions/{payload['preload_session_id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert session.status_code == 200
+    line = session.json()["lines"][0]
+    assert line["catalog_product_id"] == str(existing.id)
+    assert line["epc"] is None
+    assert line["sale_price"] is None
+    assert db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id, CatalogProduct.sku == "SKU-EXIST-1").count() == 1
+
+
+def test_ai_confirm_catalog_and_preload_creates_catalog_and_links_preload_line(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "ai-cat-preload-create")
+    token = _login(client, user.username, "Pass1234!")
+
+    confirm = client.post(
+        "/aris3/stock/ai/preload/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_currency": "GTQ",
+            "pricing_mode": "manual",
+            "confirm_mode": "CATALOG_AND_PRELOAD",
+            "lines": [
+                {
+                    "row_key": "1",
+                    "sku": "SKU-NEW-1",
+                    "description": "Producto nuevo",
+                    "variant_1": "BLANCO",
+                    "variant_2": "S",
+                    "quantity": 1,
+                    "cost_gtq": "111.38",
+                    "suggested_price_gtq": "160.00",
+                    "needs_review": False,
+                }
+            ],
+        },
+    )
+    assert confirm.status_code == 200
+    payload = confirm.json()
+    assert payload["catalog_created_count"] == 1
+    assert payload["catalog_updated_count"] == 0
+    assert payload["created_lines_count"] == 1
+
+    session = client.get(
+        f"/aris3/stock/preload-sessions/{payload['preload_session_id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert session.status_code == 200
+    line = session.json()["lines"][0]
+    assert line["catalog_product_id"] is not None
+
+    product = db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id, CatalogProduct.sku == "SKU-NEW-1").one()
+    assert line["catalog_product_id"] == str(product.id)
+
+
+def test_preload_save_keeps_catalog_product_id_from_catalog_and_preload_confirm(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "ai-cat-preload-save")
+    token = _login(client, user.username, "Pass1234!")
+
+    confirm = client.post(
+        "/aris3/stock/ai/preload/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_currency": "GTQ",
+            "pricing_mode": "manual",
+            "confirm_mode": "CATALOG_AND_PRELOAD",
+            "lines": [
+                {
+                    "row_key": "1",
+                    "sku": "SKU-SAVE-1",
+                    "description": "Producto guardado",
+                    "quantity": 1,
+                    "cost_gtq": "111.38",
+                    "suggested_price_gtq": "160.00",
+                    "needs_review": False,
+                }
+            ],
+        },
+    )
+    assert confirm.status_code == 200
+    session_payload = client.get(
+        f"/aris3/stock/preload-sessions/{confirm.json()['preload_session_id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    line = session_payload["lines"][0]
+    assert line["catalog_product_id"] is not None
+
+    patched = client.patch(
+        f"/aris3/stock/preload-lines/{line['id']}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"sale_price": "160.00"},
+    )
+    assert patched.status_code == 200
+
+    saved = client.post(
+        f"/aris3/stock/preload-lines/{line['id']}/save",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert saved.status_code == 200
+
+    created_stock = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id, StockItem.sku == "SKU-SAVE-1").one()
+    assert str(created_stock.catalog_product_id) == line["catalog_product_id"]
+
+
+def test_ai_confirm_create_preload_only_keeps_catalog_product_id_null(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "ai-preload-only-catalog-id")
+    token = _login(client, user.username, "Pass1234!")
+
+    confirm = client.post(
+        "/aris3/stock/ai/preload/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_currency": "GTQ",
+            "pricing_mode": "manual",
+            "confirm_mode": "CREATE_PRELOAD_ONLY",
+            "lines": [
+                {
+                    "row_key": "1",
+                    "sku": "SKU-PRELOAD-ONLY-1",
+                    "description": "Solo precarga",
+                    "quantity": 1,
+                    "cost_gtq": "111.38",
+                    "suggested_price_gtq": "160.00",
+                    "needs_review": False,
+                }
+            ],
+        },
+    )
+    assert confirm.status_code == 200
+    payload = confirm.json()
+    assert payload["catalog_created_count"] == 0
+    assert payload["catalog_updated_count"] == 0
+    session = client.get(
+        f"/aris3/stock/preload-sessions/{payload['preload_session_id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert session.status_code == 200
+    assert session.json()["lines"][0]["catalog_product_id"] is None
+    assert db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id).count() == 0
+
+
 def test_catalog_bulk_upsert_changed_cost_sets_review_without_overwriting_sale_price(client, db_session):
     run_seed(db_session)
     tenant, store, user = _create_tenant_user(db_session, "catalog-bulk-upsert")

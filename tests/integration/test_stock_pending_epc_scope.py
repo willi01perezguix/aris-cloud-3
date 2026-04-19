@@ -107,6 +107,37 @@ def test_pending_epc_list_and_assign_are_store_scoped(client, db_session):
     )
     assert assign_other_store.status_code == 403
 
+    assign_admin_other_store = client.post(
+        f"/aris3/stock/pending-epc/{line_b}/assign-epc",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={"epc": "ABCDEFABCDEFABCDEFABC103"},
+    )
+    assert assign_admin_other_store.status_code == 403
+
+
+def test_pending_epc_tenant_scope_requires_explicit_scope_parameter(client, db_session):
+    run_seed(db_session)
+    tenant, store_a, store_b, user_a, _user_b = _create_tenant_with_two_stores(db_session, "pending-epc-tenant-scope")
+    token_a = _login(client, user_a.username, "Pass1234!")
+
+    line_a = _create_pending_line(client, token_a, str(store_a.id), "SKU-TS-A")
+    line_b = _create_pending_line(client, token_a, str(store_b.id), "SKU-TS-B")
+
+    listed_default = client.get(
+        f"/aris3/stock/pending-epc?tenant_id={tenant.id}",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert listed_default.status_code == 200
+    assert {row["id"] for row in listed_default.json()} == {line_a}
+    assert {row["store_id"] for row in listed_default.json()} == {str(store_a.id)}
+
+    listed_explicit_tenant_scope = client.get(
+        f"/aris3/stock/pending-epc?tenant_id={tenant.id}&scope=tenant",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert listed_explicit_tenant_scope.status_code == 200
+    assert {row["id"] for row in listed_explicit_tenant_scope.json()} == {line_a, line_b}
+
 
 def test_pending_epc_openapi_documents_store_id_query_param(client):
     schema = client.get("/openapi.json").json()
@@ -114,3 +145,4 @@ def test_pending_epc_openapi_documents_store_id_query_param(client):
     parameter_names = {parameter["name"] for parameter in operation.get("parameters", [])}
 
     assert "store_id" in parameter_names
+    assert "scope" in parameter_names

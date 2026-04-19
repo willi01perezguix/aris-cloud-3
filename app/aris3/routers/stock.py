@@ -1885,12 +1885,11 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
     line = db.get(PreloadLine, line_id)
     if not line or str(line.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
-    if not can_read_tenant_scope(token_data.role):
-        _resolve_query_scope(
-            token_data,
-            scope="self",
-            requested_store_id=str(line.store_id),
-        )
+    _resolve_query_scope(
+        token_data,
+        scope="self",
+        requested_store_id=str(line.store_id),
+    )
     if line.lifecycle_state != "PENDING_EPC" or not line.saved_stock_item_id:
         raise AppError(
             ErrorCatalog.BUSINESS_CONFLICT,

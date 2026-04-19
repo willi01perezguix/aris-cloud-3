@@ -15,13 +15,25 @@ branch_labels = None
 depends_on = None
 
 
+class GUID(sa.TypeDecorator):
+    impl = sa.CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import UUID
+
+            return dialect.type_descriptor(UUID(as_uuid=True))
+        return dialect.type_descriptor(sa.CHAR(36))
+
+
 def upgrade() -> None:
     op.create_table(
         "stock_ai_extractions",
-        sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("tenant_id", sa.UUID(), nullable=False),
-        sa.Column("store_id", sa.UUID(), nullable=False),
-        sa.Column("created_by_user_id", sa.UUID(), nullable=True),
+        sa.Column("id", GUID(), nullable=False),
+        sa.Column("tenant_id", GUID(), nullable=False),
+        sa.Column("store_id", GUID(), nullable=False),
+        sa.Column("created_by_user_id", GUID(), nullable=True),
         sa.Column("document_type", sa.String(length=50), nullable=True),
         sa.Column("source_currency", sa.String(length=12), nullable=False),
         sa.Column("exchange_rate_to_gtq", sa.Numeric(12, 4), nullable=True),
@@ -36,7 +48,7 @@ def upgrade() -> None:
         sa.Column("warnings", sa.JSON(), nullable=True),
         sa.Column("model_used", sa.String(length=100), nullable=True),
         sa.Column("trace_id", sa.String(length=100), nullable=True),
-        sa.Column("preload_session_id", sa.UUID(), nullable=True),
+        sa.Column("preload_session_id", GUID(), nullable=True),
         sa.Column("confirmed_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
@@ -53,8 +65,8 @@ def upgrade() -> None:
 
     op.create_table(
         "stock_ai_extraction_files",
-        sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("extraction_id", sa.UUID(), nullable=False),
+        sa.Column("id", GUID(), nullable=False),
+        sa.Column("extraction_id", GUID(), nullable=False),
         sa.Column("original_filename", sa.String(length=255), nullable=False),
         sa.Column("content_type", sa.String(length=120), nullable=False),
         sa.Column("size_bytes", sa.Integer(), nullable=False),

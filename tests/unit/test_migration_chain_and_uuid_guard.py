@@ -42,13 +42,28 @@ def test_0024_guid_maps_to_postgres_uuid_type() -> None:
 def test_0035_uses_uuid_columns_for_stock_ai_extraction_foreign_keys() -> None:
     body = _read("migrations/versions/0035_s12_ai_preload_extractions.py")
 
-    assert 'sa.Column("id", sa.UUID(), nullable=False)' in body
-    assert 'sa.Column("tenant_id", sa.UUID(), nullable=False)' in body
-    assert 'sa.Column("store_id", sa.UUID(), nullable=False)' in body
-    assert 'sa.Column("created_by_user_id", sa.UUID(), nullable=True)' in body
-    assert 'sa.Column("preload_session_id", sa.UUID(), nullable=True)' in body
-    assert 'sa.Column("extraction_id", sa.UUID(), nullable=False)' in body
+    assert 'sa.Column("id", GUID(), nullable=False)' in body
+    assert 'sa.Column("tenant_id", GUID(), nullable=False)' in body
+    assert 'sa.Column("store_id", GUID(), nullable=False)' in body
+    assert 'sa.Column("created_by_user_id", GUID(), nullable=True)' in body
+    assert 'sa.Column("preload_session_id", GUID(), nullable=True)' in body
+    assert 'sa.Column("extraction_id", GUID(), nullable=False)' in body
     assert 'sa.String(length=36)' not in body
+
+
+def test_0035_guid_maps_to_postgres_uuid_type() -> None:
+    import importlib.util
+    from sqlalchemy.dialects import postgresql
+
+    path = REPO_ROOT / "migrations/versions/0035_s12_ai_preload_extractions.py"
+    spec = importlib.util.spec_from_file_location("mig0035", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+
+    guid_type = module.GUID()
+    impl = guid_type.load_dialect_impl(postgresql.dialect())
+    assert impl.__class__.__name__ == "PGUuid"
 
 
 def test_stock_ai_model_fk_columns_match_referenced_id_types() -> None:

@@ -37,3 +37,26 @@ def test_0024_guid_maps_to_postgres_uuid_type() -> None:
     guid_type = module.GUID()
     impl = guid_type.load_dialect_impl(postgresql.dialect())
     assert impl.__class__.__name__ == "PGUuid"
+
+
+def test_0035_uses_uuid_columns_for_stock_ai_extraction_foreign_keys() -> None:
+    body = _read("migrations/versions/0035_s12_ai_preload_extractions.py")
+
+    assert 'sa.Column("id", sa.UUID(), nullable=False)' in body
+    assert 'sa.Column("tenant_id", sa.UUID(), nullable=False)' in body
+    assert 'sa.Column("store_id", sa.UUID(), nullable=False)' in body
+    assert 'sa.Column("created_by_user_id", sa.UUID(), nullable=True)' in body
+    assert 'sa.Column("preload_session_id", sa.UUID(), nullable=True)' in body
+    assert 'sa.Column("extraction_id", sa.UUID(), nullable=False)' in body
+    assert 'sa.String(length=36)' not in body
+
+
+def test_stock_ai_model_fk_columns_match_referenced_id_types() -> None:
+    from app.aris3.db.models import PreloadSession, StockAiExtraction, StockAiExtractionFile, Store, Tenant, User
+
+    assert type(StockAiExtraction.id.type) is type(Tenant.id.type)
+    assert type(StockAiExtraction.tenant_id.type) is type(Tenant.id.type)
+    assert type(StockAiExtraction.store_id.type) is type(Store.id.type)
+    assert type(StockAiExtraction.created_by_user_id.type) is type(User.id.type)
+    assert type(StockAiExtraction.preload_session_id.type) is type(PreloadSession.id.type)
+    assert type(StockAiExtractionFile.extraction_id.type) is type(StockAiExtraction.id.type)

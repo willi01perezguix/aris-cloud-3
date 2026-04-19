@@ -7,6 +7,7 @@ Create Date: 2026-04-18
 
 from alembic import op
 import sqlalchemy as sa
+import uuid
 
 
 revision = "0035_s12_ai_preload_extractions"
@@ -25,6 +26,20 @@ class GUID(sa.TypeDecorator):
 
             return dialect.type_descriptor(UUID(as_uuid=True))
         return dialect.type_descriptor(sa.CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        return str(uuid.UUID(value))
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
 
 
 def upgrade() -> None:

@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from app.aris3.db.models import PosAdvance, PosCashMovement, PosSale
-from tests.pos_sales_helpers import create_tenant_user, login, open_cash_session, seed_defaults
+from app.aris3.db.models import DrawerEvent, PosAdvance, PosCashMovement, PosSale
+from tests.pos_sales_helpers import create_stock_item, create_tenant_user, login, open_cash_session, sale_line, sale_payload, seed_defaults
 
 
 LEGAL_NOTICE = (
@@ -150,6 +150,89 @@ def test_advances_consume_sale_id_validation_and_lookup(client, db_session):
     )
     assert nonexistent_response.status_code == 404
     assert nonexistent_response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_checkout_with_advance_is_atomic_and_followup_consume_conflicts(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="adv-runtime-checkout-atomic")
+    token = login(client, user.username, "Pass1234!")
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+
+    advance = _issue_advance(client, token, str(store.id), "txn-adv-runtime-checkout-atomic", amount="30.00")
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        store_id=str(store.id),
+        sku="SKU-ADV-ATOMIC",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_stock_item(
+        db_session,
+        tenant_id=str(tenant.id),
+        store_id=str(store.id),
+        sku="SKU-ADV-ATOMIC",
+        epc=None,
+        location_code="LOC-1",
+        pool="P1",
+        status="PENDING",
+    )
+    create_sale = client.post(
+        "/aris3/pos/sales",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "idem-adv-runtime-checkout-atomic-create"},
+        json=sale_payload(
+            str(store.id),
+            [sale_line(line_type="SKU", qty=2, sku="SKU-ADV-ATOMIC", epc=None, unit_price=15.0)],
+            transaction_id="txn-adv-runtime-checkout-atomic-create",
+        ),
+    )
+    assert create_sale.status_code == 201
+    sale_id = create_sale.json()["header"]["id"]
+
+    checkout = client.post(
+        f"/aris3/pos/sales/{sale_id}/actions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "idem-adv-runtime-checkout-atomic"},
+        json={
+            "transaction_id": "txn-adv-runtime-checkout-atomic",
+            "action": "CHECKOUT",
+            "payments": [{"method": "ADVANCE", "amount": "30.00", "reference_code": advance["barcode_value"]}],
+        },
+    )
+    assert checkout.status_code == 200
+
+    refreshed = db_session.query(PosAdvance).filter(PosAdvance.id == advance["id"]).one()
+    assert refreshed.status == "CONSUMED"
+    assert str(refreshed.consumed_sale_id) == sale_id
+
+    followup_consume = client.post(
+        f"/aris3/pos/advances/{advance['id']}/actions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"transaction_id": "txn-adv-runtime-checkout-followup", "action": "CONSUME", "sale_id": sale_id},
+    )
+    assert followup_consume.status_code == 409
+    assert followup_consume.json()["code"] == "BUSINESS_CONFLICT"
+
+
+def test_issue_advance_cash_returns_drawer_instruction_contract(client, db_session):
+    seed_defaults(db_session)
+    tenant, store, _other_store, user = create_tenant_user(db_session, suffix="adv-runtime-drawer-instruction")
+    token = login(client, user.username, "Pass1234!")
+    open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
+
+    issued = _issue_advance(client, token, str(store.id), "txn-adv-runtime-drawer-instruction", amount="55.00")
+    assert issued["drawer_open_required"] is True
+    instruction = issued["drawer_event_instruction"]
+    assert instruction["already_recorded"] is True
+    assert instruction["drawer_event_id"]
+    assert instruction["event_type"] == "CASH_IN_DRAWER_OPEN"
+    assert instruction["movement_type"] == "CASH_IN"
+    assert "Do not call /aris3/pos/drawer/events" in instruction["next_step"]
+
+    drawer_event = db_session.query(DrawerEvent).filter(DrawerEvent.id == instruction["drawer_event_id"]).one()
+    assert drawer_event is not None
+    assert drawer_event.event_type == "CASH_IN_DRAWER_OPEN"
 
 
 def test_advances_refund_expiration_alerts_and_concurrency(client, db_session):

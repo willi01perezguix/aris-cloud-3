@@ -13196,6 +13196,61 @@
             ],
             "title": "Variant 2"
           },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Style"
+          },
           "pool": {
             "anyOf": [
               {
@@ -13218,6 +13273,17 @@
             ],
             "title": "Location Code"
           },
+          "logistics_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logistics Status"
+          },
           "sellable": {
             "type": "boolean",
             "title": "Sellable",
@@ -13227,6 +13293,39 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Quantity"
+          },
+          "source_order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Order Number"
+          },
+          "source_order_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Order Date"
+          },
+          "source_supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Supplier"
           },
           "original_cost": {
             "anyOf": [
@@ -13282,6 +13381,28 @@
               }
             ],
             "title": "Suggested Price Gtq"
+          },
+          "reference_price_original": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Price Original"
+          },
+          "reference_price_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Price Gtq"
           },
           "needs_review": {
             "type": "boolean",

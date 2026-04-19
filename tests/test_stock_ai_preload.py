@@ -509,6 +509,82 @@ def test_ai_preload_symbol_currency_and_shein_price_behavior(client, db_session,
     assert any("Confirmar moneda" in w["message"] for w in payload["warnings"])
 
 
+def test_ai_preload_shein_order_text_sets_reference_price_defaults_and_document_summary(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-shein-order-detail")
+    token = _login(client, user.username, "Pass1234!")
+
+    def _mock_extract(self, **kwargs):
+        return {
+            "document_summary": {
+                "document_type": "other",
+                "detected_currency": "USD",
+                "document_number": None,
+                "document_date": None,
+            },
+            "lines": [
+                {
+                    "sku": "sz2304202919366817",
+                    "description": "SHEIN MOD Vestido camisero con estampado floral de lazo para primavera y verano",
+                    "variant_1": "Multicolor",
+                    "variant_2": "XS",
+                    "color": "Multicolor",
+                    "size": "XS",
+                    "brand": "SHEIN MOD",
+                    "category": "Vestido",
+                    "style": "camisero",
+                    "logistics_status": "Enviado",
+                    "sellable": True,
+                    "quantity": 1,
+                    "source_order_number": "GSH16W13000N6RC",
+                    "source_order_date": "2026-02-22",
+                    "original_cost": "14.28",
+                    "source_currency": "USD",
+                    "needs_review": False,
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(OpenAIInventoryClient, "extract", _mock_extract)
+
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "store_id": str(store.id),
+            "document_type": "other",
+            "source_currency": "USD",
+            "exchange_rate_to_gtq": "7.80",
+            "pricing_mode": "markup_percent",
+            "markup_percent": "40",
+            "rounding_step": "5.00",
+            "free_text": (
+                "Núm. de pedido GSH16W13000N6RC. Fecha 22 Feb 2026. Producto: SHEIN MOD Vestido camisero "
+                "con estampado floral de lazo para primavera y verano. Multicolor / XS. Cantidad 1. "
+                "SKU: sz2304202919366817. Importe $14.28 $43.16. Estado Enviado."
+            ),
+        },
+    )
+    assert analyze.status_code == 200
+    payload = analyze.json()
+    line = payload["lines"][0]
+
+    assert payload["document_summary"]["document_number"] == "GSH16W13000N6RC"
+    assert payload["document_summary"]["document_date"] == "2026-02-22"
+    assert line["source_order_number"] == "GSH16W13000N6RC"
+    assert line["source_order_date"] == "2026-02-22"
+    assert line["original_cost"] == "14.28"
+    assert line["reference_price_original"] == "43.16"
+    assert line["reference_price_gtq"] == "336.65"
+    assert line.get("sale_price") is None
+    assert line["pool"] == "BODEGA"
+    assert line["location_code"] == "RECEPCION"
+    assert line["sellable"] is True
+    assert line["logistics_status"] == "Enviado"
+    assert any("Segundo importe detectado como precio de referencia" in w["message"] for w in payload["warnings"])
+
+
 def test_ai_preload_sellable_rules_only_explicit_phrases_force_false(client, db_session, monkeypatch):
     run_seed(db_session)
     _tenant, store, user = _create_tenant_user(db_session, "ai-preload-sellable-rules")

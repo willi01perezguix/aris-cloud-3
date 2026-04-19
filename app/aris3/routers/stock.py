@@ -1,6 +1,8 @@
+import asyncio
 from datetime import datetime, timezone
 import logging
 import re
+import time
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -68,6 +70,8 @@ from app.aris3.services.stock_ai_preload import StockAiPreloadService, UploadedS
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _EPC_PATTERN = re.compile(r"^[0-9A-F]{24}$")
+AI_PRELOAD_ENDPOINT_TIMEOUT_SECONDS = 20.0
+AI_PRELOAD_OPENAI_TIMEOUT_SECONDS = 15.0
 _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_IMPORT_POOL = "BODEGA"
 _DEFAULT_IMPORT_LOCATION = "WH-MAIN"
@@ -1313,38 +1317,80 @@ async def analyze_ai_preload(
     _require_tenant_admin(token_data)
     _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
     service = StockAiPreloadService()
+    started_at = time.perf_counter()
     uploads: list[UploadedSource] = []
-    upload_files = files or []
+    upload_files = files if files else []
     deterministic_rows: list[dict] = []
     warnings: list[AiPreloadWarning] = []
+    text_only = len(upload_files) == 0
     logger.info(
         "stock.ai_preload.request_received trace_id=%s tenant_id=%s store_id=%s text_only=%s files_count=%s",
         getattr(request.state, "trace_id", None),
         scoped_tenant_id,
         store_id,
-        len(upload_files) == 0,
+        text_only,
         len(upload_files),
     )
-    for file in upload_files:
-        content = await file.read()
-        uploads.append(UploadedSource(filename=file.filename or "upload.bin", content_type=file.content_type or "application/octet-stream", content=content))
-    service.validate_files(uploads)
-    for file in uploads:
-        if file.content_type in {"text/csv", "text/tab-separated-values", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"}:
-            rows, sheet_warnings = service.extract_spreadsheet_rows(file)
-            deterministic_rows.extend(rows)
-            warnings.extend(AiPreloadWarning(**w) for w in sheet_warnings)
-        if file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            free_text = (free_text or "") + "\n" + service.extract_docx_text(file.content)
+    if not text_only:
+        for file in upload_files:
+            content = await file.read()
+            uploads.append(
+                UploadedSource(filename=file.filename or "upload.bin", content_type=file.content_type or "application/octet-stream", content=content)
+            )
+        service.validate_files(uploads)
+        for file in uploads:
+            if file.content_type in {"text/csv", "text/tab-separated-values", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"}:
+                rows, sheet_warnings = service.extract_spreadsheet_rows(file)
+                deterministic_rows.extend(rows)
+                warnings.extend(AiPreloadWarning(**w) for w in sheet_warnings)
+            if file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                free_text = (free_text or "") + "\n" + service.extract_docx_text(file.content)
+
     prompt = _build_ai_prompt(free_text=free_text, deterministic_rows=deterministic_rows, operator_notes=operator_notes, document_type=document_type)
-    ai_result = service.openai_client.extract(
-        prompt=prompt,
-        attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}],
-        trace_id=getattr(request.state, "trace_id", None),
-        tenant_id=scoped_tenant_id,
-        store_id=store_id,
-        document_type=document_type,
-    )
+    model_name = service.openai_client._model
+    try:
+        ai_result = await asyncio.wait_for(
+            asyncio.to_thread(
+                service.openai_client.extract,
+                prompt=prompt,
+                attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}],
+                trace_id=getattr(request.state, "trace_id", None),
+                tenant_id=scoped_tenant_id,
+                store_id=store_id,
+                document_type=document_type,
+            ),
+            timeout=AI_PRELOAD_OPENAI_TIMEOUT_SECONDS,
+        )
+    except TimeoutError as exc:
+        raise AppError(
+            ErrorCatalog.AI_SERVICE_TIMEOUT,
+            details={
+                "message": "AI inventory analysis timed out",
+                "retryable": True,
+                "model": model_name,
+                "text_only": text_only,
+                "files_count": len(upload_files),
+            },
+        ) from exc
+    except AppError as exc:
+        if exc.error.code == ErrorCatalog.AI_SERVICE_TIMEOUT.code:
+            merged_details = dict(exc.details or {})
+            merged_details.setdefault("text_only", text_only)
+            merged_details.setdefault("files_count", len(upload_files))
+            merged_details.setdefault("model", model_name)
+            raise AppError(ErrorCatalog.AI_SERVICE_TIMEOUT, details=merged_details) from exc
+        raise
+    if (time.perf_counter() - started_at) > AI_PRELOAD_ENDPOINT_TIMEOUT_SECONDS:
+        raise AppError(
+            ErrorCatalog.AI_SERVICE_TIMEOUT,
+            details={
+                "message": "AI inventory analysis timed out",
+                "retryable": True,
+                "model": model_name,
+                "text_only": text_only,
+                "files_count": len(upload_files),
+            },
+        )
     markup_decimal = service.parse_decimal(markup_percent)
     margin_decimal = service.parse_decimal(margin_percent)
     multiplier_decimal = service.parse_decimal(multiplier)
@@ -1416,6 +1462,17 @@ async def analyze_ai_preload(
             ErrorCatalog.DB_UNAVAILABLE,
             details={"message": "Failed to persist AI extraction", "retryable": True},
         ) from exc
+    if (time.perf_counter() - started_at) > AI_PRELOAD_ENDPOINT_TIMEOUT_SECONDS:
+        raise AppError(
+            ErrorCatalog.AI_SERVICE_TIMEOUT,
+            details={
+                "message": "AI inventory analysis timed out",
+                "retryable": True,
+                "model": model_name,
+                "text_only": text_only,
+                "files_count": len(upload_files),
+            },
+        )
     return AiPreloadAnalyzeResponse(
         extraction_id=str(extraction.id),
         store_id=store_id,

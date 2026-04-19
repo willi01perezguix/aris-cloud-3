@@ -197,6 +197,8 @@ def test_ai_preload_analyze_openai_timeout_returns_controlled_json(client, db_se
     payload = analyze.json()
     assert payload["code"] == "AI_SERVICE_TIMEOUT"
     assert payload["details"]["retryable"] is True
+    assert payload["details"]["text_only"] is True
+    assert payload["details"]["files_count"] == 0
 
 
 def test_ai_preload_analyze_invalid_model_returns_controlled_json(client, db_session, monkeypatch):

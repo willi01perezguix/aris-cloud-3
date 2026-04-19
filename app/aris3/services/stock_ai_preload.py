@@ -4,6 +4,9 @@ import base64
 import csv
 import io
 import json
+import logging
+import re
+import time
 import zipfile
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -32,6 +35,9 @@ SUPPORTED_CONTENT_TYPES = {
 
 EPC_KEYS = {"epc", "rfid", "tag"}
 SALE_KEYS = {"venta", "sale", "sale_price", "precio venta"}
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+_MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,18 +50,39 @@ class UploadedSource:
 class OpenAIInventoryClient:
     def __init__(self) -> None:
         self._api_key = settings.OPENAI_API_KEY
-        self._model = settings.OPENAI_INVENTORY_MODEL
+        configured_model = (settings.OPENAI_INVENTORY_MODEL or "").strip()
+        if configured_model and _MODEL_NAME_PATTERN.match(configured_model):
+            self._model = configured_model
+        else:
+            self._model = DEFAULT_OPENAI_MODEL
+        logger.info(
+            "stock.ai_preload.config api_key_present=%s model_configured=%s model_used=%s",
+            bool(self._api_key),
+            bool(configured_model),
+            self._model,
+        )
 
-    def extract(self, *, prompt: str, attachments: list[UploadedSource]) -> dict[str, Any]:
+    def extract(
+        self,
+        *,
+        prompt: str,
+        attachments: list[UploadedSource],
+        trace_id: str | None,
+        tenant_id: str,
+        store_id: str,
+        document_type: str | None,
+    ) -> dict[str, Any]:
         if not self._api_key:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "OPENAI_API_KEY is not configured"})
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "OPENAI_API_KEY is not configured", "retryable": False, "model": self._model},
+            )
         content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt}]
         for item in attachments:
+            encoded = base64.b64encode(item.content).decode("ascii")
             if item.content_type.startswith("image/"):
-                encoded = base64.b64encode(item.content).decode("ascii")
                 content.append({"type": "input_image", "image_url": f"data:{item.content_type};base64,{encoded}"})
             else:
-                encoded = base64.b64encode(item.content).decode("ascii")
                 content.append({"type": "input_file", "filename": item.filename, "file_data": f"data:{item.content_type};base64,{encoded}"})
 
         payload = {
@@ -81,29 +108,123 @@ class OpenAIInventoryClient:
             },
         }
 
+        timeout = httpx.Timeout(22.0, connect=3.0)
+        start = time.perf_counter()
+        logger.info(
+            "stock.ai_preload.openai_call_started trace_id=%s tenant_id=%s store_id=%s document_type=%s text_only=%s files_count=%s model_used=%s",
+            trace_id,
+            tenant_id,
+            store_id,
+            document_type,
+            len(attachments) == 0,
+            len(attachments),
+            self._model,
+        )
         try:
             response = httpx.post(
                 "https://api.openai.com/v1/responses",
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 json=payload,
-                timeout=30,
+                timeout=timeout,
             )
             response.raise_for_status()
             data = response.json()
         except httpx.TimeoutException as exc:
-            raise AppError(ErrorCatalog.DB_UNAVAILABLE, details={"message": "AI analysis timeout"}) from exc
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            logger.warning(
+                "stock.ai_preload.openai_call_finished trace_id=%s tenant_id=%s store_id=%s success=false timeout=true elapsed_ms=%s error_class=%s model_used=%s",
+                trace_id,
+                tenant_id,
+                store_id,
+                elapsed_ms,
+                exc.__class__.__name__,
+                self._model,
+            )
+            raise AppError(
+                ErrorCatalog.AI_SERVICE_TIMEOUT,
+                details={"message": "AI inventory analysis timed out", "retryable": True, "model": self._model},
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            status_code = exc.response.status_code if exc.response is not None else None
+            body_text = (exc.response.text or "")[:500] if exc.response is not None else ""
+            error_lower = body_text.lower()
+            if status_code in (401, 403):
+                error = ErrorCatalog.AI_AUTH_FAILED
+                details = {"message": "OpenAI API key is invalid or unauthorized", "retryable": False, "model": self._model}
+            elif status_code == 429:
+                error = ErrorCatalog.AI_RATE_LIMITED
+                details = {"message": "OpenAI rate limit exceeded", "retryable": True, "model": self._model}
+            elif status_code == 400 and ("model" in error_lower and ("not found" in error_lower or "does not exist" in error_lower)):
+                error = ErrorCatalog.AI_INVALID_MODEL
+                details = {"message": "Configured OpenAI model is invalid", "retryable": False, "model": self._model}
+            elif status_code and status_code >= 500:
+                error = ErrorCatalog.AI_SERVICE_UNAVAILABLE
+                details = {"message": "OpenAI service unavailable", "retryable": True, "model": self._model}
+            else:
+                error = ErrorCatalog.AI_SERVICE_UNAVAILABLE
+                details = {"message": "AI analysis failed", "retryable": status_code != 400, "model": self._model}
+            logger.warning(
+                "stock.ai_preload.openai_call_finished trace_id=%s tenant_id=%s store_id=%s success=false timeout=false elapsed_ms=%s error_class=%s status_code=%s model_used=%s",
+                trace_id,
+                tenant_id,
+                store_id,
+                elapsed_ms,
+                exc.__class__.__name__,
+                status_code,
+                self._model,
+            )
+            raise AppError(error, details=details) from exc
         except httpx.HTTPError as exc:
-            raise AppError(ErrorCatalog.DB_UNAVAILABLE, details={"message": "AI analysis failed"}) from exc
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            logger.warning(
+                "stock.ai_preload.openai_call_finished trace_id=%s tenant_id=%s store_id=%s success=false timeout=false elapsed_ms=%s error_class=%s model_used=%s",
+                trace_id,
+                tenant_id,
+                store_id,
+                elapsed_ms,
+                exc.__class__.__name__,
+                self._model,
+            )
+            raise AppError(
+                ErrorCatalog.AI_SERVICE_UNAVAILABLE,
+                details={"message": "AI analysis failed", "retryable": True, "model": self._model},
+            ) from exc
+
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "stock.ai_preload.openai_call_finished trace_id=%s tenant_id=%s store_id=%s success=true timeout=false elapsed_ms=%s model_used=%s",
+            trace_id,
+            tenant_id,
+            store_id,
+            elapsed_ms,
+            self._model,
+        )
 
         text_output = data.get("output_text")
         if text_output:
-            return json.loads(text_output)
+            try:
+                return json.loads(text_output)
+            except json.JSONDecodeError as exc:
+                raise AppError(
+                    ErrorCatalog.AI_BAD_RESPONSE,
+                    details={"message": "OpenAI returned malformed JSON output", "retryable": False, "model": self._model},
+                ) from exc
         output = data.get("output", [])
         for item in output:
             for content_item in item.get("content", []):
                 if content_item.get("type") == "output_text":
-                    return json.loads(content_item.get("text", "{}"))
-        raise AppError(ErrorCatalog.DB_UNAVAILABLE, details={"message": "AI analysis returned empty output"})
+                    try:
+                        return json.loads(content_item.get("text", "{}"))
+                    except json.JSONDecodeError as exc:
+                        raise AppError(
+                            ErrorCatalog.AI_BAD_RESPONSE,
+                            details={"message": "OpenAI returned malformed JSON output", "retryable": False, "model": self._model},
+                        ) from exc
+        raise AppError(
+            ErrorCatalog.AI_BAD_RESPONSE,
+            details={"message": "AI analysis returned empty output", "retryable": False, "model": self._model},
+        )
 
 
 class StockAiPreloadService:

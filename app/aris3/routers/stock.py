@@ -1328,7 +1328,14 @@ async def analyze_ai_preload(
         if file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
             free_text = (free_text or "") + "\n" + service.extract_docx_text(file.content)
     prompt = _build_ai_prompt(free_text=free_text, deterministic_rows=deterministic_rows, operator_notes=operator_notes, document_type=document_type)
-    ai_result = service.openai_client.extract(prompt=prompt, attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}])
+    ai_result = service.openai_client.extract(
+        prompt=prompt,
+        attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}],
+        trace_id=getattr(request.state, "trace_id", None),
+        tenant_id=scoped_tenant_id,
+        store_id=store_id,
+        document_type=document_type,
+    )
     markup_decimal = service.parse_decimal(markup_percent)
     margin_decimal = service.parse_decimal(margin_percent)
     multiplier_decimal = service.parse_decimal(multiplier)

@@ -81,6 +81,36 @@ class ErrorCatalog:
         "Database unavailable",
         status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+    AI_SERVICE_TIMEOUT = ErrorDefinition(
+        "AI_SERVICE_TIMEOUT",
+        "AI inventory analysis timed out",
+        status.HTTP_504_GATEWAY_TIMEOUT,
+    )
+    AI_SERVICE_UNAVAILABLE = ErrorDefinition(
+        "AI_SERVICE_UNAVAILABLE",
+        "AI inventory analysis service unavailable",
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+    AI_AUTH_FAILED = ErrorDefinition(
+        "AI_AUTH_FAILED",
+        "AI service authentication failed",
+        status.HTTP_401_UNAUTHORIZED,
+    )
+    AI_RATE_LIMITED = ErrorDefinition(
+        "AI_RATE_LIMITED",
+        "AI service rate limited",
+        status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    AI_BAD_RESPONSE = ErrorDefinition(
+        "AI_BAD_RESPONSE",
+        "AI service returned malformed response",
+        status.HTTP_502_BAD_GATEWAY,
+    )
+    AI_INVALID_MODEL = ErrorDefinition(
+        "AI_INVALID_MODEL",
+        "AI model is invalid or unavailable",
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
     LOCK_TIMEOUT = ErrorDefinition(
         "LOCK_TIMEOUT",
         "Lock wait timeout",

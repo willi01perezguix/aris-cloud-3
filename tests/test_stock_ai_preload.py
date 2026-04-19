@@ -1,6 +1,9 @@
 import io
 import uuid
 
+import httpx
+
+from app.aris3.core.config import settings
 from app.aris3.core.security import get_password_hash
 from app.aris3.db.models import PreloadLine, Store, Tenant, User
 from app.aris3.db.seed import run_seed
@@ -38,7 +41,7 @@ def test_ai_preload_analyze_text_and_confirm_creates_preload_session(client, db_
     _tenant, store, user = _create_tenant_user(db_session, "ai-preload")
     token = _login(client, user.username, "Pass1234!")
 
-    def _mock_extract(self, *, prompt, attachments):
+    def _mock_extract(self, *, prompt, attachments, **kwargs):
         assert "camisa" in prompt.lower()
         return {
             "document_summary": {"document_type": "invoice", "detected_currency": "USD", "overall_confidence": 0.9},
@@ -156,3 +159,119 @@ def test_ai_preload_confirm_rejects_missing_exchange_rate_for_non_gtq(client, db
         },
     )
     assert confirm.status_code == 422
+
+
+def test_ai_preload_analyze_missing_openai_api_key_returns_controlled_json(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-missing-key")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 422
+    payload = analyze.json()
+    assert payload["code"] == "VALIDATION_ERROR"
+    assert payload["details"]["message"] == "OPENAI_API_KEY is not configured"
+
+
+def test_ai_preload_analyze_openai_timeout_returns_controlled_json(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-timeout")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+
+    def _mock_timeout(*args, **kwargs):
+        raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(httpx, "post", _mock_timeout)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 504
+    payload = analyze.json()
+    assert payload["code"] == "AI_SERVICE_TIMEOUT"
+    assert payload["details"]["retryable"] is True
+
+
+def test_ai_preload_analyze_invalid_model_returns_controlled_json(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-invalid-model")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "OPENAI_INVENTORY_MODEL", "bad model !")
+
+    def _mock_http_error(*args, **kwargs):
+        request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+        response = httpx.Response(400, request=request, text='{"error":{"message":"The model `bad` does not exist"}}')
+        raise httpx.HTTPStatusError("bad request", request=request, response=response)
+
+    monkeypatch.setattr(httpx, "post", _mock_http_error)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    # Invalid configured model name falls back to default model, then OpenAI can still reject payload/model.
+    assert analyze.status_code in {422, 503}
+    payload = analyze.json()
+    assert payload["code"] in {"AI_INVALID_MODEL", "AI_SERVICE_UNAVAILABLE"}
+
+
+def test_ai_preload_analyze_text_only_response_excludes_epc_and_sale_fields(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-text-only")
+    token = _login(client, user.username, "Pass1234!")
+
+    def _mock_extract(self, *, prompt, attachments, **kwargs):
+        assert attachments == []
+        return {
+            "document_summary": {"document_type": "other", "detected_currency": "USD", "overall_confidence": 0.9},
+            "lines": [
+                {
+                    "sku": "SKU-TEXT-1",
+                    "description": "Camisa negra",
+                    "variant_1": "NEGRO",
+                    "variant_2": "M",
+                    "pool": "BODEGA",
+                    "location_code": "BODEGA-A1",
+                    "sellable": False,
+                    "quantity": 12,
+                    "original_cost": "10.00",
+                    "source_currency": "USD",
+                    "needs_review": False,
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(OpenAIInventoryClient, "extract", _mock_extract)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "store_id": str(store.id),
+            "free_text": "12 camisas negras talla M costo USD 10.00 cada una",
+            "document_type": "other",
+            "source_currency": "USD",
+            "exchange_rate_to_gtq": "7.80",
+            "pricing_mode": "markup_percent",
+            "markup_percent": "40",
+            "rounding_step": "5.00",
+        },
+    )
+    assert analyze.status_code == 200
+    line = analyze.json()["lines"][0]
+    assert line["original_cost"] == "10.00"
+    assert line["source_currency"] == "USD"
+    assert line["exchange_rate_to_gtq"] == "7.80"
+    assert line["cost_gtq"] == "78.00"
+    assert line["suggested_price_gtq"] == "110.00"
+    assert "epc" not in line
+    assert "sale_price" not in line
+    assert "venta" not in line

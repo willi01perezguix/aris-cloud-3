@@ -8,7 +8,7 @@ from typing import Any, Literal
 from uuid import UUID
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import String, cast, func, select
@@ -17,7 +17,8 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.core.scope import can_read_tenant_scope, can_write_stock_or_assets, is_superadmin
-from app.aris3.db.session import get_db
+from app.aris3.db.session import SessionLocal, get_db
+from app.aris3.core.config import settings
 from app.aris3.db.models import EpcAssignment, PreloadLine, PreloadSession, SkuImage, StockAiExtraction, StockAiExtractionFile, StockItem, Store
 from app.aris3.repos.stock import StockQueryFilters, StockRepository
 from app.aris3.schemas.stock import (
@@ -71,7 +72,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 _EPC_PATTERN = re.compile(r"^[0-9A-F]{24}$")
 AI_PRELOAD_ENDPOINT_TIMEOUT_SECONDS = 20.0
-AI_PRELOAD_OPENAI_TIMEOUT_SECONDS = 15.0
 _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_IMPORT_POOL = "BODEGA"
 _DEFAULT_IMPORT_LOCATION = "WH-MAIN"
@@ -1319,6 +1319,7 @@ def _populate_document_summary_from_lines(document_summary: dict[str, Any], line
 @router.post("/aris3/stock/ai/preload/analyze", response_model=AiPreloadAnalyzeResponse)
 async def analyze_ai_preload(
     request: Request,
+    background_tasks: BackgroundTasks,
     store_id: str = Form(...),
     free_text: str | None = Form(default=None),
     document_type: str | None = Form(default=None),
@@ -1346,6 +1347,7 @@ async def analyze_ai_preload(
     deterministic_lines: list[dict] = []
     warnings: list[AiPreloadWarning] = []
     text_only = len(upload_files) == 0
+    large_input = text_only and service.is_large_text_input(free_text)
     logger.info(
         "stock.ai_preload.request_received trace_id=%s tenant_id=%s store_id=%s text_only=%s files_count=%s",
         getattr(request.state, "trace_id", None),
@@ -1376,38 +1378,114 @@ async def analyze_ai_preload(
 
     prompt = _build_ai_prompt(free_text=free_text, deterministic_rows=deterministic_rows, operator_notes=operator_notes, document_type=document_type)
     model_name = service.openai_client._model
-    try:
-        ai_result = await asyncio.wait_for(
-            asyncio.to_thread(
-                service.openai_client.extract,
-                prompt=prompt,
-                attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}],
-                trace_id=getattr(request.state, "trace_id", None),
-                tenant_id=scoped_tenant_id,
-                store_id=store_id,
-                document_type=document_type,
-            ),
-            timeout=AI_PRELOAD_OPENAI_TIMEOUT_SECONDS,
+    shein_result = service.parse_shein_order_text(free_text=free_text, source_currency=source_currency) if text_only else None
+    ai_result: dict[str, Any] = {"document_summary": {}, "lines": [], "warnings": []}
+    if shein_result is not None:
+        ai_result = shein_result
+        large_input = False
+    elif large_input:
+        now = datetime.utcnow()
+        extraction = StockAiExtraction(
+            tenant_id=scoped_tenant_id,
+            store_id=store_id,
+            created_by_user_id=token_data.sub,
+            document_type=document_type,
+            source_currency=source_currency,
+            exchange_rate_to_gtq=service.parse_decimal(exchange_rate_to_gtq),
+            pricing_mode=pricing_mode,
+            markup_percent=service.parse_decimal(markup_percent),
+            margin_percent=service.parse_decimal(margin_percent),
+            multiplier=service.parse_decimal(multiplier),
+            rounding_step=service.parse_decimal(rounding_step) or Decimal("1.00"),
+            status="PROCESSING",
+            raw_ai_result=None,
+            normalized_result={"lines": []},
+            warnings=[],
+            model_used=service.openai_client._model,
+            trace_id=getattr(request.state, "trace_id", None),
+            created_at=now,
+            updated_at=now,
         )
-    except TimeoutError as exc:
-        raise AppError(
-            ErrorCatalog.AI_SERVICE_TIMEOUT,
-            details={
-                "message": "AI inventory analysis timed out",
-                "retryable": True,
-                "model": model_name,
-                "text_only": text_only,
-                "files_count": len(upload_files),
-            },
-        ) from exc
-    except AppError as exc:
-        if exc.error.code == ErrorCatalog.AI_SERVICE_TIMEOUT.code:
-            merged_details = dict(exc.details or {})
-            merged_details.setdefault("text_only", text_only)
-            merged_details.setdefault("files_count", len(upload_files))
-            merged_details.setdefault("model", model_name)
-            raise AppError(ErrorCatalog.AI_SERVICE_TIMEOUT, details=merged_details) from exc
-        raise
+        db.add(extraction)
+        db.flush()
+        extraction_id = str(extraction.id)
+        db.commit()
+
+        background_tasks.add_task(
+            _run_large_ai_preload_extraction,
+            extraction_id=extraction_id,
+            prompt=prompt,
+            trace_id=getattr(request.state, "trace_id", None),
+            tenant_id=scoped_tenant_id,
+            store_id=store_id,
+            document_type=document_type,
+            source_currency=source_currency,
+            exchange_rate_to_gtq=exchange_rate_to_gtq,
+            pricing_mode=pricing_mode,
+            markup_percent=markup_percent,
+            margin_percent=margin_percent,
+            multiplier=multiplier,
+            rounding_step=rounding_step,
+            attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}],
+        )
+        return AiPreloadAnalyzeResponse(
+            extraction_id=extraction_id,
+            store_id=store_id,
+            status="PROCESSING",
+            message="La carga es grande y se está analizando.",
+            estimated_seconds=int(settings.OPENAI_INVENTORY_LARGE_TIMEOUT_SECONDS),
+            trace_id=getattr(request.state, "trace_id", None),
+            document_summary=AiPreloadDocumentSummary(),
+            pricing=AiPreloadPricingSummary(
+                source_currency=source_currency,
+                exchange_rate_to_gtq=exchange_rate_to_gtq,
+                pricing_mode=pricing_mode,
+                markup_percent=markup_percent,
+                margin_percent=margin_percent,
+                multiplier=multiplier,
+                rounding_step=rounding_step,
+            ),
+            total_lines=0,
+            lines=[],
+            warnings=[],
+        )
+    else:
+        timeout_seconds = float(settings.OPENAI_INVENTORY_TIMEOUT_SECONDS)
+        try:
+            ai_result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    service.openai_client.extract,
+                    prompt=prompt,
+                    attachments=[f for f in uploads if f.content_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}],
+                    trace_id=getattr(request.state, "trace_id", None),
+                    tenant_id=scoped_tenant_id,
+                    store_id=store_id,
+                    document_type=document_type,
+                    timeout_seconds=timeout_seconds,
+                ),
+                timeout=timeout_seconds + 2,
+            )
+        except TimeoutError as exc:
+            raise AppError(
+                ErrorCatalog.AI_SERVICE_TIMEOUT,
+                details={
+                    "message": "AI inventory analysis timed out",
+                    "retryable": True,
+                    "model": model_name,
+                    "text_only": text_only,
+                    "files_count": len(upload_files),
+                    "large_input": large_input,
+                },
+            ) from exc
+        except AppError as exc:
+            if exc.error.code == ErrorCatalog.AI_SERVICE_TIMEOUT.code:
+                merged_details = dict(exc.details or {})
+                merged_details.setdefault("text_only", text_only)
+                merged_details.setdefault("files_count", len(upload_files))
+                merged_details.setdefault("model", model_name)
+                merged_details.setdefault("large_input", large_input)
+                raise AppError(ErrorCatalog.AI_SERVICE_TIMEOUT, details=merged_details) from exc
+            raise
     if (time.perf_counter() - started_at) > AI_PRELOAD_ENDPOINT_TIMEOUT_SECONDS:
         raise AppError(
             ErrorCatalog.AI_SERVICE_TIMEOUT,
@@ -1514,6 +1592,8 @@ async def analyze_ai_preload(
     return AiPreloadAnalyzeResponse(
         extraction_id=str(extraction.id),
         store_id=store_id,
+        status="DRAFT",
+        trace_id=getattr(request.state, "trace_id", None),
         document_summary=AiPreloadDocumentSummary(
             **_populate_document_summary_from_lines((ai_result.get("document_summary", {}) or {}), normalized_lines)
         ),
@@ -1543,6 +1623,8 @@ def get_ai_preload_extraction(extraction_id: str, token_data=Depends(get_current
     return AiPreloadAnalyzeResponse(
         extraction_id=str(extraction.id),
         store_id=str(extraction.store_id),
+        status=extraction.status,
+        trace_id=extraction.trace_id,
         document_summary=AiPreloadDocumentSummary(**((extraction.raw_ai_result or {}).get("document_summary", {}) or {})),
         pricing=AiPreloadPricingSummary(
             source_currency=extraction.source_currency,
@@ -1557,6 +1639,90 @@ def get_ai_preload_extraction(extraction_id: str, token_data=Depends(get_current
         lines=lines,
         warnings=[AiPreloadWarning(**item) for item in (extraction.warnings or [])],
     )
+
+
+def _run_large_ai_preload_extraction(
+    *,
+    extraction_id: str,
+    prompt: str,
+    trace_id: str | None,
+    tenant_id: str,
+    store_id: str,
+    document_type: str | None,
+    source_currency: str,
+    exchange_rate_to_gtq: str | None,
+    pricing_mode: str,
+    markup_percent: str | None,
+    margin_percent: str | None,
+    multiplier: str | None,
+    rounding_step: str,
+    attachments: list[UploadedSource],
+) -> None:
+    db = SessionLocal()
+    service = StockAiPreloadService()
+    try:
+        extraction = db.get(StockAiExtraction, extraction_id)
+        if extraction is None:
+            return
+        ai_result = service.openai_client.extract(
+            prompt=prompt,
+            attachments=attachments,
+            trace_id=trace_id,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            document_type=document_type,
+            timeout_seconds=float(settings.OPENAI_INVENTORY_LARGE_TIMEOUT_SECONDS),
+        )
+        markup_decimal = service.parse_decimal(markup_percent)
+        margin_decimal = service.parse_decimal(margin_percent)
+        multiplier_decimal = service.parse_decimal(multiplier)
+        rounding_decimal = service.parse_decimal(rounding_step) or Decimal("1.00")
+        exchange_rate_decimal = service.parse_decimal(exchange_rate_to_gtq)
+        warnings: list[dict[str, Any]] = list(ai_result.get("warnings", []))
+        lines: list[dict[str, Any]] = []
+        for idx, raw_line in enumerate(ai_result.get("lines", []), start=1):
+            priced = service.apply_pricing(
+                line=raw_line,
+                source_currency=source_currency,
+                exchange_rate_to_gtq=exchange_rate_decimal,
+                pricing_mode=pricing_mode,
+                markup_percent=markup_decimal,
+                margin_percent=margin_decimal,
+                multiplier=multiplier_decimal,
+                rounding_step=rounding_decimal,
+            )
+            priced = service.apply_operational_defaults(priced)
+            lines.append(_serialize_ai_line(idx, priced).model_dump())
+        warnings.append({"severity": "info", "message": "EPC y precio de venta final fueron excluidos del resultado asistido."})
+        extraction.status = "COMPLETED"
+        extraction.raw_ai_result = ai_result
+        extraction.normalized_result = {"lines": lines}
+        extraction.warnings = warnings
+        extraction.updated_at = datetime.utcnow()
+        db.commit()
+    except AppError as exc:
+        extraction = db.get(StockAiExtraction, extraction_id)
+        if extraction is not None:
+            extraction.status = "FAILED"
+            extraction.warnings = [
+                {
+                    "severity": "error",
+                    "message": (exc.details or {}).get("message") or "AI analysis failed",
+                }
+            ]
+            extraction.raw_ai_result = {
+                "code": exc.error.code,
+                "details": {
+                    **(exc.details or {}),
+                    "retryable": (exc.details or {}).get("retryable", True),
+                    "text_only": True,
+                    "large_input": True,
+                },
+            }
+            extraction.updated_at = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
 
 
 @router.post("/aris3/stock/ai/preload/confirm", response_model=AiPreloadConfirmResponse)

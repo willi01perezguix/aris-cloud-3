@@ -18,3 +18,19 @@ def test_stock_ai_preload_files_schema_uses_binary_uploads():
     assert files_schema["type"] == "array"
     assert files_schema["items"]["type"] == "string"
     assert files_schema["items"]["format"] == "binary"
+
+
+def test_stock_ai_preload_line_schema_includes_extended_normalized_fields():
+    openapi = create_app().openapi()
+    line_schema = openapi["components"]["schemas"]["AiPreloadLine"]["properties"]
+    for field in (
+        "reference_price_original",
+        "reference_price_gtq",
+        "logistics_status",
+        "source_order_number",
+        "source_order_date",
+        "brand",
+        "category",
+        "style",
+    ):
+        assert field in line_schema

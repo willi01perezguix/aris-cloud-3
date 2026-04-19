@@ -539,15 +539,26 @@ class AiPreloadLine(BaseModel):
     description: str
     variant_1: str | None = None
     variant_2: str | None = None
+    color: str | None = None
+    size: str | None = None
+    brand: str | None = None
+    category: str | None = None
+    style: str | None = None
     pool: str | None = None
     location_code: str | None = None
+    logistics_status: str | None = None
     sellable: bool = True
     quantity: int = Field(ge=1)
+    source_order_number: str | None = None
+    source_order_date: str | None = None
+    source_supplier: str | None = None
     original_cost: str | None = None
     source_currency: str | None = None
     exchange_rate_to_gtq: str | None = None
     cost_gtq: str | None = None
     suggested_price_gtq: str | None = None
+    reference_price_original: str | None = None
+    reference_price_gtq: str | None = None
     needs_review: bool = True
     confidence: float | None = None
     notes: str | None = None

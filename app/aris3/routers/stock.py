@@ -1263,15 +1263,26 @@ def _serialize_ai_line(row_key: int, line: dict) -> AiPreloadLine:
         description=line.get("description") or "",
         variant_1=line.get("variant_1"),
         variant_2=line.get("variant_2"),
+        color=line.get("color") or line.get("variant_1"),
+        size=line.get("size") or line.get("variant_2"),
+        brand=line.get("brand"),
+        category=line.get("category"),
+        style=line.get("style"),
         pool=line.get("pool"),
         location_code=line.get("location_code"),
+        logistics_status=line.get("logistics_status"),
         sellable=bool(line.get("sellable", True)),
         quantity=max(1, int(line.get("quantity") or 1)),
+        source_order_number=line.get("source_order_number"),
+        source_order_date=line.get("source_order_date"),
+        source_supplier=line.get("source_supplier"),
         original_cost=line.get("original_cost"),
         source_currency=line.get("source_currency"),
         exchange_rate_to_gtq=line.get("exchange_rate_to_gtq"),
         cost_gtq=line.get("cost_gtq"),
         suggested_price_gtq=line.get("suggested_price_gtq"),
+        reference_price_original=line.get("reference_price_original"),
+        reference_price_gtq=line.get("reference_price_gtq"),
         needs_review=bool(line.get("needs_review", True)),
         confidence=line.get("confidence"),
         notes=line.get("notes"),
@@ -1321,6 +1332,7 @@ async def analyze_ai_preload(
     uploads: list[UploadedSource] = []
     upload_files = files if files else []
     deterministic_rows: list[dict] = []
+    deterministic_lines: list[dict] = []
     warnings: list[AiPreloadWarning] = []
     text_only = len(upload_files) == 0
     logger.info(
@@ -1343,6 +1355,11 @@ async def analyze_ai_preload(
                 rows, sheet_warnings = service.extract_spreadsheet_rows(file)
                 deterministic_rows.extend(rows)
                 warnings.extend(AiPreloadWarning(**w) for w in sheet_warnings)
+                for row in rows:
+                    mapped_line, row_warnings = service.map_deterministic_row(row, source_file_name=file.filename)
+                    deterministic_lines.append(mapped_line)
+                    for warning in row_warnings:
+                        warnings.append(AiPreloadWarning(severity="warning", message=warning))
             if file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
                 free_text = (free_text or "") + "\n" + service.extract_docx_text(file.content)
 
@@ -1398,6 +1415,8 @@ async def analyze_ai_preload(
     exchange_rate_decimal = service.parse_decimal(exchange_rate_to_gtq)
     normalized_lines: list[AiPreloadLine] = []
     raw_lines = ai_result.get("lines", [])
+    if deterministic_lines:
+        raw_lines = deterministic_lines + raw_lines
     for idx, raw_line in enumerate(raw_lines, start=1):
         priced = service.apply_pricing(
             line=raw_line,
@@ -1555,7 +1574,8 @@ def confirm_ai_preload(
             rounding_step=rounding_step,
         )
         if payload.source_currency.upper() != "GTQ" and exchange_rate is None:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "exchange_rate_to_gtq is required when source_currency is not GTQ"})
+            if not priced.get("cost_gtq"):
+                raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "exchange_rate_to_gtq is required when source_currency is not GTQ"})
         cost_gtq = service.parse_decimal(priced.get("cost_gtq"))
         if cost_gtq is None:
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "cost_gtq is required"})

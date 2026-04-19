@@ -426,3 +426,110 @@ def test_ai_preload_analyze_without_files_field_behaves_as_text_only(client, db_
     )
     assert analyze.status_code == 200
     assert analyze.json()["total_lines"] == 0
+
+
+def test_ai_preload_excel_like_template_maps_canonical_fields(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-excel-like")
+    token = _login(client, user.username, "Pass1234!")
+
+    monkeypatch.setattr(
+        OpenAIInventoryClient,
+        "extract",
+        lambda self, **kwargs: {"document_summary": {"document_type": "spreadsheet"}, "lines": [], "warnings": []},
+    )
+
+    csv_content = (
+        "SKU,Descripción,Talla,Color,Cantidad,Precio Costo (Q),Precio (USD),Precio Venta Sugerido (Q),Precio Final (Q),"
+        "Número de Pedido,Fecha Pedido,Categoría,Estilo,Marca,Ubicación\n"
+        "SKU-9,Camisa deportiva,M,Negro,2,80.00,10.00,120.00,130.00,PO-77,2026-03-01,Ropa,Sport,ARIS,EN TRANSITO\n"
+    )
+    files = {"files": ("supplier.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "source_currency": "USD", "exchange_rate_to_gtq": "7.80", "pricing_mode": "manual"},
+        files=files,
+    )
+    assert analyze.status_code == 200
+    line = analyze.json()["lines"][0]
+    assert line["sku"] == "SKU-9"
+    assert line["description"] == "Camisa deportiva"
+    assert line["color"] == "Negro"
+    assert line["size"] == "M"
+    assert line["quantity"] == 2
+    assert line["cost_gtq"] == "80.00"
+    assert line["original_cost"] == "10.00"
+    assert line["source_currency"] == "USD"
+    assert line["suggested_price_gtq"] == "120.00"
+    assert line["reference_price_gtq"] == "130.00"
+    assert line["source_order_number"] == "PO-77"
+    assert line["source_order_date"] == "2026-03-01"
+    assert "epc" not in line
+    assert "sale_price" not in line
+
+
+def test_ai_preload_symbol_currency_and_shein_price_behavior(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-shein")
+    token = _login(client, user.username, "Pass1234!")
+
+    def _mock_extract(self, **kwargs):
+        return {
+            "document_summary": {"document_type": "other"},
+            "lines": [
+                {
+                    "sku": "SHEIN-1",
+                    "description": "Top deportivo",
+                    "variant_1": "Azul",
+                    "variant_2": "S",
+                    "quantity": 1,
+                    "original_cost": "12.00",
+                    "source_currency": "unknown",
+                    "reference_price_original": "18.00",
+                    "sellable": True,
+                    "needs_review": True,
+                }
+            ],
+            "warnings": [{"severity": "warning", "message": "Confirmar moneda antes de calcular Costo(Q)."}],
+        }
+
+    monkeypatch.setattr(OpenAIInventoryClient, "extract", _mock_extract)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "SHEIN pedido #1 precio $12 y precio $18", "source_currency": "GTQ"},
+    )
+    assert analyze.status_code == 200
+    payload = analyze.json()
+    line = payload["lines"][0]
+    assert line["source_currency"] == "UNKNOWN"
+    assert line["reference_price_original"] == "18.00"
+    assert line["sellable"] is True
+    assert any("Confirmar moneda" in w["message"] for w in payload["warnings"])
+
+
+def test_ai_preload_sellable_rules_only_explicit_phrases_force_false(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-sellable-rules")
+    token = _login(client, user.username, "Pass1234!")
+
+    monkeypatch.setattr(
+        OpenAIInventoryClient,
+        "extract",
+        lambda self, **kwargs: {"document_summary": {"document_type": "spreadsheet"}, "lines": [], "warnings": []},
+    )
+    csv_content = "SKU,Descripcion,Cantidad,Precio Costo (Q),Ubicación\nSKU-1,Producto normal en transito,1,10.00,EN TRANSITO\nSKU-2,Producto dañado,1,10.00,BOD-A1\n"
+    files = {"files": ("sellable.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "source_currency": "GTQ"},
+        files=files,
+    )
+    assert analyze.status_code == 200
+    lines = analyze.json()["lines"]
+    assert lines[0]["sellable"] is True
+    assert lines[0]["logistics_status"] == "EN_TRANSITO"
+    assert lines[1]["sellable"] is False
+    assert lines[1]["needs_review"] is True

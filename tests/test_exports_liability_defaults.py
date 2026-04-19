@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.aris3.services.exports import build_report_dataset
 from app.aris3.services.reports import build_report_totals
 from app.aris3.schemas.exports import ExportFilters
@@ -72,3 +74,68 @@ def test_build_report_dataset_reports_overview_handles_rows_without_liability_ke
     assert dataset.totals is not None
     assert dataset.totals["liability_issued_advances"] == Decimal("0.00")
     assert dataset.totals["tender_total_received"] == Decimal("0.00")
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "liability_issued_advances",
+        "liability_issued_gift_cards",
+        "liability_redeemed_advances",
+        "liability_redeemed_gift_cards",
+        "liability_refunded_advances",
+        "liability_refunded_gift_cards",
+        "tender_cash_received",
+        "tender_card_received",
+        "tender_transfer_received",
+        "tender_total_received",
+    ],
+)
+def test_build_report_totals_missing_field_does_not_raise_or_change_totals(missing_field):
+    row = {
+        "business_date": date(2026, 4, 1),
+        "gross_sales": Decimal("100.00"),
+        "refunds_total": Decimal("10.00"),
+        "net_sales": Decimal("90.00"),
+        "cogs_gross": Decimal("20.00"),
+        "cogs_reversed_from_returns": Decimal("0.00"),
+        "net_cogs": Decimal("20.00"),
+        "net_profit": Decimal("70.00"),
+        "orders_paid_count": 2,
+        "average_ticket": Decimal("45.00"),
+        "liability_issued_advances": Decimal("1.00"),
+        "liability_issued_gift_cards": Decimal("2.00"),
+        "liability_redeemed_advances": Decimal("3.00"),
+        "liability_redeemed_gift_cards": Decimal("4.00"),
+        "liability_refunded_advances": Decimal("5.00"),
+        "liability_refunded_gift_cards": Decimal("6.00"),
+        "tender_cash_received": Decimal("7.00"),
+        "tender_card_received": Decimal("8.00"),
+        "tender_transfer_received": Decimal("9.00"),
+        "tender_total_received": Decimal("24.00"),
+    }
+    row.pop(missing_field)
+
+    totals = build_report_totals([row])
+
+    expected_defaults = {
+        "liability_issued_advances": Decimal("1.00"),
+        "liability_issued_gift_cards": Decimal("2.00"),
+        "liability_redeemed_advances": Decimal("3.00"),
+        "liability_redeemed_gift_cards": Decimal("4.00"),
+        "liability_refunded_advances": Decimal("5.00"),
+        "liability_refunded_gift_cards": Decimal("6.00"),
+        "tender_cash_received": Decimal("7.00"),
+        "tender_card_received": Decimal("8.00"),
+        "tender_transfer_received": Decimal("9.00"),
+        "tender_total_received": Decimal("24.00"),
+    }
+    expected_defaults[missing_field] = Decimal("0.00")
+    expected_defaults["tender_total_received"] = (
+        expected_defaults["tender_cash_received"]
+        + expected_defaults["tender_card_received"]
+        + expected_defaults["tender_transfer_received"]
+    )
+
+    for key, expected in expected_defaults.items():
+        assert totals[key] == expected

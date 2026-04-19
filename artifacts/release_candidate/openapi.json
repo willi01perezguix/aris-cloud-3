@@ -13650,11 +13650,18 @@
             "title": "Operator Notes"
           },
           "files": {
-            "items": {
-              "type": "string",
-              "format": "binary"
-            },
-            "type": "array",
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "format": "binary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Files"
           }
         },

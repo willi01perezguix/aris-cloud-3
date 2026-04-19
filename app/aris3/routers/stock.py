@@ -1840,9 +1840,33 @@ def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Dep
 
 
 @router.get("/aris3/stock/pending-epc", response_model=list[PreloadLineResponse])
-def list_pending_epc(tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+def list_pending_epc(
+    tenant_id: str | None = Query(default=None, description="Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles."),
+    store_id: str | None = Query(default=None, description="Optional store scope. Defaults to the authenticated user's store in self scope."),
+    scope: Literal["self", "tenant"] = Query("self", description="Scope mode. Use tenant only for explicit admin tenant-wide queries."),
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    db=Depends(get_db),
+):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
-    rows = db.execute(select(PreloadLine).where(PreloadLine.tenant_id == scoped_tenant_id, PreloadLine.lifecycle_state == "PENDING_EPC")).scalars().all()
+    if store_id:
+        _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
+    scope_store_id = _resolve_query_scope(
+        token_data,
+        scope=scope,
+        requested_store_id=store_id,
+    )
+
+    query = select(PreloadLine).where(
+        PreloadLine.tenant_id == scoped_tenant_id,
+        PreloadLine.lifecycle_state == "PENDING_EPC",
+    )
+    if scope_store_id:
+        query = query.where(PreloadLine.store_id == scope_store_id)
+    elif store_id:
+        query = query.where(PreloadLine.store_id == store_id)
+
+    rows = db.execute(query).scalars().all()
     return [_preload_line_response(row) for row in rows]
 
 
@@ -1861,6 +1885,12 @@ def assign_pending_epc(line_id: str, payload: PendingEpcAssignRequest, tenant_id
     line = db.get(PreloadLine, line_id)
     if not line or str(line.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "preload line not found", "line_id": line_id})
+    if not can_read_tenant_scope(token_data.role):
+        _resolve_query_scope(
+            token_data,
+            scope="self",
+            requested_store_id=str(line.store_id),
+        )
     if line.lifecycle_state != "PENDING_EPC" or not line.saved_stock_item_id:
         raise AppError(
             ErrorCatalog.BUSINESS_CONFLICT,

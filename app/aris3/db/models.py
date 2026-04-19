@@ -105,6 +105,7 @@ class StockItem(Base):
     item_uid: Mapped[uuid.UUID] = mapped_column(GUID(), default=uuid.uuid4, nullable=False, index=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), index=True, nullable=False)
     store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), index=True, nullable=True)
+    catalog_product_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("catalog_products.id"), index=True, nullable=True)
     sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     var1_value: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -197,6 +198,7 @@ class PreloadLine(Base):
     item_uid: Mapped[uuid.UUID] = mapped_column(GUID(), default=uuid.uuid4, nullable=False, index=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
     store_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stores.id"), nullable=True, index=True)
+    catalog_product_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("catalog_products.id"), nullable=True, index=True)
     sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
     epc: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -258,6 +260,71 @@ class StockAiExtractionFile(Base):
     content_type: Mapped[str] = mapped_column(String(120), nullable=False)
     size_bytes: Mapped[int] = mapped_column(nullable=False)
     storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CatalogProduct(Base):
+    __tablename__ = "catalog_products"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    sku: Mapped[str] = mapped_column(String(100), nullable=False)
+    normalized_sku: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    brand: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    style: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    variant_1: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    variant_2: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    normalized_variant_1: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    normalized_variant_2: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    color: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    size: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    default_pool: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    default_location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sellable_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_cost_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    last_original_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    last_source_currency: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    last_exchange_rate_to_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    suggested_price_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    default_sale_price_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    reference_price_original: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    reference_price_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    last_source_supplier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_source_order_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_source_order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    price_review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "normalized_sku", "normalized_variant_1", "normalized_variant_2", name="uq_catalog_product_identity"),
+    )
+
+
+class CatalogProductCostHistory(Base):
+    __tablename__ = "catalog_product_cost_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("tenants.id"), nullable=False, index=True)
+    catalog_product_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("catalog_products.id"), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_extraction_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("stock_ai_extractions.id"), nullable=True, index=True)
+    source_preload_session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("preload_sessions.id"), nullable=True, index=True)
+    source_preload_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("preload_lines.id"), nullable=True, index=True)
+    source_order_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_supplier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    original_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    source_currency: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    exchange_rate_to_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    cost_gtq: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    suggested_price_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    reference_price_original: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    reference_price_gtq: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

@@ -51,6 +51,9 @@ from app.aris3.schemas.stock import (
     AiPreloadConfirmRequest,
     AiPreloadConfirmResponse,
     AiPreloadPricingSummary,
+    CatalogProductBulkUpsertRequest,
+    CatalogProductUpsertRequest,
+    CatalogUpsertResponse,
     AiPreloadDocumentSummary,
     AiPreloadWarning,
     AiPreloadLine,
@@ -66,6 +69,7 @@ from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
 from app.aris3.services.stock_rules import compute_operational_state
 from app.aris3.services.stock_ai_preload import StockAiPreloadService, UploadedSource
+from app.aris3.services.catalog_products import CatalogProductService
 
 
 router = APIRouter()
@@ -1245,7 +1249,7 @@ def stock_actions(
 def _preload_line_response(line: PreloadLine) -> PreloadLineResponse:
     return PreloadLineResponse(
         id=str(line.id), preload_session_id=str(line.preload_session_id), item_uid=str(line.item_uid), tenant_id=str(line.tenant_id),
-        store_id=str(line.store_id) if line.store_id else None, sku=line.sku, epc=line.epc, description=line.description,
+        store_id=str(line.store_id) if line.store_id else None, catalog_product_id=str(line.catalog_product_id) if line.catalog_product_id else None, sku=line.sku, epc=line.epc, description=line.description,
         var1_value=line.var1_value, var2_value=line.var2_value, pool=line.pool, location_code=line.location_code,
         vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price,
         item_status=line.item_status, epc_status=line.epc_status, observation=line.observation, image_mode=line.image_mode,
@@ -1743,7 +1747,10 @@ def confirm_ai_preload(
     margin_percent = service.parse_decimal(payload.margin_percent)
     multiplier = service.parse_decimal(payload.multiplier)
     preload_lines = []
+    catalog_service = CatalogProductService(db)
     review_required_count = 0
+    catalog_created_count = 0
+    catalog_updated_count = 0
     for line in payload.lines:
         if line.quantity <= 0:
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "quantity must be greater than zero"})
@@ -1768,6 +1775,37 @@ def confirm_ai_preload(
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "cost_gtq is required"})
         if priced.get("needs_review"):
             review_required_count += 1
+        if payload.confirm_mode in {"CATALOG_ONLY", "CATALOG_AND_PRELOAD"}:
+            upsert_result = catalog_service.upsert_catalog_product(
+                tenant_id=UUID(scoped_tenant_id),
+                sku=line.sku or line.suggested_sku,
+                variant_1=line.variant_1,
+                variant_2=line.variant_2,
+                description=line.description,
+                brand=line.brand,
+                category=line.category,
+                style=line.style,
+                color=line.color,
+                size=line.size,
+                default_pool=line.pool or _DEFAULT_IMPORT_POOL,
+                default_location_code=line.location_code or _DEFAULT_IMPORT_LOCATION,
+                sellable_default=line.sellable,
+                cost_gtq=cost_gtq,
+                original_cost=line.original_cost,
+                source_currency=line.source_currency or payload.source_currency,
+                exchange_rate_to_gtq=line.exchange_rate_to_gtq or payload.exchange_rate_to_gtq,
+                suggested_price_gtq=service.parse_decimal(priced.get("suggested_price_gtq")),
+                reference_price_original=line.reference_price_original,
+                reference_price_gtq=line.reference_price_gtq,
+                source_supplier=line.source_supplier,
+                source_order_number=line.source_order_number,
+                source_order_date=line.source_order_date,
+                source_type="AI_PRELOAD",
+                source_extraction_id=UUID(payload.extraction_id) if payload.extraction_id else None,
+                created_by_user_id=UUID(token_data.sub) if token_data.sub else None,
+            )
+            catalog_created_count += int(upsert_result.created)
+            catalog_updated_count += int(upsert_result.updated)
         preload_lines.append(
             {
                 "sku": line.sku or line.suggested_sku,
@@ -1787,54 +1825,161 @@ def confirm_ai_preload(
             }
         )
     now = datetime.utcnow()
-    session = PreloadSession(tenant_id=scoped_tenant_id, store_id=payload.store_id, source_file_name="ai_preload_review", status="ACTIVE", created_by_user_id=token_data.sub, created_at=now, updated_at=now)
-    db.add(session)
-    db.flush()
     created_lines = 0
-    for row in preload_lines:
-        for _ in range(max(1, row["qty"])):
-            db.add(
-                PreloadLine(
-                    preload_session_id=session.id,
-                    tenant_id=scoped_tenant_id,
-                    store_id=payload.store_id,
-                    sku=row["sku"],
-                    epc=None,
-                    description=row["description"],
-                    var1_value=row["var1_value"],
-                    var2_value=row["var2_value"],
-                    pool=row["pool"],
-                    location_code=row["location_code"],
-                    vendible=row["vendible"],
-                    cost_price=row["cost_price"],
-                    suggested_price=row["suggested_price"],
-                    sale_price=None,
-                    item_status="PENDING",
-                    epc_status="AVAILABLE",
-                    observation=row["observation"],
-                    image_mode="blank",
-                    source_file_name="ai_preload_review",
-                    source_row_number=row["source_row_number"],
-                    lifecycle_state="STAGING",
-                    created_at=now,
-                    updated_at=now,
+    session = None
+    if payload.confirm_mode in {"CREATE_PRELOAD_ONLY", "CATALOG_AND_PRELOAD"}:
+        session = PreloadSession(tenant_id=scoped_tenant_id, store_id=payload.store_id, source_file_name="ai_preload_review", status="ACTIVE", created_by_user_id=token_data.sub, created_at=now, updated_at=now)
+        db.add(session)
+        db.flush()
+        for row in preload_lines:
+            for _ in range(max(1, row["qty"])):
+                db.add(
+                    PreloadLine(
+                        preload_session_id=session.id,
+                        tenant_id=scoped_tenant_id,
+                        store_id=payload.store_id,
+                        sku=row["sku"],
+                        epc=None,
+                        description=row["description"],
+                        var1_value=row["var1_value"],
+                        var2_value=row["var2_value"],
+                        pool=row["pool"],
+                        location_code=row["location_code"],
+                        vendible=row["vendible"],
+                        cost_price=row["cost_price"],
+                        suggested_price=row["suggested_price"],
+                        sale_price=None,
+                        item_status="PENDING",
+                        epc_status="AVAILABLE",
+                        observation=row["observation"],
+                        image_mode="blank",
+                        source_file_name="ai_preload_review",
+                        source_row_number=row["source_row_number"],
+                        lifecycle_state="STAGING",
+                        created_at=now,
+                        updated_at=now,
+                    )
                 )
-            )
-            created_lines += 1
+                created_lines += 1
     if payload.extraction_id:
         extraction = db.get(StockAiExtraction, payload.extraction_id)
         if extraction and str(extraction.tenant_id) == scoped_tenant_id:
             extraction.status = "CONFIRMED"
-            extraction.preload_session_id = session.id
+            extraction.preload_session_id = session.id if session else None
             extraction.confirmed_at = now
             extraction.updated_at = now
     db.commit()
     return AiPreloadConfirmResponse(
-        preload_session_id=str(session.id),
+        preload_session_id=str(session.id) if session else None,
         created_lines_count=created_lines,
+        catalog_created_count=catalog_created_count,
+        catalog_updated_count=catalog_updated_count,
         review_required_count=review_required_count,
         warnings=[AiPreloadWarning(severity="info", message="EPC y precio Venta(Q) se mantienen vacíos para el flujo de precarga.")],
         trace_id=getattr(request.state, "trace_id", ""),
+    )
+
+
+@router.post("/aris3/catalog/products/upsert", response_model=CatalogUpsertResponse)
+def upsert_catalog_product(
+    payload: CatalogProductUpsertRequest,
+    tenant_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    _require_tenant_admin(token_data)
+    if payload.store_id:
+        _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=payload.store_id)
+    service = CatalogProductService(db)
+    result = service.upsert_catalog_product(
+        tenant_id=UUID(scoped_tenant_id),
+        sku=payload.line.sku,
+        variant_1=payload.line.variant_1,
+        variant_2=payload.line.variant_2,
+        description=payload.line.description,
+        brand=payload.line.brand,
+        category=payload.line.category,
+        style=payload.line.style,
+        color=payload.line.color,
+        size=payload.line.size,
+        default_pool=payload.line.pool,
+        default_location_code=payload.line.location_code,
+        sellable_default=payload.line.sellable,
+        cost_gtq=payload.line.cost_gtq,
+        original_cost=payload.line.original_cost,
+        source_currency=payload.line.source_currency,
+        exchange_rate_to_gtq=payload.line.exchange_rate_to_gtq,
+        suggested_price_gtq=payload.line.suggested_price_gtq,
+        reference_price_original=payload.line.reference_price_original,
+        reference_price_gtq=payload.line.reference_price_gtq,
+        source_supplier=payload.line.source_supplier,
+        source_order_number=payload.line.source_order_number,
+        source_order_date=payload.line.source_order_date,
+        source_type=payload.source_type,
+        created_by_user_id=UUID(token_data.sub) if token_data.sub else None,
+        update_sale_price=payload.update_sale_price,
+    )
+    db.commit()
+    return CatalogUpsertResponse(
+        created_count=int(result.created),
+        updated_count=int(result.updated),
+        review_required_count=int(result.review_required),
+    )
+
+
+@router.post("/aris3/catalog/products/bulk-upsert", response_model=CatalogUpsertResponse)
+def bulk_upsert_catalog_products(
+    payload: CatalogProductBulkUpsertRequest,
+    tenant_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    db=Depends(get_db),
+):
+    scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
+    _require_tenant_admin(token_data)
+    if payload.store_id:
+        _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=payload.store_id)
+    service = CatalogProductService(db)
+    created_count = updated_count = review_required_count = 0
+    for line in payload.lines:
+        result = service.upsert_catalog_product(
+            tenant_id=UUID(scoped_tenant_id),
+            sku=line.sku,
+            variant_1=line.variant_1,
+            variant_2=line.variant_2,
+            description=line.description,
+            brand=line.brand,
+            category=line.category,
+            style=line.style,
+            color=line.color,
+            size=line.size,
+            default_pool=line.pool,
+            default_location_code=line.location_code,
+            sellable_default=line.sellable,
+            cost_gtq=line.cost_gtq,
+            original_cost=line.original_cost,
+            source_currency=line.source_currency,
+            exchange_rate_to_gtq=line.exchange_rate_to_gtq,
+            suggested_price_gtq=line.suggested_price_gtq,
+            reference_price_original=line.reference_price_original,
+            reference_price_gtq=line.reference_price_gtq,
+            source_supplier=line.source_supplier,
+            source_order_number=line.source_order_number,
+            source_order_date=line.source_order_date,
+            source_type=payload.source_type,
+            created_by_user_id=UUID(token_data.sub) if token_data.sub else None,
+            update_sale_price=payload.update_sale_price,
+        )
+        created_count += int(result.created)
+        updated_count += int(result.updated)
+        review_required_count += int(result.review_required)
+    db.commit()
+    return CatalogUpsertResponse(
+        created_count=created_count,
+        updated_count=updated_count,
+        review_required_count=review_required_count,
     )
 
 
@@ -2020,8 +2165,14 @@ def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Dep
 
     now = datetime.utcnow()
     line_tenant_id = line.tenant_id
+    catalog_service = CatalogProductService(db)
+    catalog_result = catalog_service.upsert_catalog_product_from_preload_line(
+        line=line,
+        created_by_user_id=UUID(token_data.sub) if token_data.sub else None,
+    )
+    line.catalog_product_id = catalog_result.catalog_product.id
     if not line.epc:
-        stock = StockItem(tenant_id=line_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=None, location_code=line.location_code, pool=line.pool, status="PENDING", item_status="PENDING_EPC", epc_status="AVAILABLE", observation=line.observation, print_status="NOT_REQUESTED", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
+        stock = StockItem(tenant_id=line_tenant_id, store_id=line.store_id, catalog_product_id=line.catalog_product_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=None, location_code=line.location_code, pool=line.pool, status="PENDING", item_status="PENDING_EPC", epc_status="AVAILABLE", observation=line.observation, print_status="NOT_REQUESTED", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
         db.add(stock)
         db.flush()
         line.lifecycle_state = "PENDING_EPC"
@@ -2029,7 +2180,7 @@ def save_preload_line(line_id: str, tenant_id: str | None = None, token_data=Dep
         line.saved_stock_item_id = stock.id
     else:
         _assert_epc_available(db, tenant_id=line_tenant_id, epc=line.epc)
-        stock = StockItem(tenant_id=line_tenant_id, store_id=line.store_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=line.epc, location_code=line.location_code, pool=line.pool, status="RFID", item_status="ACTIVE", epc_status="ASSIGNED", observation=line.observation, print_status="READY_TO_PRINT", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
+        stock = StockItem(tenant_id=line_tenant_id, store_id=line.store_id, catalog_product_id=line.catalog_product_id, item_uid=line.item_uid, sku=line.sku, description=line.description, var1_value=line.var1_value, var2_value=line.var2_value, epc=line.epc, location_code=line.location_code, pool=line.pool, status="RFID", item_status="ACTIVE", epc_status="ASSIGNED", observation=line.observation, print_status="READY_TO_PRINT", location_is_vendible=line.vendible, cost_price=line.cost_price, suggested_price=line.suggested_price, sale_price=line.sale_price, image_asset_id=line.image_asset_id, created_at=now, updated_at=now)
         db.add(stock)
         db.flush()
         db.add(EpcAssignment(tenant_id=line_tenant_id, store_id=line.store_id, epc=line.epc, item_uid=line.item_uid, assigned_at=now, active=True, status="ASSIGNED", created_at=now, updated_at=now))

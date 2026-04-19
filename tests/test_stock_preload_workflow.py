@@ -4,7 +4,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from app.aris3.routers import stock as stock_router
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import EpcAssignment, StockItem, Store, Tenant, User
+from app.aris3.db.models import CatalogProduct, CatalogProductCostHistory, EpcAssignment, StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
 
 
@@ -89,7 +89,7 @@ def test_preload_save_to_pending_epc_when_epc_missing(client, db_session):
         json={
             "store_id": str(store.id),
             "source_file_name": "test.xlsx",
-            "lines": [{"sku": "SKU-1", "description": "Jacket", "sale_price": "100.00", "qty": 1}],
+            "lines": [{"sku": "SKU-1", "description": "Jacket", "cost_price": "50.00", "suggested_price": "80.00", "sale_price": "100.00", "qty": 1}],
         },
     )
     line_id = create.json()["lines"][0]["id"]
@@ -101,6 +101,11 @@ def test_preload_save_to_pending_epc_when_epc_missing(client, db_session):
     saved_items = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).all()
     assert len(saved_items) == 1
     assert saved_items[0].item_status == "PENDING_EPC"
+
+    catalog_products = db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id).all()
+    assert len(catalog_products) == 1
+    assert saved_items[0].catalog_product_id == catalog_products[0].id
+    assert db_session.query(CatalogProductCostHistory).filter(CatalogProductCostHistory.catalog_product_id == catalog_products[0].id).count() == 1
 
 
 def test_preload_save_to_epc_final_and_conflict(client, db_session):

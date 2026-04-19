@@ -588,6 +588,10 @@ class AiPreloadPricingSummary(BaseModel):
 class AiPreloadAnalyzeResponse(BaseModel):
     extraction_id: str
     store_id: str
+    status: Literal["DRAFT", "PROCESSING", "COMPLETED", "FAILED", "CONFIRMED"] = "DRAFT"
+    message: str | None = None
+    estimated_seconds: int | None = None
+    trace_id: str | None = None
     document_summary: AiPreloadDocumentSummary
     pricing: AiPreloadPricingSummary
     total_lines: int

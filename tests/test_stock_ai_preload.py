@@ -5,8 +5,9 @@ import httpx
 
 from app.aris3.core.config import settings
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import PreloadLine, Store, Tenant, User
+from app.aris3.db.models import PreloadLine, StockAiExtraction, Store, Tenant, User
 from app.aris3.db.seed import run_seed
+from app.aris3.routers import stock as stock_router
 from app.aris3.services.stock_ai_preload import OpenAIInventoryClient
 
 
@@ -199,6 +200,7 @@ def test_ai_preload_analyze_openai_timeout_returns_controlled_json(client, db_se
     assert payload["details"]["retryable"] is True
     assert payload["details"]["text_only"] is True
     assert payload["details"]["files_count"] == 0
+    assert payload["details"]["large_input"] is False
 
 
 def test_ai_preload_analyze_invalid_model_returns_controlled_json(client, db_session, monkeypatch):
@@ -609,3 +611,94 @@ def test_ai_preload_sellable_rules_only_explicit_phrases_force_false(client, db_
     assert lines[0]["logistics_status"] == "EN_TRANSITO"
     assert lines[1]["sellable"] is False
     assert lines[1]["needs_review"] is True
+
+
+def test_ai_preload_long_shein_text_uses_deterministic_parser_without_openai(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-long-shein-parser")
+    token = _login(client, user.username, "Pass1234!")
+
+    def _should_not_call(*args, **kwargs):
+        raise AssertionError("OpenAI extract should not be called for deterministic SHEIN parse")
+
+    monkeypatch.setattr(OpenAIInventoryClient, "extract", _should_not_call)
+    long_text = (
+        "Núm. de pedido\nGSH16U13F000644\nFecha\n21 Feb 2026\nProductos Cantidad SKU Importe Estado Acción\n"
+        "SHEIN SXY Vestido vaquero largo...\nAzul lavado medio / XS\n1 SKU: sz2401176811723523\n$33.15\n$86.91\nEnviado\n"
+        "SHEIN SXY Vestido vaquero largo...\nAzul lavado medio / S\n1 SKU: sz2401176811723524\n$30.15\n$82.91\nEnviado\n"
+    )
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": long_text, "source_currency": "USD", "exchange_rate_to_gtq": "7.80"},
+    )
+    assert analyze.status_code == 200
+    payload = analyze.json()
+    assert payload["status"] == "DRAFT"
+    assert payload["total_lines"] == 2
+    first = payload["lines"][0]
+    assert first["sku"] == "sz2401176811723523"
+    assert first["quantity"] == 1
+    assert first["original_cost"] == "33.15"
+    assert first["reference_price_original"] == "86.91"
+    assert first["variant_1"] == "Azul lavado medio"
+    assert first["variant_2"] == "XS"
+    assert first["sellable"] is True
+    assert first["logistics_status"] == "Enviado"
+    assert first["pool"] == "BODEGA"
+    assert first["location_code"] == "RECEPCION"
+
+
+def test_ai_preload_long_non_shein_returns_processing_and_get_shows_processing(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-long-processing")
+    token = _login(client, user.username, "Pass1234!")
+
+    def _no_background(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(stock_router, "_run_large_ai_preload_extraction", _no_background)
+    long_non_shein = ("texto inventario sin patrones shein " * 300) + " SKU: A1 SKU: A2 SKU: A3 SKU: A4 SKU: A5"
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": long_non_shein, "source_currency": "USD"},
+    )
+    assert analyze.status_code == 200
+    payload = analyze.json()
+    assert payload["status"] == "PROCESSING"
+    extraction_id = payload["extraction_id"]
+
+    get_resp = client.get(
+        f"/aris3/stock/ai/preload/{extraction_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["status"] == "PROCESSING"
+
+
+def test_ai_preload_get_after_background_completion_returns_lines(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-completed")
+    token = _login(client, user.username, "Pass1234!")
+    extraction = StockAiExtraction(
+        tenant_id=_tenant.id,
+        store_id=store.id,
+        created_by_user_id=user.id,
+        source_currency="USD",
+        pricing_mode="manual",
+        rounding_step="1.00",
+        status="COMPLETED",
+        raw_ai_result={"document_summary": {"document_type": "other"}},
+        normalized_result={"lines": [{"row_key": "1", "sku": "SKU-COMPLETE", "description": "Producto", "quantity": 1, "source_currency": "USD", "needs_review": False}]},
+        warnings=[],
+        model_used="gpt-4.1-mini",
+    )
+    db_session.add(extraction)
+    db_session.commit()
+
+    get_resp = client.get(f"/aris3/stock/ai/preload/{extraction.id}", headers={"Authorization": f"Bearer {token}"})
+    assert get_resp.status_code == 200
+    payload = get_resp.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["total_lines"] == 1

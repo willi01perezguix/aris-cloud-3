@@ -209,6 +209,7 @@ class OpenAIInventoryClient:
         tenant_id: str,
         store_id: str,
         document_type: str | None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         if not self._api_key:
             raise AppError(
@@ -241,7 +242,8 @@ class OpenAIInventoryClient:
             },
         }
 
-        timeout = httpx.Timeout(OPENAI_TOTAL_TIMEOUT_SECONDS, connect=OPENAI_CONNECT_TIMEOUT_SECONDS)
+        total_timeout = timeout_seconds if timeout_seconds is not None else OPENAI_TOTAL_TIMEOUT_SECONDS
+        timeout = httpx.Timeout(total_timeout, connect=OPENAI_CONNECT_TIMEOUT_SECONDS)
         start = time.perf_counter()
         logger.info(
             "stock.ai_preload.openai_call_started trace_id=%s tenant_id=%s store_id=%s document_type=%s text_only=%s files_count=%s model_used=%s",
@@ -664,3 +666,140 @@ class StockAiPreloadService:
             return False
         line["reference_price_original"] = format(second_amount, "f")
         return True
+
+    def is_large_text_input(self, free_text: str | None) -> bool:
+        if not free_text:
+            return False
+        text = free_text.strip()
+        if not text:
+            return False
+        if len(text) > settings.AI_PRELOAD_SYNC_TEXT_CHAR_LIMIT:
+            return True
+        if text.count("SKU:") >= 5:
+            return True
+        lowered = text.lower()
+        return "núm. de pedido" in lowered and "productos" in lowered
+
+    def parse_shein_order_text(self, *, free_text: str | None, source_currency: str) -> dict[str, Any] | None:
+        if not free_text:
+            return None
+        lowered = free_text.lower()
+        if "sku:" not in lowered or ("shein" not in lowered and "núm. de pedido" not in lowered):
+            return None
+
+        order_number = self._extract_order_number(free_text)
+        order_date = self._extract_order_date(free_text)
+        sku_matches = list(re.finditer(r"(\d+)\s+SKU:\s*([A-Za-z0-9_-]+)", free_text, flags=re.IGNORECASE))
+        if not sku_matches:
+            return None
+
+        lines: list[dict[str, Any]] = []
+        for idx, match in enumerate(sku_matches):
+            quantity = int(match.group(1))
+            sku = match.group(2)
+            prev_start = sku_matches[idx - 1].end() if idx > 0 else 0
+            block_before = free_text[max(prev_start, match.start() - 420):match.start()]
+            block_after = free_text[match.end(): sku_matches[idx + 1].start() if idx + 1 < len(sku_matches) else min(len(free_text), match.end() + 240)]
+
+            description, variant_1, variant_2 = self._extract_shein_description_and_variants(block_before)
+            amounts = re.findall(r"\$(\d+(?:\.\d{1,2})?)", block_after)
+            if len(amounts) < 2:
+                amounts = re.findall(r"\$(\d+(?:\.\d{1,2})?)", block_before + "\n" + block_after)
+            first_price = self.parse_decimal(amounts[0]) if len(amounts) >= 1 else None
+            second_price = self.parse_decimal(amounts[1]) if len(amounts) >= 2 else None
+            status_match = re.search(r"\b(Enviado|Entregado|Recibido|En tránsito|En transito)\b", block_after, flags=re.IGNORECASE)
+            logistics_status = status_match.group(1) if status_match else None
+
+            line: dict[str, Any] = {
+                "sku": sku,
+                "description": description or f"Producto SHEIN {sku}",
+                "variant_1": variant_1,
+                "variant_2": variant_2,
+                "color": variant_1,
+                "size": variant_2,
+                "brand": "SHEIN" if "shein" in (description or "").lower() else None,
+                "pool": "BODEGA",
+                "location_code": "RECEPCION",
+                "logistics_status": logistics_status or "Enviado",
+                "sellable": True,
+                "quantity": max(1, quantity),
+                "source_order_number": order_number,
+                "source_order_date": order_date,
+                "source_currency": source_currency,
+                "original_cost": format(first_price, "f") if first_price is not None else None,
+                "reference_price_original": format(second_price, "f") if second_price is not None else None,
+                "needs_review": first_price is None,
+                "confidence": 0.93,
+                "notes": None,
+            }
+            lines.append(line)
+
+        high_confidence_lines = [line for line in lines if line.get("sku") and line.get("original_cost") and line.get("reference_price_original")]
+        if not high_confidence_lines:
+            return None
+        return {
+            "document_summary": {
+                "document_type": "other",
+                "document_number": order_number,
+                "document_date": order_date,
+                "detected_currency": source_currency,
+                "overall_confidence": 0.92,
+            },
+            "lines": lines,
+            "warnings": [],
+        }
+
+    def _extract_order_number(self, text: str) -> str | None:
+        inline = re.search(r"N[úu]m\.\s*de\s*pedido\s*[:\s]+([A-Z0-9]{8,})", text, flags=re.IGNORECASE)
+        if inline:
+            return inline.group(1).strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for idx, line in enumerate(lines[:-1]):
+            if re.search(r"N[úu]m\.\s*de\s*pedido", line, flags=re.IGNORECASE):
+                candidate = lines[idx + 1].strip()
+                if re.fullmatch(r"[A-Z0-9]{8,}", candidate):
+                    return candidate
+        return None
+
+    def _extract_order_date(self, text: str) -> str | None:
+        inline = re.search(r"Fecha\s*[:\s]+([0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})", text, flags=re.IGNORECASE)
+        if not inline:
+            return None
+        raw = inline.group(1).strip()
+        iso = re.fullmatch(r"([0-9]{4}-[0-9]{2}-[0-9]{2})", raw)
+        if iso:
+            return iso.group(1)
+        parts = raw.split()
+        if len(parts) != 3:
+            return raw
+        month_map = {
+            "jan": "01", "ene": "01", "feb": "02", "mar": "03", "apr": "04", "abr": "04", "may": "05", "jun": "06",
+            "jul": "07", "aug": "08", "ago": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12", "dic": "12",
+        }
+        day, month, year = parts
+        month_num = month_map.get(month.lower()[:3])
+        if not month_num:
+            return raw
+        return f"{year}-{month_num}-{int(day):02d}"
+
+    def _extract_shein_description_and_variants(self, block_before: str) -> tuple[str | None, str | None, str | None]:
+        lines = [line.strip() for line in block_before.splitlines() if line.strip()]
+        variant_1 = None
+        variant_2 = None
+        description = None
+        for line in reversed(lines):
+            if "/" in line and len(line) <= 80:
+                parts = [part.strip() for part in line.split("/", 1)]
+                if len(parts) == 2:
+                    variant_1, variant_2 = parts[0] or None, parts[1] or None
+                    break
+        for line in reversed(lines):
+            lowered = line.lower()
+            if "productos" in lowered or "cantidad" in lowered or "sku" in lowered:
+                continue
+            if "/" in line and line == f"{variant_1 or ''} / {variant_2 or ''}".strip():
+                continue
+            if len(line) > 8:
+                description = line
+                break
+        return description, variant_1, variant_2

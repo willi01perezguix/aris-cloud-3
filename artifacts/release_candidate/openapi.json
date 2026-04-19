@@ -12894,6 +12894,51 @@
             "type": "string",
             "title": "Store Id"
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED",
+              "CONFIRMED"
+            ],
+            "title": "Status",
+            "default": "DRAFT"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "estimated_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Seconds"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
           "document_summary": {
             "$ref": "#/components/schemas/AiPreloadDocumentSummary"
           },

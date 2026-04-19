@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import String, cast, func, select
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 
 from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
@@ -1304,7 +1304,7 @@ async def analyze_ai_preload(
     multiplier: str | None = Form(default=None),
     rounding_step: str = Form(default="1.00"),
     operator_notes: str | None = Form(default=None),
-    files: list[UploadFile] = File(default_factory=list),
+    files: list[UploadFile] | None = File(default=None),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     db=Depends(get_db),
@@ -1314,9 +1314,18 @@ async def analyze_ai_preload(
     _validate_scoped_store(db, tenant_id=scoped_tenant_id, store_id=store_id)
     service = StockAiPreloadService()
     uploads: list[UploadedSource] = []
+    upload_files = files or []
     deterministic_rows: list[dict] = []
     warnings: list[AiPreloadWarning] = []
-    for file in files:
+    logger.info(
+        "stock.ai_preload.request_received trace_id=%s tenant_id=%s store_id=%s text_only=%s files_count=%s",
+        getattr(request.state, "trace_id", None),
+        scoped_tenant_id,
+        store_id,
+        len(upload_files) == 0,
+        len(upload_files),
+    )
+    for file in upload_files:
         content = await file.read()
         uploads.append(UploadedSource(filename=file.filename or "upload.bin", content_type=file.content_type or "application/octet-stream", content=content))
     service.validate_files(uploads)
@@ -1380,19 +1389,33 @@ async def analyze_ai_preload(
         created_at=now,
         updated_at=now,
     )
-    db.add(extraction)
-    db.flush()
-    for file in uploads:
-        db.add(
-            StockAiExtractionFile(
-                extraction_id=extraction.id,
-                original_filename=file.filename,
-                content_type=file.content_type,
-                size_bytes=len(file.content),
-                created_at=now,
+    try:
+        db.add(extraction)
+        db.flush()
+        for file in uploads:
+            db.add(
+                StockAiExtractionFile(
+                    extraction_id=extraction.id,
+                    original_filename=file.filename,
+                    content_type=file.content_type,
+                    size_bytes=len(file.content),
+                    created_at=now,
+                )
             )
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.warning(
+            "stock.ai_preload.persistence_failed trace_id=%s tenant_id=%s store_id=%s error_class=%s",
+            getattr(request.state, "trace_id", None),
+            scoped_tenant_id,
+            store_id,
+            exc.__class__.__name__,
         )
-    db.commit()
+        raise AppError(
+            ErrorCatalog.DB_UNAVAILABLE,
+            details={"message": "Failed to persist AI extraction", "retryable": True},
+        ) from exc
     return AiPreloadAnalyzeResponse(
         extraction_id=str(extraction.id),
         store_id=store_id,

@@ -206,10 +206,26 @@ def test_ai_preload_analyze_invalid_model_returns_controlled_json(client, db_ses
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(settings, "OPENAI_INVENTORY_MODEL", "bad model !")
 
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 422
+    payload = analyze.json()
+    assert payload["code"] == "AI_INVALID_MODEL"
+
+
+def test_ai_preload_analyze_invalid_api_key_returns_controlled_json(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-auth-failed")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "bad-key")
+
     def _mock_http_error(*args, **kwargs):
         request = httpx.Request("POST", "https://api.openai.com/v1/responses")
-        response = httpx.Response(400, request=request, text='{"error":{"message":"The model `bad` does not exist"}}')
-        raise httpx.HTTPStatusError("bad request", request=request, response=response)
+        response = httpx.Response(401, request=request, text='{"error":{"message":"invalid_api_key"}}')
+        raise httpx.HTTPStatusError("unauthorized", request=request, response=response)
 
     monkeypatch.setattr(httpx, "post", _mock_http_error)
     analyze = client.post(
@@ -217,10 +233,52 @@ def test_ai_preload_analyze_invalid_model_returns_controlled_json(client, db_ses
         headers={"Authorization": f"Bearer {token}"},
         data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
     )
-    # Invalid configured model name falls back to default model, then OpenAI can still reject payload/model.
-    assert analyze.status_code in {422, 503}
+    assert analyze.status_code == 401
     payload = analyze.json()
-    assert payload["code"] in {"AI_INVALID_MODEL", "AI_SERVICE_UNAVAILABLE"}
+    assert payload["code"] == "AI_AUTH_FAILED"
+
+
+def test_ai_preload_analyze_rate_limit_returns_controlled_json(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-rate-limit")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+
+    def _mock_http_error(*args, **kwargs):
+        request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+        response = httpx.Response(429, request=request, text='{"error":{"message":"rate_limit"}}')
+        raise httpx.HTTPStatusError("rate limit", request=request, response=response)
+
+    monkeypatch.setattr(httpx, "post", _mock_http_error)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 429
+    payload = analyze.json()
+    assert payload["code"] == "AI_RATE_LIMITED"
+
+
+def test_ai_preload_analyze_malformed_output_returns_controlled_json(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-malformed")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+
+    def _mock_post(*args, **kwargs):
+        request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+        return httpx.Response(200, request=request, json={"output_text": "{not json"})
+
+    monkeypatch.setattr(httpx, "post", _mock_post)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 502
+    payload = analyze.json()
+    assert payload["code"] == "AI_BAD_RESPONSE"
 
 
 def test_ai_preload_analyze_text_only_response_excludes_epc_and_sale_fields(client, db_session, monkeypatch):
@@ -275,3 +333,22 @@ def test_ai_preload_analyze_text_only_response_excludes_epc_and_sale_fields(clie
     assert "epc" not in line
     assert "sale_price" not in line
     assert "venta" not in line
+
+
+def test_ai_preload_analyze_without_files_field_behaves_as_text_only(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-empty-files")
+    token = _login(client, user.username, "Pass1234!")
+
+    def _mock_extract(self, *, attachments, **kwargs):
+        assert attachments == []
+        return {"document_summary": {}, "lines": [], "warnings": []}
+
+    monkeypatch.setattr(OpenAIInventoryClient, "extract", _mock_extract)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "solo texto", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 200
+    assert analyze.json()["total_lines"] == 0

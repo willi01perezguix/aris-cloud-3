@@ -37,6 +37,8 @@ EPC_KEYS = {"epc", "rfid", "tag"}
 SALE_KEYS = {"venta", "sale", "sale_price", "precio venta"}
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 _MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$")
+OPENAI_TOTAL_TIMEOUT_SECONDS = 18.0
+OPENAI_CONNECT_TIMEOUT_SECONDS = 3.0
 logger = logging.getLogger(__name__)
 
 
@@ -53,8 +55,13 @@ class OpenAIInventoryClient:
         configured_model = (settings.OPENAI_INVENTORY_MODEL or "").strip()
         if configured_model and _MODEL_NAME_PATTERN.match(configured_model):
             self._model = configured_model
+            self._invalid_configured_model: str | None = None
+        elif configured_model:
+            self._model = configured_model
+            self._invalid_configured_model = configured_model
         else:
             self._model = DEFAULT_OPENAI_MODEL
+            self._invalid_configured_model = None
         logger.info(
             "stock.ai_preload.config api_key_present=%s model_configured=%s model_used=%s",
             bool(self._api_key),
@@ -76,6 +83,11 @@ class OpenAIInventoryClient:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "OPENAI_API_KEY is not configured", "retryable": False, "model": self._model},
+            )
+        if self._invalid_configured_model:
+            raise AppError(
+                ErrorCatalog.AI_INVALID_MODEL,
+                details={"message": "Configured OpenAI model is invalid", "retryable": False, "model": self._invalid_configured_model},
             )
         content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt}]
         for item in attachments:
@@ -108,7 +120,7 @@ class OpenAIInventoryClient:
             },
         }
 
-        timeout = httpx.Timeout(22.0, connect=3.0)
+        timeout = httpx.Timeout(OPENAI_TOTAL_TIMEOUT_SECONDS, connect=OPENAI_CONNECT_TIMEOUT_SECONDS)
         start = time.perf_counter()
         logger.info(
             "stock.ai_preload.openai_call_started trace_id=%s tenant_id=%s store_id=%s document_type=%s text_only=%s files_count=%s model_used=%s",

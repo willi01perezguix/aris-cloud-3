@@ -1775,6 +1775,7 @@ def confirm_ai_preload(
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "cost_gtq is required"})
         if priced.get("needs_review"):
             review_required_count += 1
+        catalog_product_id = None
         if payload.confirm_mode in {"CATALOG_ONLY", "CATALOG_AND_PRELOAD"}:
             upsert_result = catalog_service.upsert_catalog_product(
                 tenant_id=UUID(scoped_tenant_id),
@@ -1804,11 +1805,13 @@ def confirm_ai_preload(
                 source_extraction_id=UUID(payload.extraction_id) if payload.extraction_id else None,
                 created_by_user_id=UUID(token_data.sub) if token_data.sub else None,
             )
+            catalog_product_id = upsert_result.catalog_product.id
             catalog_created_count += int(upsert_result.created)
             catalog_updated_count += int(upsert_result.updated)
         preload_lines.append(
             {
                 "sku": line.sku or line.suggested_sku,
+                "catalog_product_id": catalog_product_id,
                 "epc": None,
                 "description": line.description,
                 "var1_value": line.variant_1,
@@ -1838,6 +1841,7 @@ def confirm_ai_preload(
                         preload_session_id=session.id,
                         tenant_id=scoped_tenant_id,
                         store_id=payload.store_id,
+                        catalog_product_id=row["catalog_product_id"],
                         sku=row["sku"],
                         epc=None,
                         description=row["description"],

@@ -5312,8 +5312,44 @@
                   "type": "null"
                 }
               ],
+              "description": "Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles.",
               "title": "Tenant Id"
-            }
+            },
+            "description": "Tenant scope. Required for superadmin roles; ignored for tenant-scoped roles."
+          },
+          {
+            "name": "store_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional store scope. Defaults to the authenticated user's store in self scope.",
+              "title": "Store Id"
+            },
+            "description": "Optional store scope. Defaults to the authenticated user's store in self scope."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "self",
+                "tenant"
+              ],
+              "type": "string",
+              "description": "Scope mode. Use tenant only for explicit admin tenant-wide queries.",
+              "default": "self",
+              "title": "Scope"
+            },
+            "description": "Scope mode. Use tenant only for explicit admin tenant-wide queries."
           }
         ],
         "responses": {

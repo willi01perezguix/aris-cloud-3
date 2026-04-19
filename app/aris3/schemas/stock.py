@@ -397,6 +397,7 @@ class PreloadLineResponse(BaseModel):
     item_uid: str
     tenant_id: str
     store_id: str | None
+    catalog_product_id: str | None = None
     sku: str | None
     epc: str | None
     description: str | None
@@ -525,6 +526,7 @@ AiDocumentType = Literal[
     "unknown",
 ]
 AiPricingMode = Literal["markup_percent", "margin_percent", "multiplier", "manual"]
+AiConfirmMode = Literal["CREATE_PRELOAD_ONLY", "CATALOG_ONLY", "CATALOG_AND_PRELOAD"]
 
 
 class AiPreloadWarning(BaseModel):
@@ -609,12 +611,60 @@ class AiPreloadConfirmRequest(BaseModel):
     margin_percent: str | None = None
     multiplier: str | None = None
     rounding_step: str = "1.00"
+    confirm_mode: AiConfirmMode = "CATALOG_AND_PRELOAD"
     lines: list[AiPreloadLine]
 
 
 class AiPreloadConfirmResponse(BaseModel):
-    preload_session_id: str
+    preload_session_id: str | None = None
     created_lines_count: int
+    catalog_created_count: int = 0
+    catalog_updated_count: int = 0
     review_required_count: int
     warnings: list[AiPreloadWarning]
     trace_id: str
+
+
+class CatalogProductUpsertLine(BaseModel):
+    sku: str | None = None
+    description: str | None = None
+    variant_1: str | None = None
+    variant_2: str | None = None
+    color: str | None = None
+    size: str | None = None
+    brand: str | None = None
+    category: str | None = None
+    style: str | None = None
+    source_order_number: str | None = None
+    source_order_date: str | None = None
+    source_supplier: str | None = None
+    original_cost: str | None = None
+    source_currency: str | None = None
+    exchange_rate_to_gtq: str | None = None
+    cost_gtq: str | None = None
+    suggested_price_gtq: str | None = None
+    reference_price_original: str | None = None
+    reference_price_gtq: str | None = None
+    pool: str | None = None
+    location_code: str | None = None
+    sellable: bool = True
+
+
+class CatalogProductUpsertRequest(BaseModel):
+    store_id: str | None = None
+    source_type: Literal["AI_PRELOAD", "PRELOAD", "MANUAL", "IMPORT"] = "MANUAL"
+    update_sale_price: bool = False
+    line: CatalogProductUpsertLine
+
+
+class CatalogProductBulkUpsertRequest(BaseModel):
+    store_id: str | None = None
+    source_type: Literal["AI_PRELOAD", "PRELOAD", "MANUAL", "IMPORT"] = "MANUAL"
+    update_sale_price: bool = False
+    lines: list[CatalogProductUpsertLine]
+
+
+class CatalogUpsertResponse(BaseModel):
+    created_count: int
+    updated_count: int
+    review_required_count: int

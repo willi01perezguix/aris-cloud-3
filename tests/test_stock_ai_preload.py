@@ -5,7 +5,7 @@ import httpx
 
 from app.aris3.core.config import settings
 from app.aris3.core.security import get_password_hash
-from app.aris3.db.models import PreloadLine, StockAiExtraction, Store, Tenant, User
+from app.aris3.db.models import CatalogProduct, CatalogProductCostHistory, PreloadLine, StockAiExtraction, StockItem, Store, Tenant, User
 from app.aris3.db.seed import run_seed
 from app.aris3.routers import stock as stock_router
 from app.aris3.services.stock_ai_preload import OpenAIInventoryClient
@@ -108,6 +108,119 @@ def test_ai_preload_analyze_text_and_confirm_creates_preload_session(client, db_
     assert len(lines) == 2
     assert all(line.epc is None for line in lines)
     assert all(line.sale_price is None for line in lines)
+
+
+def test_ai_confirm_catalog_only_creates_catalog_without_stock(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "ai-catalog-only")
+    token = _login(client, user.username, "Pass1234!")
+    confirm = client.post(
+        "/aris3/stock/ai/preload/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_currency": "GTQ",
+            "pricing_mode": "manual",
+            "confirm_mode": "CATALOG_ONLY",
+            "lines": [
+                {
+                    "row_key": "1",
+                    "sku": "SKU-CAT-1",
+                    "description": "Producto catalogo",
+                    "variant_1": "NEGRO",
+                    "variant_2": "M",
+                    "quantity": 1,
+                    "cost_gtq": "111.38",
+                    "suggested_price_gtq": "160.00",
+                    "needs_review": False,
+                }
+            ],
+        },
+    )
+    assert confirm.status_code == 200
+    payload = confirm.json()
+    assert payload["preload_session_id"] is None
+    assert payload["created_lines_count"] == 0
+    assert payload["catalog_created_count"] == 1
+    assert db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id).count() == 1
+    assert db_session.query(PreloadLine).filter(PreloadLine.tenant_id == tenant.id).count() == 0
+    assert db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).count() == 0
+
+
+def test_catalog_bulk_upsert_changed_cost_sets_review_without_overwriting_sale_price(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "catalog-bulk-upsert")
+    token = _login(client, user.username, "Pass1234!")
+
+    first = client.post(
+        "/aris3/catalog/products/bulk-upsert",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_type": "IMPORT",
+            "lines": [
+                {
+                    "sku": "SKU-COST-1",
+                    "variant_1": "BLACK",
+                    "variant_2": "M",
+                    "description": "Camisa",
+                    "cost_gtq": "111.38",
+                    "suggested_price_gtq": "160.00",
+                }
+            ],
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/aris3/catalog/products/bulk-upsert",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_type": "IMPORT",
+            "lines": [
+                {
+                    "sku": "SKU-COST-1",
+                    "variant_1": "BLACK",
+                    "variant_2": "M",
+                    "description": "Camisa nueva compra",
+                    "cost_gtq": "125.00",
+                    "suggested_price_gtq": "175.00",
+                }
+            ],
+        },
+    )
+    assert second.status_code == 200
+    assert second.json()["created_count"] == 0
+    assert second.json()["updated_count"] == 1
+
+    product = db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id, CatalogProduct.sku == "SKU-COST-1").one()
+    product.default_sale_price_gtq = 160
+    db_session.add(product)
+    db_session.commit()
+
+    third = client.post(
+        "/aris3/catalog/products/upsert",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_type": "MANUAL",
+            "line": {
+                "sku": "SKU-COST-1",
+                "variant_1": "BLACK",
+                "variant_2": "M",
+                "cost_gtq": "130.00",
+                "suggested_price_gtq": "180.00",
+            },
+        },
+    )
+    assert third.status_code == 200
+    db_session.refresh(product)
+    assert str(product.last_cost_gtq) == "130.00"
+    assert str(product.suggested_price_gtq) == "180.00"
+    assert str(product.default_sale_price_gtq) == "160.00"
+    assert product.price_review_required is True
+    assert db_session.query(CatalogProductCostHistory).filter(CatalogProductCostHistory.catalog_product_id == product.id).count() == 3
 
 
 def test_ai_preload_spreadsheet_epc_and_sale_warning(client, db_session, monkeypatch):

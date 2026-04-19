@@ -5007,6 +5007,146 @@
         ]
       }
     },
+    "/aris3/catalog/products/upsert": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Upsert Catalog Product",
+        "operationId": "post_aris3_catalog_products_upsert",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogProductUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogUpsertResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/aris3/catalog/products/bulk-upsert": {
+      "post": {
+        "tags": [
+          "stock"
+        ],
+        "summary": "Bulk Upsert Catalog Products",
+        "operationId": "post_aris3_catalog_products_bulk-upsert",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogProductBulkUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogUpsertResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
     "/aris3/stock/preload-sessions": {
       "post": {
         "tags": [
@@ -13058,6 +13198,16 @@
             "title": "Rounding Step",
             "default": "1.00"
           },
+          "confirm_mode": {
+            "type": "string",
+            "enum": [
+              "CREATE_PRELOAD_ONLY",
+              "CATALOG_ONLY",
+              "CATALOG_AND_PRELOAD"
+            ],
+            "title": "Confirm Mode",
+            "default": "CATALOG_AND_PRELOAD"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/AiPreloadLine"
@@ -13076,12 +13226,29 @@
       "AiPreloadConfirmResponse": {
         "properties": {
           "preload_session_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Preload Session Id"
           },
           "created_lines_count": {
             "type": "integer",
             "title": "Created Lines Count"
+          },
+          "catalog_created_count": {
+            "type": "integer",
+            "title": "Catalog Created Count",
+            "default": 0
+          },
+          "catalog_updated_count": {
+            "type": "integer",
+            "title": "Catalog Updated Count",
+            "default": 0
           },
           "review_required_count": {
             "type": "integer",
@@ -13101,7 +13268,6 @@
         },
         "type": "object",
         "required": [
-          "preload_session_id",
           "created_lines_count",
           "review_required_count",
           "warnings",
@@ -14029,6 +14195,353 @@
           "amount"
         ],
         "title": "CashOutRequest"
+      },
+      "CatalogProductBulkUpsertRequest": {
+        "properties": {
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "AI_PRELOAD",
+              "PRELOAD",
+              "MANUAL",
+              "IMPORT"
+            ],
+            "title": "Source Type",
+            "default": "MANUAL"
+          },
+          "update_sale_price": {
+            "type": "boolean",
+            "title": "Update Sale Price",
+            "default": false
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogProductUpsertLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lines"
+        ],
+        "title": "CatalogProductBulkUpsertRequest"
+      },
+      "CatalogProductUpsertLine": {
+        "properties": {
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "variant_1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant 1"
+          },
+          "variant_2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant 2"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Style"
+          },
+          "source_order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Order Number"
+          },
+          "source_order_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Order Date"
+          },
+          "source_supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Supplier"
+          },
+          "original_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cost"
+          },
+          "source_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Currency"
+          },
+          "exchange_rate_to_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Rate To Gtq"
+          },
+          "cost_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Gtq"
+          },
+          "suggested_price_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Price Gtq"
+          },
+          "reference_price_original": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Price Original"
+          },
+          "reference_price_gtq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Price Gtq"
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool"
+          },
+          "location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Code"
+          },
+          "sellable": {
+            "type": "boolean",
+            "title": "Sellable",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "CatalogProductUpsertLine"
+      },
+      "CatalogProductUpsertRequest": {
+        "properties": {
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "AI_PRELOAD",
+              "PRELOAD",
+              "MANUAL",
+              "IMPORT"
+            ],
+            "title": "Source Type",
+            "default": "MANUAL"
+          },
+          "update_sale_price": {
+            "type": "boolean",
+            "title": "Update Sale Price",
+            "default": false
+          },
+          "line": {
+            "$ref": "#/components/schemas/CatalogProductUpsertLine"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line"
+        ],
+        "title": "CatalogProductUpsertRequest"
+      },
+      "CatalogUpsertResponse": {
+        "properties": {
+          "created_count": {
+            "type": "integer",
+            "title": "Created Count"
+          },
+          "updated_count": {
+            "type": "integer",
+            "title": "Updated Count"
+          },
+          "review_required_count": {
+            "type": "integer",
+            "title": "Review Required Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "created_count",
+          "updated_count",
+          "review_required_count"
+        ],
+        "title": "CatalogUpsertResponse"
       },
       "ChangePasswordRequest": {
         "properties": {
@@ -19380,6 +19893,17 @@
               }
             ],
             "title": "Store Id"
+          },
+          "catalog_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Product Id"
           },
           "sku": {
             "anyOf": [

@@ -9,6 +9,8 @@ def test_stock_ai_preload_endpoints_are_published_in_openapi():
     assert "get" in paths["/aris3/stock/ai/preload/{extraction_id}"]
     assert "/aris3/stock/ai/preload/confirm" in paths
     assert "post" in paths["/aris3/stock/ai/preload/confirm"]
+    assert "/aris3/catalog/products/upsert" in paths
+    assert "/aris3/catalog/products/bulk-upsert" in paths
 
 
 def test_stock_ai_preload_files_schema_uses_binary_uploads():
@@ -34,3 +36,9 @@ def test_stock_ai_preload_line_schema_includes_extended_normalized_fields():
         "style",
     ):
         assert field in line_schema
+
+
+def test_ai_confirm_request_includes_confirm_mode():
+    openapi = create_app().openapi()
+    props = openapi["components"]["schemas"]["AiPreloadConfirmRequest"]["properties"]
+    assert "confirm_mode" in props

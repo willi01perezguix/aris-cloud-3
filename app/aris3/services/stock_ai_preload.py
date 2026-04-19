@@ -41,6 +41,90 @@ OPENAI_TOTAL_TIMEOUT_SECONDS = 18.0
 OPENAI_CONNECT_TIMEOUT_SECONDS = 3.0
 logger = logging.getLogger(__name__)
 
+INVENTORY_PRELOAD_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "document_summary": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "document_type": {"type": ["string", "null"]},
+                "detected_currency": {"type": ["string", "null"]},
+                "overall_confidence": {"type": ["number", "null"]},
+            },
+            "required": ["document_type", "detected_currency", "overall_confidence"],
+        },
+        "pricing_context": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "source_currency": {"type": ["string", "null"]},
+                "exchange_rate_to_gtq": {"type": ["string", "null"]},
+                "pricing_mode": {"type": ["string", "null"]},
+            },
+            "required": ["source_currency", "exchange_rate_to_gtq", "pricing_mode"],
+        },
+        "lines": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "sku": {"type": ["string", "null"]},
+                    "suggested_sku": {"type": ["string", "null"]},
+                    "description": {"type": ["string", "null"]},
+                    "variant_1": {"type": ["string", "null"]},
+                    "variant_2": {"type": ["string", "null"]},
+                    "pool": {"type": ["string", "null"]},
+                    "location_code": {"type": ["string", "null"]},
+                    "sellable": {"type": ["boolean", "null"]},
+                    "quantity": {"type": ["integer", "null"]},
+                    "original_cost": {"type": ["string", "null"]},
+                    "source_currency": {"type": ["string", "null"]},
+                    "needs_review": {"type": ["boolean", "null"]},
+                    "confidence": {"type": ["number", "null"]},
+                    "notes": {"type": ["string", "null"]},
+                    "source_file_name": {"type": ["string", "null"]},
+                    "source_row_number": {"type": ["integer", "null"]},
+                },
+                "required": [
+                    "sku",
+                    "suggested_sku",
+                    "description",
+                    "variant_1",
+                    "variant_2",
+                    "pool",
+                    "location_code",
+                    "sellable",
+                    "quantity",
+                    "original_cost",
+                    "source_currency",
+                    "needs_review",
+                    "confidence",
+                    "notes",
+                    "source_file_name",
+                    "source_row_number",
+                ],
+            },
+        },
+        "warnings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "severity": {"type": ["string", "null"]},
+                    "message": {"type": ["string", "null"]},
+                    "line_ref": {"type": ["string", "null"]},
+                },
+                "required": ["severity", "message", "line_ref"],
+            },
+        },
+    },
+    "required": ["document_summary", "pricing_context", "lines", "warnings"],
+}
+
 
 @dataclass
 class UploadedSource:
@@ -105,17 +189,7 @@ class OpenAIInventoryClient:
                     "type": "json_schema",
                     "name": "inventory_preload_extraction",
                     "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "document_summary": {"type": "object"},
-                            "pricing_context": {"type": "object"},
-                            "lines": {"type": "array"},
-                            "warnings": {"type": "array"},
-                        },
-                        "required": ["document_summary", "pricing_context", "lines", "warnings"],
-                        "additionalProperties": True,
-                    },
+                    "schema": INVENTORY_PRELOAD_SCHEMA,
                 }
             },
         }
@@ -159,8 +233,8 @@ class OpenAIInventoryClient:
         except httpx.HTTPStatusError as exc:
             elapsed_ms = int((time.perf_counter() - start) * 1000)
             status_code = exc.response.status_code if exc.response is not None else None
-            body_text = (exc.response.text or "")[:500] if exc.response is not None else ""
-            error_lower = body_text.lower()
+            provider_error = _extract_openai_error(exc.response)
+            error_lower = (provider_error.get("message") or "").lower()
             if status_code in (401, 403):
                 error = ErrorCatalog.AI_AUTH_FAILED
                 details = {"message": "OpenAI API key is invalid or unauthorized", "retryable": False, "model": self._model}
@@ -169,15 +243,50 @@ class OpenAIInventoryClient:
                 details = {"message": "OpenAI rate limit exceeded", "retryable": True, "model": self._model}
             elif status_code == 400 and ("model" in error_lower and ("not found" in error_lower or "does not exist" in error_lower)):
                 error = ErrorCatalog.AI_INVALID_MODEL
-                details = {"message": "Configured OpenAI model is invalid", "retryable": False, "model": self._model}
+                details = {
+                    "message": "Configured OpenAI model is invalid",
+                    "retryable": False,
+                    "model": self._model,
+                    "provider_status": status_code,
+                    "provider_error_type": provider_error.get("type"),
+                    "provider_error_code": provider_error.get("code"),
+                    "provider_error_param": provider_error.get("param"),
+                }
+            elif status_code == 400:
+                error = ErrorCatalog.AI_REQUEST_INVALID
+                details = {
+                    "message": "AI inventory request is invalid",
+                    "retryable": False,
+                    "model": self._model,
+                    "provider_status": status_code,
+                    "provider_error_type": provider_error.get("type"),
+                    "provider_error_code": provider_error.get("code"),
+                    "provider_error_param": provider_error.get("param"),
+                }
             elif status_code and status_code >= 500:
                 error = ErrorCatalog.AI_SERVICE_UNAVAILABLE
-                details = {"message": "OpenAI service unavailable", "retryable": True, "model": self._model}
+                details = {
+                    "message": "OpenAI service unavailable",
+                    "retryable": True,
+                    "model": self._model,
+                    "provider_status": status_code,
+                    "provider_error_type": provider_error.get("type"),
+                    "provider_error_code": provider_error.get("code"),
+                    "provider_error_param": provider_error.get("param"),
+                }
             else:
                 error = ErrorCatalog.AI_SERVICE_UNAVAILABLE
-                details = {"message": "AI analysis failed", "retryable": status_code != 400, "model": self._model}
+                details = {
+                    "message": "AI analysis failed",
+                    "retryable": status_code != 400,
+                    "model": self._model,
+                    "provider_status": status_code,
+                    "provider_error_type": provider_error.get("type"),
+                    "provider_error_code": provider_error.get("code"),
+                    "provider_error_param": provider_error.get("param"),
+                }
             logger.warning(
-                "stock.ai_preload.openai_call_finished trace_id=%s tenant_id=%s store_id=%s success=false timeout=false elapsed_ms=%s error_class=%s status_code=%s model_used=%s",
+                "stock.ai_preload.openai_call_finished trace_id=%s tenant_id=%s store_id=%s success=false timeout=false elapsed_ms=%s error_class=%s status_code=%s model_used=%s provider_error_type=%s provider_error_code=%s provider_error_param=%s provider_error_message=%s",
                 trace_id,
                 tenant_id,
                 store_id,
@@ -185,6 +294,10 @@ class OpenAIInventoryClient:
                 exc.__class__.__name__,
                 status_code,
                 self._model,
+                provider_error.get("type"),
+                provider_error.get("code"),
+                provider_error.get("param"),
+                provider_error.get("message"),
             )
             raise AppError(error, details=details) from exc
         except httpx.HTTPError as exc:
@@ -219,7 +332,7 @@ class OpenAIInventoryClient:
                 return json.loads(text_output)
             except json.JSONDecodeError as exc:
                 raise AppError(
-                    ErrorCatalog.AI_BAD_RESPONSE,
+                    ErrorCatalog.AI_RESPONSE_INVALID,
                     details={"message": "OpenAI returned malformed JSON output", "retryable": False, "model": self._model},
                 ) from exc
         output = data.get("output", [])
@@ -230,13 +343,32 @@ class OpenAIInventoryClient:
                         return json.loads(content_item.get("text", "{}"))
                     except json.JSONDecodeError as exc:
                         raise AppError(
-                            ErrorCatalog.AI_BAD_RESPONSE,
+                            ErrorCatalog.AI_RESPONSE_INVALID,
                             details={"message": "OpenAI returned malformed JSON output", "retryable": False, "model": self._model},
                         ) from exc
         raise AppError(
-            ErrorCatalog.AI_BAD_RESPONSE,
+            ErrorCatalog.AI_RESPONSE_INVALID,
             details={"message": "AI analysis returned empty output", "retryable": False, "model": self._model},
         )
+
+
+def _extract_openai_error(response: httpx.Response | None) -> dict[str, Any]:
+    if response is None:
+        return {"message": None, "type": None, "param": None, "code": None}
+    payload: dict[str, Any] = {}
+    try:
+        payload = response.json() if response.content else {}
+    except (ValueError, TypeError):
+        payload = {}
+    error_payload = payload.get("error") if isinstance(payload, dict) else {}
+    if not isinstance(error_payload, dict):
+        error_payload = {}
+    return {
+        "message": error_payload.get("message"),
+        "type": error_payload.get("type"),
+        "param": error_payload.get("param"),
+        "code": error_payload.get("code"),
+    }
 
 
 class StockAiPreloadService:

@@ -106,6 +106,16 @@ class ErrorCatalog:
         "AI service returned malformed response",
         status.HTTP_502_BAD_GATEWAY,
     )
+    AI_REQUEST_INVALID = ErrorDefinition(
+        "AI_REQUEST_INVALID",
+        "AI inventory request is invalid",
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    AI_RESPONSE_INVALID = ErrorDefinition(
+        "AI_RESPONSE_INVALID",
+        "AI service returned malformed response",
+        status.HTTP_502_BAD_GATEWAY,
+    )
     AI_INVALID_MODEL = ErrorDefinition(
         "AI_INVALID_MODEL",
         "AI model is invalid or unavailable",

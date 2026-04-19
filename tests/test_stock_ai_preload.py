@@ -240,6 +240,41 @@ def test_ai_preload_analyze_invalid_api_key_returns_controlled_json(client, db_s
     assert payload["code"] == "AI_AUTH_FAILED"
 
 
+def test_ai_preload_text_only_openai_request_uses_valid_responses_payload(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "OPENAI_INVENTORY_MODEL", "gpt-4.1-mini")
+    captured: dict = {}
+
+    def _mock_post(url, *, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        request = httpx.Request("POST", url)
+        return httpx.Response(200, request=request, json={"output_text": '{"document_summary":{},"pricing_context":{},"lines":[],"warnings":[]}'})
+
+    monkeypatch.setattr(httpx, "post", _mock_post)
+    client = OpenAIInventoryClient()
+    client.extract(
+        prompt="12 camisas negras talla M costo USD 10.00 cada una",
+        attachments=[],
+        trace_id="trace-test",
+        tenant_id="tenant-1",
+        store_id="store-1",
+        document_type="other",
+    )
+    payload = captured["json"]
+    assert captured["url"] == "https://api.openai.com/v1/responses"
+    assert payload["model"] == "gpt-4.1-mini"
+    assert payload["text"]["format"]["type"] == "json_schema"
+    assert payload["text"]["format"]["name"] == "inventory_preload_extraction"
+    assert payload["text"]["format"]["strict"] is True
+    assert payload["text"]["format"]["schema"]["additionalProperties"] is False
+    user_content = payload["input"][1]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "input_text"
+    assert "input_file" not in str(payload)
+
+
 def test_ai_preload_analyze_rate_limit_returns_controlled_json(client, db_session, monkeypatch):
     run_seed(db_session)
     _tenant, store, user = _create_tenant_user(db_session, "ai-preload-rate-limit")
@@ -280,7 +315,44 @@ def test_ai_preload_analyze_malformed_output_returns_controlled_json(client, db_
     )
     assert analyze.status_code == 502
     payload = analyze.json()
-    assert payload["code"] == "AI_BAD_RESPONSE"
+    assert payload["code"] == "AI_RESPONSE_INVALID"
+
+
+def test_ai_preload_analyze_openai_400_returns_ai_request_invalid(client, db_session, monkeypatch):
+    run_seed(db_session)
+    _tenant, store, user = _create_tenant_user(db_session, "ai-preload-request-invalid")
+    token = _login(client, user.username, "Pass1234!")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+
+    def _mock_http_error(*args, **kwargs):
+        request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+        response = httpx.Response(
+            400,
+            request=request,
+            json={
+                "error": {
+                    "message": "Invalid schema for response_format",
+                    "type": "invalid_request_error",
+                    "param": "text.format.schema",
+                    "code": "invalid_json_schema",
+                }
+            },
+        )
+        raise httpx.HTTPStatusError("bad request", request=request, response=response)
+
+    monkeypatch.setattr(httpx, "post", _mock_http_error)
+    analyze = client.post(
+        "/aris3/stock/ai/preload/analyze",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"store_id": str(store.id), "free_text": "2 camisas", "source_currency": "USD"},
+    )
+    assert analyze.status_code == 422
+    payload = analyze.json()
+    assert payload["code"] == "AI_REQUEST_INVALID"
+    assert payload["details"]["provider_status"] == 400
+    assert payload["details"]["provider_error_type"] == "invalid_request_error"
+    assert payload["details"]["provider_error_code"] == "invalid_json_schema"
+    assert payload["details"]["provider_error_param"] == "text.format.schema"
 
 
 def test_ai_preload_analyze_text_only_response_excludes_epc_and_sale_fields(client, db_session, monkeypatch):

@@ -73,10 +73,12 @@ INVENTORY_PRELOAD_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
             "properties": {
                 "document_type": {"type": ["string", "null"]},
+                "document_number": {"type": ["string", "null"]},
+                "document_date": {"type": ["string", "null"]},
                 "detected_currency": {"type": ["string", "null"]},
                 "overall_confidence": {"type": ["number", "null"]},
             },
-            "required": ["document_type", "detected_currency", "overall_confidence"],
+            "required": ["document_type", "document_number", "document_date", "detected_currency", "overall_confidence"],
         },
         "pricing_context": {
             "type": "object",
@@ -628,10 +630,37 @@ class StockAiPreloadService:
                 elif pricing_mode == "manual":
                     line["suggested_price_gtq"] = line.get("suggested_price_gtq")
                     needs_review = True
-        if reference_price_original is not None and line_currency == "GTQ":
-            line["reference_price_gtq"] = format(reference_price_original, "f")
+        if reference_price_original is not None:
+            if line_currency == "GTQ":
+                line["reference_price_gtq"] = format(reference_price_original, "f")
+            elif exchange_rate_to_gtq is not None:
+                computed_reference_gtq = (reference_price_original * exchange_rate_to_gtq).quantize(Decimal("0.01"))
+                line["reference_price_gtq"] = format(computed_reference_gtq, "f")
         if reference_price_gtq is not None:
             line["reference_price_gtq"] = format(reference_price_gtq, "f")
         line["source_currency"] = line_currency
         line["needs_review"] = needs_review
         return line
+
+    def apply_operational_defaults(self, line: dict[str, Any]) -> dict[str, Any]:
+        if not line.get("pool"):
+            line["pool"] = "BODEGA"
+        if not line.get("location_code"):
+            line["location_code"] = "RECEPCION"
+        return line
+
+    def apply_shein_reference_price_hint(self, *, line: dict[str, Any], free_text: str | None) -> bool:
+        if line.get("reference_price_original") is not None or not free_text:
+            return False
+        amounts = re.findall(r"\$(\d+(?:\.\d{1,2})?)", free_text)
+        if len(amounts) < 2:
+            return False
+        first_amount = self.parse_decimal(amounts[0])
+        second_amount = self.parse_decimal(amounts[1])
+        if first_amount is None or second_amount is None:
+            return False
+        original_cost = self.parse_decimal(line.get("original_cost"))
+        if original_cost is None or original_cost != first_amount:
+            return False
+        line["reference_price_original"] = format(second_amount, "f")
+        return True

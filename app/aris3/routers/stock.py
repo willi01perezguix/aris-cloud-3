@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from uuid import uuid4
 
@@ -1305,6 +1305,17 @@ def _build_ai_prompt(*, free_text: str | None, deterministic_rows: list[dict], o
     return "\\n\\n".join(parts)
 
 
+def _populate_document_summary_from_lines(document_summary: dict[str, Any], lines: list[AiPreloadLine]) -> dict[str, Any]:
+    summary = dict(document_summary or {})
+    first_number = next((line.source_order_number for line in lines if line.source_order_number), None)
+    first_date = next((line.source_order_date for line in lines if line.source_order_date), None)
+    if not summary.get("document_number") and first_number:
+        summary["document_number"] = first_number
+    if not summary.get("document_date") and first_date:
+        summary["document_date"] = first_date
+    return summary
+
+
 @router.post("/aris3/stock/ai/preload/analyze", response_model=AiPreloadAnalyzeResponse)
 async def analyze_ai_preload(
     request: Request,
@@ -1418,6 +1429,13 @@ async def analyze_ai_preload(
     if deterministic_lines:
         raw_lines = deterministic_lines + raw_lines
     for idx, raw_line in enumerate(raw_lines, start=1):
+        if service.apply_shein_reference_price_hint(line=raw_line, free_text=free_text):
+            warnings.append(
+                AiPreloadWarning(
+                    severity="info",
+                    message="Segundo importe detectado como precio de referencia, no como Venta(Q).",
+                )
+            )
         priced = service.apply_pricing(
             line=raw_line,
             source_currency=source_currency,
@@ -1428,6 +1446,7 @@ async def analyze_ai_preload(
             multiplier=multiplier_decimal,
             rounding_step=rounding_decimal,
         )
+        priced = service.apply_operational_defaults(priced)
         normalized_lines.append(_serialize_ai_line(idx, priced))
     warnings.extend(AiPreloadWarning(**w) for w in ai_result.get("warnings", []))
     warnings.append(AiPreloadWarning(severity="info", message="EPC y precio de venta final fueron excluidos del resultado asistido."))
@@ -1495,7 +1514,9 @@ async def analyze_ai_preload(
     return AiPreloadAnalyzeResponse(
         extraction_id=str(extraction.id),
         store_id=store_id,
-        document_summary=AiPreloadDocumentSummary(**(ai_result.get("document_summary", {}) or {})),
+        document_summary=AiPreloadDocumentSummary(
+            **_populate_document_summary_from_lines((ai_result.get("document_summary", {}) or {}), normalized_lines)
+        ),
         pricing=AiPreloadPricingSummary(
             source_currency=source_currency,
             exchange_rate_to_gtq=format(exchange_rate_decimal, "f") if exchange_rate_decimal is not None else None,

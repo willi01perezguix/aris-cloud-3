@@ -15,6 +15,10 @@ def _normalize_key(value: str | None) -> str:
     return (value or "").strip().upper()
 
 
+def _is_blank_text(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and value.strip() == "")
+
+
 def _parse_date(value: str | date | None) -> date | None:
     if value is None or value == "":
         return None
@@ -43,6 +47,19 @@ class CatalogUpsertResult:
 
 
 class CatalogProductService:
+    _PROTECTED_DESCRIPTIVE_FIELDS = {
+        "description",
+        "brand",
+        "style",
+        "color",
+        "size",
+        "category",
+        "default_location_code",
+        "default_pool",
+        "variant_1",
+        "variant_2",
+    }
+
     def __init__(self, db):
         self.db = db
 
@@ -136,6 +153,12 @@ class CatalogProductService:
             "last_source_order_date": _parse_date(source_order_date),
         }
         for key, value in fields.items():
+            if key in self._PROTECTED_DESCRIPTIVE_FIELDS and not created:
+                current = getattr(product, key)
+                if _is_blank_text(current) and not _is_blank_text(value) and current != value:
+                    setattr(product, key, value)
+                    updated = True
+                continue
             if value is not None and getattr(product, key) != value:
                 setattr(product, key, value)
                 updated = True

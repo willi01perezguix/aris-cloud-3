@@ -5,6 +5,7 @@ import re
 import time
 from decimal import Decimal
 from typing import Any, Literal
+from urllib.parse import urlencode
 from uuid import UUID
 from uuid import uuid4
 
@@ -333,6 +334,11 @@ def _stock_snapshot(row: StockItem) -> dict:
     }
 
 
+def _build_asset_content_url(request: Request, *, asset_id: str, tenant_id: str) -> str:
+    base_url = str(request.url_for("get_asset_content", asset_id=asset_id))
+    return f"{base_url}?{urlencode({'tenant_id': tenant_id})}"
+
+
 def _build_stock_match_filter(scoped_tenant_id: str, data):
     return (
         StockItem.tenant_id == scoped_tenant_id,
@@ -486,12 +492,42 @@ def list_stock(
         key = (str(row.store_id) if row.store_id else None, row.sku)
         sku_available_qty[key] = sku_available_qty.get(key, 0) + 1
 
+    catalog_primary_by_sku: dict[str, SkuImage] = {}
+    skus_needing_catalog_image = {
+        row.sku
+        for row in rows
+        if row.sku and row.image_asset_id and (not row.image_url or not row.image_thumb_url or not row.image_source)
+    }
+    if skus_needing_catalog_image:
+        primary_rows = db.execute(
+            select(SkuImage)
+            .where(
+                SkuImage.tenant_id == scoped_tenant_id,
+                SkuImage.sku.in_(skus_needing_catalog_image),
+                SkuImage.is_primary.is_(True),
+            )
+            .order_by(SkuImage.sort_order.asc(), SkuImage.updated_at.desc().nullslast())
+        ).scalars().all()
+        for image_row in primary_rows:
+            catalog_primary_by_sku.setdefault(image_row.sku, image_row)
+
     response_rows = []
     for row in rows:
         state = compute_operational_state(row)
         key = (str(row.store_id) if row.store_id else None, row.sku)
         sku_mode = state.sale_mode == "SKU" or state.transfer_mode == "SKU"
         available_qty = sku_available_qty.get(key, 0) if sku_mode else (1 if state.available_for_sale else 0)
+        catalog_image = catalog_primary_by_sku.get(row.sku) if row.sku else None
+        effective_asset_id = str(row.image_asset_id) if row.image_asset_id else (str(catalog_image.asset_id) if catalog_image else None)
+        catalog_image_url = (
+            _build_asset_content_url(request, asset_id=effective_asset_id, tenant_id=scoped_tenant_id)
+            if effective_asset_id and catalog_image
+            else None
+        )
+        image_url = row.image_url or catalog_image_url
+        image_thumb_url = row.image_thumb_url or catalog_image_url or image_url
+        image_source = row.image_source or ("catalog" if catalog_image else None)
+        image_updated_at = row.image_updated_at or (catalog_image.updated_at or catalog_image.created_at if catalog_image else None)
         response_rows.append(StockRow(
             sku=row.sku,
             description=row.description,
@@ -508,11 +544,11 @@ def list_stock(
             is_current_store=(str(row.store_id) == token_store_id) if row.store_id else None,
             status=row.status,
             location_is_vendible=row.location_is_vendible,
-            image_asset_id=str(row.image_asset_id) if row.image_asset_id else None,
-            image_url=row.image_url,
-            image_thumb_url=row.image_thumb_url,
-            image_source=row.image_source,
-            image_updated_at=row.image_updated_at,
+            image_asset_id=effective_asset_id,
+            image_url=image_url,
+            image_thumb_url=image_thumb_url,
+            image_source=image_source,
+            image_updated_at=image_updated_at,
             available_for_sale=state.available_for_sale,
             available_for_transfer=state.available_for_transfer,
             sale_mode=state.sale_mode,
@@ -2321,10 +2357,27 @@ def release_epc(payload: EpcReleaseRequest, tenant_id: str | None = None, token_
 
 
 @router.get("/aris3/catalog/sku/{sku}/images", response_model=list[SkuImageResponse])
-def list_sku_images(sku: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+def list_sku_images(request: Request, sku: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     rows = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku).order_by(SkuImage.is_primary.desc(), SkuImage.sort_order.asc())).scalars().all()
-    return [SkuImageResponse(id=str(r.id), tenant_id=str(r.tenant_id), sku=r.sku, asset_id=str(r.asset_id), file_hash=r.file_hash, is_primary=r.is_primary, sort_order=r.sort_order, created_at=r.created_at, updated_at=r.updated_at) for r in rows]
+    return [
+        SkuImageResponse(
+            id=str(r.id),
+            tenant_id=str(r.tenant_id),
+            sku=r.sku,
+            asset_id=str(r.asset_id),
+            file_hash=r.file_hash,
+            is_primary=r.is_primary,
+            sort_order=r.sort_order,
+            image_url=_build_asset_content_url(request, asset_id=str(r.asset_id), tenant_id=scoped_tenant_id),
+            image_thumb_url=_build_asset_content_url(request, asset_id=str(r.asset_id), tenant_id=scoped_tenant_id),
+            image_source="catalog",
+            image_updated_at=r.updated_at or r.created_at,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        for r in rows
+    ]
 
 
 @router.post(
@@ -2333,15 +2386,15 @@ def list_sku_images(sku: str, tenant_id: str | None = None, token_data=Depends(g
     status_code=201,
     openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
-def upsert_sku_images(sku: str, payload: SkuImageUpsertRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+def upsert_sku_images(request: Request, sku: str, payload: SkuImageUpsertRequest, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     now = datetime.utcnow()
     if payload.mode == "blank":
-        return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+        return list_sku_images(request, sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
     if payload.file_hash:
         existing_hash = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku, SkuImage.file_hash == payload.file_hash)).scalars().first()
         if existing_hash:
-            return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+            return list_sku_images(request, sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
     if payload.mode == "replace":
         for row in db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku)).scalars().all():
             row.is_primary = False
@@ -2349,7 +2402,7 @@ def upsert_sku_images(sku: str, payload: SkuImageUpsertRequest, tenant_id: str |
     max_order = db.execute(select(SkuImage.sort_order).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku).order_by(SkuImage.sort_order.desc())).scalars().first() or 0
     db.add(SkuImage(tenant_id=scoped_tenant_id, sku=sku, asset_id=payload.asset_id, file_hash=payload.file_hash, is_primary=payload.mode in {"replace", "use_existing"}, sort_order=max_order + 1, created_at=now, updated_at=now))
     db.commit()
-    return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+    return list_sku_images(request, sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
 
 
 @router.put(
@@ -2357,14 +2410,14 @@ def upsert_sku_images(sku: str, payload: SkuImageUpsertRequest, tenant_id: str |
     response_model=list[SkuImageResponse],
     openapi_extra={"parameters": [_IDEMPOTENCY_HEADER_PARAMETER]},
 )
-def set_primary_sku_image(sku: str, asset_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
+def set_primary_sku_image(request: Request, sku: str, asset_id: str, tenant_id: str | None = None, token_data=Depends(get_current_token_data), _user=Depends(require_active_user), db=Depends(get_db)):
     scoped_tenant_id = _resolve_tenant_id(token_data, tenant_id)
     rows = db.execute(select(SkuImage).where(SkuImage.tenant_id == scoped_tenant_id, SkuImage.sku == sku)).scalars().all()
     for row in rows:
         row.is_primary = str(row.asset_id) == asset_id
         row.updated_at = datetime.utcnow()
     db.commit()
-    return list_sku_images(sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
+    return list_sku_images(request, sku, scoped_tenant_id, token_data, _user, db)  # type: ignore[arg-type]
 
 
 @router.post(

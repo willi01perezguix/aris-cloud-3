@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from sqlalchemy import select
 
 from app.aris3.core.deps import get_current_token_data, require_active_user
@@ -144,4 +145,47 @@ async def upload_image(
         image_thumb_url=result.image_thumb_url,
         image_source=result.image_source,
         image_updated_at=result.image_updated_at,
+    )
+
+
+@router.get("/aris3/assets/{asset_id}/content", name="get_asset_content")
+def get_asset_content(
+    asset_id: str,
+    request: Request,
+    tenant_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _current_user=Depends(require_active_user),
+):
+    trace_id = getattr(request.state, "trace_id", None)
+    resolved_tenant_id = _resolve_tenant_scope(token_data, tenant_id)
+    service = SpacesImageService()
+    try:
+        result = service.download_image_by_asset_id(
+            asset_id=asset_id,
+            tenant_id=resolved_tenant_id,
+            trace_id=trace_id,
+        )
+    except SpacesImageUploadError as exc:
+        if exc.error_code == "ASSET_NOT_FOUND":
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "ASSET_NOT_FOUND",
+                    "message": "asset not found",
+                    "details": {"asset_id": asset_id},
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": exc.error_code,
+                "message": str(exc),
+                "details": {"trace_id": trace_id} if trace_id else None,
+            },
+        ) from exc
+
+    return Response(
+        content=result.content,
+        media_type=result.content_type,
+        headers={"Cache-Control": "private, max-age=300"},
     )

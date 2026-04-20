@@ -482,6 +482,10 @@ class SkuImageResponse(BaseModel):
     file_hash: str | None
     is_primary: bool
     sort_order: int
+    image_url: str | None = None
+    image_thumb_url: str | None = None
+    image_source: str | None = None
+    image_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None
 

@@ -33,6 +33,13 @@ class UploadedImageMetadata:
 
 
 @dataclass(frozen=True)
+class DownloadedImageContent:
+    content: bytes
+    content_type: str
+    object_key: str
+
+
+@dataclass(frozen=True)
 class SpacesDeletePrefixResult:
     deleted_objects: int
     warnings: list[str]
@@ -196,6 +203,31 @@ class SpacesImageService:
 
         return SpacesDeletePrefixResult(deleted_objects=deleted_objects, warnings=warnings)
 
+    def download_image_by_asset_id(
+        self,
+        *,
+        asset_id: str,
+        tenant_id: str,
+        trace_id: str | None,
+    ) -> DownloadedImageContent:
+        self._validate_settings()
+        object_key = self._find_asset_object_key(asset_id=asset_id, tenant_id=tenant_id, trace_id=trace_id)
+        if not object_key:
+            raise SpacesImageUploadError("asset not found", error_code="ASSET_NOT_FOUND")
+
+        client = self._build_s3_client()
+        try:
+            response = client.get_object(Bucket=self._bucket, Key=object_key)
+            content = response["Body"].read()
+            content_type = response.get("ContentType") or "application/octet-stream"
+            return DownloadedImageContent(content=content, content_type=content_type, object_key=object_key)
+        except Exception as exc:
+            logger.exception(
+                "spaces_download_error",
+                extra={"asset_id": asset_id, "tenant_id": tenant_id, "trace_id": trace_id},
+            )
+            raise SpacesImageUploadError("storage download failed", error_code="STORAGE_ERROR") from exc
+
     def _validate_settings(self) -> None:
         required = {
             "ARIS3_SPACES_ACCESS_KEY": self._access_key,
@@ -224,6 +256,32 @@ class SpacesImageService:
         else:
             normalized = f"https://{endpoint.lstrip('/')}".rstrip("/")
         return normalized
+
+    def _find_asset_object_key(self, *, asset_id: str, tenant_id: str, trace_id: str | None) -> str | None:
+        client = self._build_s3_client()
+        prefix = f"aris3/images/{tenant_id}/"
+        continuation_token: str | None = None
+        while True:
+            list_kwargs = {"Bucket": self._bucket, "Prefix": prefix, "MaxKeys": 1000}
+            if continuation_token:
+                list_kwargs["ContinuationToken"] = continuation_token
+            try:
+                page = client.list_objects_v2(**list_kwargs)
+            except Exception as exc:
+                logger.exception(
+                    "spaces_asset_lookup_error",
+                    extra={"asset_id": asset_id, "tenant_id": tenant_id, "trace_id": trace_id},
+                )
+                raise SpacesImageUploadError("storage lookup failed", error_code="STORAGE_ERROR") from exc
+
+            for item in page.get("Contents") or []:
+                key = item.get("Key") or ""
+                if Path(key).stem == asset_id:
+                    return key
+
+            if not page.get("IsTruncated"):
+                return None
+            continuation_token = page.get("NextContinuationToken")
 
     def _build_s3_client(self):
         boto3 = import_module("boto3")

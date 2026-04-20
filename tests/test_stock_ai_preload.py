@@ -147,7 +147,7 @@ def test_ai_confirm_catalog_only_creates_catalog_without_stock(client, db_sessio
     assert db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).count() == 0
 
 
-def test_ai_confirm_catalog_and_preload_updates_existing_catalog_and_links_preload_line(client, db_session):
+def test_ai_confirm_catalog_and_preload_reuses_existing_catalog_and_protects_non_empty_descriptive_fields(client, db_session):
     run_seed(db_session)
     tenant, store, user = _create_tenant_user(db_session, "ai-cat-preload-update")
     token = _login(client, user.username, "Pass1234!")
@@ -162,6 +162,13 @@ def test_ai_confirm_catalog_and_preload_updates_existing_catalog_and_links_prelo
         variant_2="M",
         normalized_variant_2="M",
         description="Producto anterior",
+        brand="Marca real",
+        style="Regular",
+        color="NEGRO",
+        size="M",
+        category="Camisas",
+        default_location_code="RECEPCION",
+        default_pool="BODEGA",
         last_cost_gtq="100.00",
         suggested_price_gtq="150.00",
     )
@@ -180,9 +187,16 @@ def test_ai_confirm_catalog_and_preload_updates_existing_catalog_and_links_prelo
                 {
                     "row_key": "1",
                     "sku": "SKU-EXIST-1",
-                    "description": "Producto actualizado",
+                    "description": "Smoke test overwrite description",
                     "variant_1": "NEGRO",
                     "variant_2": "M",
+                    "brand": "Marca smoke",
+                    "style": "Test style",
+                    "color": "AZUL",
+                    "size": "XL",
+                    "category": "Testing",
+                    "location_code": "WH-MAIN",
+                    "pool": "SALE",
                     "quantity": 1,
                     "cost_gtq": "111.38",
                     "suggested_price_gtq": "160.00",
@@ -206,6 +220,17 @@ def test_ai_confirm_catalog_and_preload_updates_existing_catalog_and_links_prelo
     assert line["catalog_product_id"] == str(existing.id)
     assert line["epc"] is None
     assert line["sale_price"] is None
+    db_session.refresh(existing)
+    assert existing.description == "Producto anterior"
+    assert existing.brand == "Marca real"
+    assert existing.style == "Regular"
+    assert existing.color == "NEGRO"
+    assert existing.size == "M"
+    assert existing.category == "Camisas"
+    assert existing.default_location_code == "RECEPCION"
+    assert existing.default_pool == "BODEGA"
+    assert str(existing.last_cost_gtq) == "111.38"
+    assert str(existing.suggested_price_gtq) == "160.00"
     assert db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id, CatalogProduct.sku == "SKU-EXIST-1").count() == 1
 
 
@@ -253,6 +278,79 @@ def test_ai_confirm_catalog_and_preload_creates_catalog_and_links_preload_line(c
 
     product = db_session.query(CatalogProduct).filter(CatalogProduct.tenant_id == tenant.id, CatalogProduct.sku == "SKU-NEW-1").one()
     assert line["catalog_product_id"] == str(product.id)
+
+
+def test_ai_confirm_catalog_and_preload_fills_empty_descriptive_fields_on_existing_catalog(client, db_session):
+    run_seed(db_session)
+    tenant, store, user = _create_tenant_user(db_session, "ai-cat-preload-fill-empty")
+    token = _login(client, user.username, "Pass1234!")
+
+    existing = CatalogProduct(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        sku="SKU-EXIST-EMPTY-1",
+        normalized_sku="SKU-EXIST-EMPTY-1",
+        variant_1="ROJO",
+        normalized_variant_1="ROJO",
+        variant_2="S",
+        normalized_variant_2="S",
+        description=None,
+        brand=None,
+        style=None,
+        color=None,
+        size=None,
+        category=None,
+        default_location_code=None,
+        default_pool=None,
+        last_cost_gtq="80.00",
+        suggested_price_gtq="120.00",
+    )
+    db_session.add(existing)
+    db_session.commit()
+
+    confirm = client.post(
+        "/aris3/stock/ai/preload/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "store_id": str(store.id),
+            "source_currency": "GTQ",
+            "pricing_mode": "manual",
+            "confirm_mode": "CATALOG_AND_PRELOAD",
+            "lines": [
+                {
+                    "row_key": "1",
+                    "sku": "SKU-EXIST-EMPTY-1",
+                    "description": "Descripción nueva",
+                    "variant_1": "ROJO",
+                    "variant_2": "S",
+                    "brand": "Marca nueva",
+                    "style": "Camisero",
+                    "color": "ROJO",
+                    "size": "S",
+                    "category": "Vestidos",
+                    "location_code": "WH-MAIN",
+                    "pool": "SALE",
+                    "quantity": 1,
+                    "cost_gtq": "99.99",
+                    "suggested_price_gtq": "149.99",
+                    "needs_review": False,
+                }
+            ],
+        },
+    )
+    assert confirm.status_code == 200
+    assert confirm.json()["catalog_created_count"] == 0
+    assert confirm.json()["catalog_updated_count"] == 1
+
+    db_session.refresh(existing)
+    assert existing.description == "Descripción nueva"
+    assert existing.brand == "Marca nueva"
+    assert existing.style == "Camisero"
+    assert existing.color == "ROJO"
+    assert existing.size == "S"
+    assert existing.category == "Vestidos"
+    assert existing.default_location_code == "WH-MAIN"
+    assert existing.default_pool == "SALE"
 
 
 def test_preload_save_keeps_catalog_product_id_from_catalog_and_preload_confirm(client, db_session):

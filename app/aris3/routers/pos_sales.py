@@ -59,6 +59,7 @@ from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
 from app.aris3.services.pos_advances import expire_advance_if_needed
+from app.aris3.services.sale_statuses import FINALIZED_SALE_STATUSES, is_finalized_sale_status
 from app.aris3.services.stock_rules import sale_epc_filters, sale_sku_filters
 
 
@@ -1639,8 +1640,11 @@ def sale_action(
 
     if action == "EXCHANGE_ITEMS":
         _require_action_permission(request, token_data, db, "POS_SALE_EXCHANGE")
-        if sale.status != "PAID":
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale must be PAID to exchange"})
+        if not is_finalized_sale_status(sale.status):
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "sale must be finalized to exchange", "accepted_statuses": sorted(FINALIZED_SALE_STATUSES)},
+            )
 
         return_items = payload.return_items or []
         exchange_lines = payload.exchange_lines or []

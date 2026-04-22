@@ -11,6 +11,7 @@ from sqlalchemy import Select, func, select
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosPayment, PosReturnEvent, PosSale, PosSaleLine, StockItem
+from app.aris3.services.sale_statuses import FINALIZED_SALE_STATUSES
 
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,6 @@ class ReportDateRange:
 
 UTC_ALIASES = {"UTC", "Z", "Etc/UTC"}
 REPORTABLE_RETURN_ACTIONS = ("REFUND_ITEMS", "EXCHANGE_ITEMS")
-REPORTABLE_SALE_STATUSES = ("PAID", "COMPLETED", "CLOSED", "FINALIZED")
 _MONETARY_DEFAULT = Decimal("0.00")
 _LIABILITY_TENDER_FIELDS = (
     "liability_issued_advances",
@@ -171,7 +171,7 @@ def paid_sales_query(
     query = select(PosSale.id, PosSale.checked_out_at, PosSale.total_due).where(
         PosSale.tenant_id == tenant_id,
         PosSale.store_id == store_id,
-        func.upper(PosSale.status).in_(REPORTABLE_SALE_STATUSES),
+        func.upper(PosSale.status).in_(FINALIZED_SALE_STATUSES),
         PosSale.checked_out_at.is_not(None),
         PosSale.checked_out_at >= start_utc,
         PosSale.checked_out_at <= end_utc,
@@ -356,7 +356,7 @@ def _daily_liability_and_tender(
         .where(
             PosSale.tenant_id == tenant_id,
             PosSale.store_id == store_id,
-            func.upper(PosSale.status).in_(REPORTABLE_SALE_STATUSES),
+            func.upper(PosSale.status).in_(FINALIZED_SALE_STATUSES),
             PosSale.checked_out_at.is_not(None),
             PosSale.checked_out_at >= start_utc,
             PosSale.checked_out_at <= end_utc,

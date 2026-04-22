@@ -44,7 +44,7 @@ def _create_context(db_session, *, suffix: str):
     return tenant, origin_store, destination_store, origin_user, destination_user
 
 
-def _seed_stock(db_session, *, tenant_id, store_id, epc: str, sku_qty: int):
+def _seed_stock(db_session, *, tenant_id, store_id, epc: str, sku_qty: int, sku_status: str = "PENDING"):
     db_session.add(
         StockItem(
             id=uuid.uuid4(),
@@ -74,7 +74,28 @@ def _seed_stock(db_session, *, tenant_id, store_id, epc: str, sku_qty: int):
                 epc=None,
                 location_code="LOC-1",
                 pool="P1",
-                status="PENDING",
+                status=sku_status,
+                location_is_vendible=True,
+            )
+        )
+    db_session.commit()
+
+
+def _seed_sku_stock(db_session, *, tenant_id, store_id, statuses: list[str]):
+    for status in statuses:
+        db_session.add(
+            StockItem(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                store_id=store_id,
+                sku="SKU-1",
+                description="Transfer test item",
+                var1_value="Blue",
+                var2_value="L",
+                epc=None,
+                location_code="LOC-1",
+                pool="P1",
+                status=status,
                 location_is_vendible=True,
             )
         )
@@ -203,3 +224,114 @@ def test_transfer_mixed_epc_and_sku_lines(client, db_session):
     )
     assert receive.status_code == 200
     assert receive.json()["header"]["status"] == "RECEIVED"
+
+
+def test_transfer_sku_rfid_dispatch_and_receive(client, db_session):
+    run_seed(db_session)
+    tenant, origin, destination, origin_user, destination_user = _create_context(db_session, suffix="sku-rfid-ok")
+    origin_token = _login(client, origin_user.username, "Pass1234!")
+    destination_token = _login(client, destination_user.username, "Pass1234!")
+    _seed_stock(db_session, tenant_id=tenant.id, store_id=origin.id, epc="4" * 24, sku_qty=3, sku_status="RFID")
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-rfid-create-1"},
+        json={
+            "transaction_id": "txn-sku-rfid-create-1",
+            "origin_store_id": str(origin.id),
+            "destination_store_id": str(destination.id),
+            "lines": [{"line_type": "SKU", "qty": 2, "snapshot": _line_snapshot(None, "RFID")}],
+        },
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    line_id = create.json()["lines"][0]["id"]
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-rfid-dispatch-1"},
+        json={"transaction_id": "txn-sku-rfid-dispatch-1", "action": "dispatch"},
+    )
+    assert dispatch.status_code == 200
+
+    receive = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {destination_token}", "Idempotency-Key": "sku-rfid-receive-1"},
+        json={"transaction_id": "txn-sku-rfid-receive-1", "action": "receive", "receive_lines": [{"line_id": line_id, "qty": 2}]},
+    )
+    assert receive.status_code == 200
+    assert receive.json()["header"]["status"] == "RECEIVED"
+    assert receive.json()["lines"][0]["received_qty"] == 2
+
+
+def test_transfer_sku_mixed_pending_and_rfid_receive_full(client, db_session):
+    run_seed(db_session)
+    tenant, origin, destination, origin_user, destination_user = _create_context(db_session, suffix="sku-mixed-status")
+    origin_token = _login(client, origin_user.username, "Pass1234!")
+    destination_token = _login(client, destination_user.username, "Pass1234!")
+    _seed_sku_stock(db_session, tenant_id=tenant.id, store_id=origin.id, statuses=["PENDING", "RFID"])
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-mixed-status-create-1"},
+        json={
+            "transaction_id": "txn-sku-mixed-status-create-1",
+            "origin_store_id": str(origin.id),
+            "destination_store_id": str(destination.id),
+            "lines": [{"line_type": "SKU", "qty": 2, "snapshot": _line_snapshot(None, "PENDING")}],
+        },
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+    line_id = create.json()["lines"][0]["id"]
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-mixed-status-dispatch-1"},
+        json={"transaction_id": "txn-sku-mixed-status-dispatch-1", "action": "dispatch"},
+    )
+    assert dispatch.status_code == 200
+
+    receive = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {destination_token}", "Idempotency-Key": "sku-mixed-status-receive-1"},
+        json={"transaction_id": "txn-sku-mixed-status-receive-1", "action": "receive", "receive_lines": [{"line_id": line_id, "qty": 2}]},
+    )
+    assert receive.status_code == 200
+    assert receive.json()["header"]["status"] == "RECEIVED"
+    assert receive.json()["lines"][0]["received_qty"] == 2
+
+
+def test_transfer_sku_cancel_dispatched_allows_pending_and_rfid(client, db_session):
+    run_seed(db_session)
+    tenant, origin, destination, origin_user, _destination_user = _create_context(db_session, suffix="sku-cancel-statuses")
+    origin_token = _login(client, origin_user.username, "Pass1234!")
+    _seed_sku_stock(db_session, tenant_id=tenant.id, store_id=origin.id, statuses=["PENDING", "RFID"])
+
+    create = client.post(
+        "/aris3/transfers",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-cancel-statuses-create-1"},
+        json={
+            "transaction_id": "txn-sku-cancel-statuses-create-1",
+            "origin_store_id": str(origin.id),
+            "destination_store_id": str(destination.id),
+            "lines": [{"line_type": "SKU", "qty": 2, "snapshot": _line_snapshot(None, "PENDING")}],
+        },
+    )
+    assert create.status_code == 201
+    transfer_id = create.json()["header"]["id"]
+
+    dispatch = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-cancel-statuses-dispatch-1"},
+        json={"transaction_id": "txn-sku-cancel-statuses-dispatch-1", "action": "dispatch"},
+    )
+    assert dispatch.status_code == 200
+
+    cancel = client.post(
+        f"/aris3/transfers/{transfer_id}/actions",
+        headers={"Authorization": f"Bearer {origin_token}", "Idempotency-Key": "sku-cancel-statuses-cancel-1"},
+        json={"transaction_id": "txn-sku-cancel-statuses-cancel-1", "action": "cancel"},
+    )
+    assert cancel.status_code == 200
+    assert cancel.json()["header"]["status"] == "CANCELED"

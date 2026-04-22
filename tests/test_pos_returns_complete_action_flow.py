@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
+from app.aris3.db.models import PosSale
 from tests.pos_sales_helpers import (
     create_paid_sale,
     create_stock_item,
@@ -170,3 +173,25 @@ def test_pos_returns_invalid_state_transition_returns_409(client, db_session):
     )
     assert second_complete.status_code == 409
     assert second_complete.json()["code"] == "BUSINESS_CONFLICT"
+
+
+def test_pos_returns_quote_fails_when_sale_is_outside_7_day_window(client, db_session):
+    token, sale = _setup_sale_for_returns(client, db_session, suffix="window-expired", unit_price=20.0)
+    sale_row = db_session.query(PosSale).filter(PosSale.id == sale["header"]["id"]).first()
+    assert sale_row is not None
+    sale_row.checked_out_at = datetime.utcnow() - timedelta(days=8)
+    db_session.add(sale_row)
+    db_session.commit()
+
+    response = client.post(
+        "/aris3/pos/returns/quote",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "transaction_id": "txn-return-quote-window-expired",
+            "store_id": sale["header"]["store_id"],
+            "sale_id": sale["header"]["id"],
+            "items": [{"sale_line_id": sale["lines"][0]["id"], "qty": 1, "condition": "NEW", "resolution": "REFUND"}],
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["details"]["message"] == "exchange window expired"

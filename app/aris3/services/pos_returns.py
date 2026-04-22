@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 
+from app.aris3.core.scope import DEFAULT_BROAD_STORE_ROLES, enforce_store_scope
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.models import PosReturnEvent, PosSale, StockItem
 from app.aris3.repos.pos_sales import PosSaleRepository
@@ -36,6 +37,26 @@ RETURN_WINDOW_DAYS = 7
 
 def _normalize_uuid(value) -> str:
     return str(value) if value is not None else ""
+
+
+def _resolve_store_id(token_data, requested_store_id: str | None) -> str:
+    locked_store = token_data.store_id
+    broad_roles = {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}
+    role = token_data.role.upper()
+    if locked_store and role not in broad_roles:
+        if requested_store_id and requested_store_id != locked_store:
+            raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
+        return locked_store
+    if requested_store_id:
+        return requested_store_id
+    if locked_store:
+        return locked_store
+    if role in broad_roles:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "store_id is required for broad-store users"},
+        )
+    raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
 
 
 def _event_payload(event: PosReturnEvent) -> dict:
@@ -150,7 +171,7 @@ def _quote_from_sale(repo: PosSaleRepository, sale: PosSale, request: ReturnQuot
             if stock is None:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
-                    details={"message": "replacement item not available", "epc": exchange_line.epc},
+                    details={"message": "replacement item not available in this store", "epc": exchange_line.epc},
                 )
             unit_price = Decimal(str(stock.sale_price or Decimal("0.00"))).quantize(Decimal("0.01"))
         else:
@@ -167,6 +188,11 @@ def _quote_from_sale(repo: PosSaleRepository, sale: PosSale, request: ReturnQuot
                 or 0
             )
             if available_count < qty:
+                if available_count == 0:
+                    raise AppError(
+                        ErrorCatalog.VALIDATION_ERROR,
+                        details={"message": "replacement item not available in this store", "sku": exchange_line.sku},
+                    )
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
                     details={"message": "quantity exceeds available", "sku": exchange_line.sku, "available_qty": available_count},
@@ -187,7 +213,7 @@ def _quote_from_sale(repo: PosSaleRepository, sale: PosSale, request: ReturnQuot
             if stock is None:
                 raise AppError(
                     ErrorCatalog.VALIDATION_ERROR,
-                    details={"message": "replacement item not available", "sku": exchange_line.sku},
+                    details={"message": "replacement item not available in this store", "sku": exchange_line.sku},
                 )
             unit_price = Decimal(str(stock.sale_price or Decimal("0.00"))).quantize(Decimal("0.01"))
         line_total = (unit_price * Decimal(qty)).quantize(Decimal("0.01"))
@@ -223,21 +249,97 @@ class PosReturnsService:
         self.db = db
         self.repo = PosSaleRepository(db)
 
-    def compute_quote(self, request: ReturnQuoteRequest) -> ReturnQuoteResponse:
+    def compute_quote(self, request: ReturnQuoteRequest, *, token_data) -> ReturnQuoteResponse:
+        resolved_store_id = _resolve_store_id(token_data, request.store_id)
+        enforce_store_scope(token_data, resolved_store_id, self.db, allow_superadmin=True)
         sale = self.repo.get_by_id(request.sale_id)
         if sale is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
+        if _normalize_uuid(sale.tenant_id) != _normalize_uuid(token_data.tenant_id):
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        if _normalize_uuid(sale.store_id) != resolved_store_id:
+            raise AppError(
+                ErrorCatalog.STORE_SCOPE_MISMATCH,
+                details={
+                    "message": "sale belongs to another store",
+                    "route": "POST /aris3/pos/returns/quote",
+                    "sale_id": request.sale_id,
+                    "requested_store_id": request.store_id,
+                    "resolved_store_id": resolved_store_id,
+                    "token_store_id": token_data.store_id,
+                    "sale_store_id": _normalize_uuid(sale.store_id),
+                },
+            )
+        request.store_id = resolved_store_id
         return _quote_from_sale(self.repo, sale, request)
 
-    def get_eligibility(self, *, sale_id: str | None, receipt_number: str | None) -> ReturnEligibilityResponse:
+    def get_eligibility(
+        self,
+        *,
+        sale_id: str | None,
+        receipt_number: str | None,
+        token_data,
+        requested_store_id: str | None,
+    ) -> ReturnEligibilityResponse:
         if not sale_id and not receipt_number:
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale_id or receipt_number is required"})
+        resolved_store_id = _resolve_store_id(token_data, requested_store_id)
+        enforce_store_scope(token_data, resolved_store_id, self.db, allow_superadmin=True)
 
         sale = None
         if sale_id:
             sale = self.repo.get_by_id(sale_id)
+            if sale is not None and _normalize_uuid(sale.tenant_id) != _normalize_uuid(token_data.tenant_id):
+                raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+            if sale is not None and _normalize_uuid(sale.store_id) != resolved_store_id:
+                raise AppError(
+                    ErrorCatalog.STORE_SCOPE_MISMATCH,
+                    details={
+                        "message": "sale belongs to another store",
+                        "route": "GET /aris3/pos/returns/eligibility",
+                        "sale_id": sale_id,
+                        "receipt_number": receipt_number,
+                        "requested_store_id": requested_store_id,
+                        "resolved_store_id": resolved_store_id,
+                        "token_store_id": token_data.store_id,
+                        "sale_store_id": _normalize_uuid(sale.store_id),
+                    },
+                )
         else:
-            sale = self.db.execute(select(PosSale).where(PosSale.receipt_number == receipt_number).limit(1)).scalars().first()
+            sale = (
+                self.db.execute(
+                    select(PosSale).where(
+                        PosSale.tenant_id == token_data.tenant_id,
+                        PosSale.store_id == resolved_store_id,
+                        PosSale.receipt_number == receipt_number,
+                    ).limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if sale is None:
+                exists_in_other_store = (
+                    self.db.execute(
+                        select(PosSale.id).where(
+                            PosSale.tenant_id == token_data.tenant_id,
+                            PosSale.receipt_number == receipt_number,
+                        ).limit(1)
+                    )
+                    .scalars()
+                    .first()
+                )
+                if exists_in_other_store:
+                    raise AppError(
+                        ErrorCatalog.STORE_SCOPE_MISMATCH,
+                        details={
+                            "message": "receipt belongs to another store",
+                            "route": "GET /aris3/pos/returns/eligibility",
+                            "receipt_number": receipt_number,
+                            "requested_store_id": requested_store_id,
+                            "resolved_store_id": resolved_store_id,
+                            "token_store_id": token_data.store_id,
+                        },
+                    )
         if sale is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
         _validate_sale_eligibility_for_return(sale)
@@ -267,10 +369,28 @@ class PosReturnsService:
             allowed_settlement_methods=["CASH", "CARD", "TRANSFER"],
         )
 
-    def create_draft(self, request: ReturnQuoteRequest) -> ReturnDetail:
+    def create_draft(self, request: ReturnQuoteRequest, *, token_data) -> ReturnDetail:
+        resolved_store_id = _resolve_store_id(token_data, request.store_id)
+        enforce_store_scope(token_data, resolved_store_id, self.db, allow_superadmin=True)
         sale = self.repo.get_by_id(request.sale_id)
         if sale is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
+        if _normalize_uuid(sale.tenant_id) != _normalize_uuid(token_data.tenant_id):
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        if _normalize_uuid(sale.store_id) != resolved_store_id:
+            raise AppError(
+                ErrorCatalog.STORE_SCOPE_MISMATCH,
+                details={
+                    "message": "sale belongs to another store",
+                    "route": "POST /aris3/pos/returns",
+                    "sale_id": request.sale_id,
+                    "requested_store_id": request.store_id,
+                    "resolved_store_id": resolved_store_id,
+                    "token_store_id": token_data.store_id,
+                    "sale_store_id": _normalize_uuid(sale.store_id),
+                },
+            )
+        request.store_id = resolved_store_id
         _validate_sale_eligibility_for_return(sale)
         quote = _quote_from_sale(self.repo, sale, request)
         now = datetime.utcnow()
@@ -296,9 +416,15 @@ class PosReturnsService:
         self.db.add(event)
         self.db.commit()
         self.db.refresh(event)
-        return self.get_return(_normalize_uuid(event.id))
+        return self.get_return(
+            _normalize_uuid(event.id),
+            token_data=token_data,
+            requested_store_id=resolved_store_id,
+        )
 
-    def get_return(self, return_id: str) -> ReturnDetail:
+    def get_return(self, return_id: str, *, token_data, requested_store_id: str | None) -> ReturnDetail:
+        resolved_store_id = _resolve_store_id(token_data, requested_store_id)
+        enforce_store_scope(token_data, resolved_store_id, self.db, allow_superadmin=True)
         try:
             UUID(str(return_id))
         except ValueError:
@@ -306,6 +432,21 @@ class PosReturnsService:
         event = self.db.execute(select(PosReturnEvent).where(PosReturnEvent.id == return_id)).scalars().first()
         if event is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "return not found"})
+        if _normalize_uuid(event.tenant_id) != _normalize_uuid(token_data.tenant_id):
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        if _normalize_uuid(event.store_id) != resolved_store_id:
+            raise AppError(
+                ErrorCatalog.STORE_SCOPE_MISMATCH,
+                details={
+                    "message": "return cannot be completed from this store",
+                    "route": "GET /aris3/pos/returns/{return_id}",
+                    "requested_store_id": requested_store_id,
+                    "resolved_store_id": resolved_store_id,
+                    "token_store_id": token_data.store_id,
+                    "sale_id": _normalize_uuid(event.sale_id),
+                    "sale_store_id": _normalize_uuid(event.store_id),
+                },
+            )
         payload = _event_payload(event)
         quote = payload.get("quote") or {}
         lines = [
@@ -340,14 +481,33 @@ class PosReturnsService:
             events=events,
         )
 
-    def list_returns(self, *, sale_id: str | None, receipt_number: str | None, page: int, page_size: int) -> ReturnListResponse:
-        query = select(PosReturnEvent).where(PosReturnEvent.action.in_([DRAFT_ACTION, VOID_ACTION, COMPLETE_ACTION]))
+    def list_returns(
+        self,
+        *,
+        sale_id: str | None,
+        receipt_number: str | None,
+        page: int,
+        page_size: int,
+        token_data,
+        requested_store_id: str | None,
+    ) -> ReturnListResponse:
+        resolved_store_id = _resolve_store_id(token_data, requested_store_id)
+        enforce_store_scope(token_data, resolved_store_id, self.db, allow_superadmin=True)
+        query = select(PosReturnEvent).where(
+            PosReturnEvent.action.in_([DRAFT_ACTION, VOID_ACTION, COMPLETE_ACTION]),
+            PosReturnEvent.tenant_id == token_data.tenant_id,
+            PosReturnEvent.store_id == resolved_store_id,
+        )
         if sale_id:
             query = query.where(PosReturnEvent.sale_id == sale_id)
         if receipt_number:
             query = query.where(
                 PosReturnEvent.sale_id.in_(
-                    select(PosSale.id).where(PosSale.receipt_number == receipt_number)
+                    select(PosSale.id).where(
+                        PosSale.tenant_id == token_data.tenant_id,
+                        PosSale.store_id == resolved_store_id,
+                        PosSale.receipt_number == receipt_number,
+                    )
                 )
             )
         total = int(self.db.execute(select(func.count()).select_from(query.subquery())).scalar_one() or 0)
@@ -372,7 +532,16 @@ class PosReturnsService:
         ]
         return ReturnListResponse(page=page, page_size=page_size, total=total, rows=items)
 
-    def apply_action(self, return_id: str, action_request: ReturnActionRequest) -> ReturnDetail:
+    def apply_action(
+        self,
+        return_id: str,
+        action_request: ReturnActionRequest,
+        *,
+        token_data,
+        requested_store_id: str | None,
+    ) -> ReturnDetail:
+        resolved_store_id = _resolve_store_id(token_data, requested_store_id)
+        enforce_store_scope(token_data, resolved_store_id, self.db, allow_superadmin=True)
         try:
             UUID(str(return_id))
         except ValueError:
@@ -380,6 +549,22 @@ class PosReturnsService:
         event = self.db.execute(select(PosReturnEvent).where(PosReturnEvent.id == return_id)).scalars().first()
         if event is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "return not found"})
+        if _normalize_uuid(event.tenant_id) != _normalize_uuid(token_data.tenant_id):
+            raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
+        if _normalize_uuid(event.store_id) != resolved_store_id:
+            raise AppError(
+                ErrorCatalog.STORE_SCOPE_MISMATCH,
+                details={
+                    "message": "return cannot be completed from this store",
+                    "route": "POST /aris3/pos/returns/{return_id}/actions",
+                    "action": action_request.action,
+                    "requested_store_id": requested_store_id,
+                    "resolved_store_id": resolved_store_id,
+                    "token_store_id": token_data.store_id,
+                    "sale_id": _normalize_uuid(event.sale_id),
+                    "sale_store_id": _normalize_uuid(event.store_id),
+                },
+            )
         if event.action != DRAFT_ACTION:
             raise AppError(ErrorCatalog.BUSINESS_CONFLICT, details={"message": "Action cannot be executed for current return state"})
         payload = deepcopy(_event_payload(event))
@@ -391,7 +576,7 @@ class PosReturnsService:
             payload["status"] = "VOIDED"
             event.payload = payload
             self.db.commit()
-            return self.get_return(return_id)
+            return self.get_return(return_id, token_data=token_data, requested_store_id=requested_store_id)
 
         if net_adjustment != 0 and not action_request.settlement_payments:
             raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "settlement_payments are required for COMPLETE when net adjustment requires settlement"})
@@ -435,7 +620,7 @@ class PosReturnsService:
             )
         )
         self.db.commit()
-        return self.get_return(return_id)
+        return self.get_return(return_id, token_data=token_data, requested_store_id=requested_store_id)
 
 
 def compute_quote(request: ReturnQuoteRequest) -> ReturnQuoteResponse:

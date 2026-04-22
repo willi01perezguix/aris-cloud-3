@@ -70,9 +70,16 @@ class ReportFilters(BaseModel):
 
 class ReportMeta(ReportModel):
     store_id: str
+    requested_store_id: str | None = None
+    resolved_store_id: str
+    token_store_id: str | None = None
+    all_stores: bool = False
     timezone: str
     from_datetime: datetime = Field(..., description="Inclusive start datetime")
     to_datetime: datetime = Field(..., description="Inclusive end datetime")
+    from_datetime_utc: datetime = Field(..., description="Inclusive start datetime in UTC")
+    to_datetime_utc: datetime = Field(..., description="Inclusive end datetime in UTC")
+    eligible_sales_count_by_store: dict[str, int] = Field(default_factory=dict)
     trace_id: str | None
     query_ms: float
     filters: ReportFilters
@@ -81,9 +88,16 @@ class ReportMeta(ReportModel):
         json_schema_extra={
             "example": {
                 "store_id": "f35a8cb4-3f99-4fca-aaf0-3b2ca1801111",
+                "requested_store_id": "f35a8cb4-3f99-4fca-aaf0-3b2ca1801111",
+                "resolved_store_id": "f35a8cb4-3f99-4fca-aaf0-3b2ca1801111",
+                "token_store_id": "f35a8cb4-3f99-4fca-aaf0-3b2ca1801111",
+                "all_stores": False,
                 "timezone": "America/Mexico_City",
                 "from_datetime": "2026-03-01T00:00:00-06:00",
                 "to_datetime": "2026-03-01T23:59:59.999999-06:00",
+                "from_datetime_utc": "2026-03-01T06:00:00+00:00",
+                "to_datetime_utc": "2026-03-02T05:59:59.999999+00:00",
+                "eligible_sales_count_by_store": {"f35a8cb4-3f99-4fca-aaf0-3b2ca1801111": 42},
                 "trace_id": "trace-reports-overview-001",
                 "query_ms": 12.8,
                 "filters": {

@@ -490,6 +490,30 @@ def daily_sales_refunds(
     return sales_by_date, orders_by_date, refunds_by_date
 
 
+def eligible_sales_count_by_store(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    cashier_id: str | None = None,
+    payment_method: str | None = None,
+) -> dict[str, int]:
+    count_query = select(func.count()).select_from(
+        paid_sales_query(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            cashier_id=cashier_id,
+            payment_method=payment_method,
+        ).subquery()
+    )
+    count = int(db.execute(count_query).scalar_one() or 0)
+    return {store_id: count}
+
+
 def apply_liability_and_tender_rows(
     db,
     *,

@@ -41,7 +41,14 @@ def test_build_report_totals_defaults_missing_liability_fields_to_zero():
 def test_build_report_dataset_reports_overview_handles_rows_without_liability_keys(monkeypatch):
     monkeypatch.setattr(
         "app.aris3.services.exports.daily_sales_refunds",
-        lambda *args, **kwargs: ({date(2026, 4, 1): Decimal("100.00")}, {date(2026, 4, 1): 1}, {date(2026, 4, 1): Decimal("0.00")}),
+        lambda *args, **kwargs: (
+            {date(2026, 4, 1): Decimal("100.00")},
+            {date(2026, 4, 1): 1},
+            {date(2026, 4, 1): Decimal("0.00")},
+            {date(2026, 4, 1): Decimal("0.00")},
+            {date(2026, 4, 1): Decimal("0.00")},
+            {"missing_cost_lines": 0, "missing_cost_total_qty": 0, "cost_source_summary": {}},
+        ),
     )
 
     monkeypatch.setattr(

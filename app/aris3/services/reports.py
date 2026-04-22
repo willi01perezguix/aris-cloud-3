@@ -4,12 +4,16 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from datetime import timezone as dt_timezone
 from decimal import Decimal
+import logging
 from typing import Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import Select, func, select
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosPayment, PosReturnEvent, PosSale, PosSaleLine
+from app.aris3.db.models import PosAdvance, PosAdvanceEvent, PosPayment, PosReturnEvent, PosSale, PosSaleLine, StockItem
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReportDateRange:
@@ -227,6 +231,8 @@ def build_daily_report_rows(
     sales_by_date: dict[date, Decimal],
     orders_by_date: dict[date, int],
     refunds_by_date: dict[date, Decimal],
+    cogs_gross_by_date: dict[date, Decimal] | None = None,
+    cogs_reversed_by_date: dict[date, Decimal] | None = None,
     *,
     start_date: date,
     end_date: date,
@@ -235,6 +241,9 @@ def build_daily_report_rows(
     for day in iter_dates(start_date, end_date):
         gross_sales = sales_by_date.get(day, Decimal("0.00"))
         refunds_total = refunds_by_date.get(day, Decimal("0.00"))
+        cogs_gross = (cogs_gross_by_date or {}).get(day, Decimal("0.00"))
+        cogs_reversed = (cogs_reversed_by_date or {}).get(day, Decimal("0.00"))
+        net_cogs = cogs_gross - cogs_reversed
         net_sales = gross_sales - refunds_total
         orders_paid_count = orders_by_date.get(day, 0)
         average_ticket = net_sales / Decimal(orders_paid_count) if orders_paid_count else Decimal("0.00")
@@ -244,10 +253,10 @@ def build_daily_report_rows(
                 "gross_sales": gross_sales,
                 "refunds_total": refunds_total,
                 "net_sales": net_sales,
-                "cogs_gross": Decimal("0.00"),
-                "cogs_reversed_from_returns": Decimal("0.00"),
-                "net_cogs": Decimal("0.00"),
-                "net_profit": net_sales,
+                "cogs_gross": cogs_gross,
+                "cogs_reversed_from_returns": cogs_reversed,
+                "net_cogs": net_cogs,
+                "net_profit": net_sales - net_cogs,
                 "orders_paid_count": orders_paid_count,
                 "average_ticket": average_ticket.quantize(Decimal("0.01")),
                 "liability_issued_advances": _MONETARY_DEFAULT,
@@ -438,6 +447,150 @@ def sale_line_totals(
     return totals
 
 
+def sale_line_costs_and_diagnostics(
+    db,
+    *,
+    tenant_id: str,
+    store_id: str,
+    sale_ids: list[str],
+) -> tuple[dict[str, Decimal], dict[str, Decimal], dict[str, int | dict[str, int]]]:
+    if not sale_ids:
+        return {}, {}, {"missing_cost_lines": 0, "missing_cost_total_qty": 0, "cost_source_summary": {}}
+
+    sale_line_rows = db.execute(
+        select(
+            PosSaleLine.id,
+            PosSaleLine.sale_id,
+            PosSaleLine.qty,
+            PosSaleLine.line_total,
+            PosSaleLine.cost_price_snapshot,
+            PosSaleLine.item_uid,
+            PosSaleLine.epc_at_sale,
+            PosSaleLine.epc,
+            PosSaleLine.sku_snapshot,
+            PosSaleLine.sku,
+            PosSaleLine.var1_snapshot,
+            PosSaleLine.var1_value,
+            PosSaleLine.var2_snapshot,
+            PosSaleLine.var2_value,
+        ).where(
+            PosSaleLine.tenant_id == tenant_id,
+            PosSaleLine.sale_id.in_(sale_ids),
+        )
+    ).all()
+
+    item_uids = {row.item_uid for row in sale_line_rows if row.item_uid}
+    epcs = {row.epc_at_sale or row.epc for row in sale_line_rows if (row.epc_at_sale or row.epc)}
+    sku_keys = {
+        (
+            row.sku_snapshot or row.sku,
+            row.var1_snapshot or row.var1_value,
+            row.var2_snapshot or row.var2_value,
+        )
+        for row in sale_line_rows
+        if (row.sku_snapshot or row.sku)
+    }
+
+    stock_by_item_uid: dict[object, Decimal | None] = {}
+    if item_uids:
+        for item_uid, cost_price in db.execute(
+            select(StockItem.item_uid, StockItem.cost_price).where(
+                StockItem.tenant_id == tenant_id,
+                StockItem.store_id == store_id,
+                StockItem.item_uid.in_(item_uids),
+            )
+        ).all():
+            stock_by_item_uid[item_uid] = Decimal(str(cost_price)) if cost_price is not None else None
+
+    stock_by_epc: dict[str, Decimal | None] = {}
+    if epcs:
+        epc_rows = db.execute(
+            select(StockItem.epc, StockItem.cost_price).where(
+                StockItem.tenant_id == tenant_id,
+                StockItem.store_id == store_id,
+                StockItem.epc.in_(list(epcs)),
+            )
+        ).all()
+        epc_map: dict[str, list[Decimal | None]] = defaultdict(list)
+        for epc, cost_price in epc_rows:
+            if epc:
+                epc_map[epc].append(Decimal(str(cost_price)) if cost_price is not None else None)
+        for epc, matches in epc_map.items():
+            if len(matches) == 1:
+                stock_by_epc[epc] = matches[0]
+
+    stock_by_sku_variant: dict[tuple[str, str | None, str | None], Decimal | None] = {}
+    if sku_keys:
+        sku_values = {key[0] for key in sku_keys if key[0]}
+        sku_rows = db.execute(
+            select(StockItem.sku, StockItem.var1_value, StockItem.var2_value, StockItem.cost_price).where(
+                StockItem.tenant_id == tenant_id,
+                StockItem.store_id == store_id,
+                StockItem.sku.in_(list(sku_values)),
+            )
+        ).all()
+        sku_map: dict[tuple[str, str | None, str | None], list[Decimal | None]] = defaultdict(list)
+        for sku, var1, var2, cost_price in sku_rows:
+            if not sku:
+                continue
+            sku_map[(sku, var1, var2)].append(Decimal(str(cost_price)) if cost_price is not None else None)
+        for key, matches in sku_map.items():
+            if len(matches) == 1:
+                stock_by_sku_variant[key] = matches[0]
+
+    cost_by_line_id: dict[str, Decimal] = {}
+    qty_by_line_id: dict[str, int] = {}
+    revenue_by_line_id: dict[str, Decimal] = {}
+    cogs_gross_by_sale: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+    cost_source_summary: dict[str, int] = defaultdict(int)
+    missing_cost_lines = 0
+    missing_cost_total_qty = 0
+
+    for row in sale_line_rows:
+        line_id = str(row.id)
+        qty = int(row.qty or 0)
+        qty_by_line_id[line_id] = qty
+        revenue_by_line_id[line_id] = Decimal(str(row.line_total or 0.0))
+        unit_cost: Decimal | None = None
+        cost_source = "missing"
+
+        if row.cost_price_snapshot is not None:
+            unit_cost = Decimal(str(row.cost_price_snapshot))
+            cost_source = "snapshot"
+        elif row.item_uid and row.item_uid in stock_by_item_uid:
+            unit_cost = stock_by_item_uid[row.item_uid]
+            cost_source = "fallback_item_uid"
+        elif (row.epc_at_sale or row.epc) and (row.epc_at_sale or row.epc) in stock_by_epc:
+            unit_cost = stock_by_epc[row.epc_at_sale or row.epc]
+            cost_source = "fallback_epc"
+        else:
+            sku_key = (
+                row.sku_snapshot or row.sku,
+                row.var1_snapshot or row.var1_value,
+                row.var2_snapshot or row.var2_value,
+            )
+            if sku_key in stock_by_sku_variant:
+                unit_cost = stock_by_sku_variant[sku_key]
+                cost_source = "fallback_sku_variant"
+
+        if unit_cost is None:
+            missing_cost_lines += 1
+            missing_cost_total_qty += max(qty, 0)
+            unit_cost = Decimal("0.00")
+
+        line_cost = (unit_cost * Decimal(qty)).quantize(Decimal("0.01"))
+        cost_by_line_id[line_id] = line_cost
+        cogs_gross_by_sale[str(row.sale_id)] += line_cost
+        cost_source_summary[cost_source] += 1
+
+    diagnostics = {
+        "missing_cost_lines": missing_cost_lines,
+        "missing_cost_total_qty": missing_cost_total_qty,
+        "cost_source_summary": dict(cost_source_summary),
+    }
+    return cogs_gross_by_sale, revenue_by_line_id, {**diagnostics, "cost_by_line_id": cost_by_line_id, "qty_by_line_id": qty_by_line_id}
+
+
 def daily_sales_refunds(
     db,
     *,
@@ -448,7 +601,7 @@ def daily_sales_refunds(
     tz: ZoneInfo,
     cashier_id: str | None = None,
     payment_method: str | None = None,
-) -> tuple[dict[date, Decimal], dict[date, int], dict[date, Decimal]]:
+) -> tuple[dict[date, Decimal], dict[date, int], dict[date, Decimal], dict[date, Decimal], dict[date, Decimal], dict[str, int | dict[str, int]]]:
     sale_rows = db.execute(
         paid_sales_query(
             tenant_id=tenant_id,
@@ -461,8 +614,15 @@ def daily_sales_refunds(
     ).all()
     sale_ids = [str(row.id) for row in sale_rows]
     sale_totals = sale_line_totals(db, sale_ids=sale_ids)
+    cogs_by_sale, _revenue_by_line_id, cost_diag = sale_line_costs_and_diagnostics(
+        db,
+        tenant_id=tenant_id,
+        store_id=store_id,
+        sale_ids=sale_ids,
+    )
     sales_by_date: dict[date, Decimal] = defaultdict(lambda: Decimal("0.00"))
     orders_by_date: dict[date, int] = defaultdict(int)
+    cogs_gross_by_date: dict[date, Decimal] = defaultdict(lambda: Decimal("0.00"))
     for row in sale_rows:
         checked_out_at = _ensure_utc(row.checked_out_at)
         local_date = checked_out_at.astimezone(tz).date()
@@ -471,6 +631,7 @@ def daily_sales_refunds(
         if line_total is None:
             line_total = Decimal(str(row.total_due or 0.0))
         sales_by_date[local_date] += line_total
+        cogs_gross_by_date[local_date] += cogs_by_sale.get(str(row.id), Decimal("0.00"))
 
     refund_rows = db.execute(
         refund_events_query(
@@ -487,7 +648,37 @@ def daily_sales_refunds(
         local_date = _ensure_utc(created_at).astimezone(tz).date()
         refunds_by_date[local_date] += Decimal(str(refund_total or 0.0))
 
-    return sales_by_date, orders_by_date, refunds_by_date
+    cogs_reversed_by_date: dict[date, Decimal] = defaultdict(lambda: Decimal("0.00"))
+    return_events = db.execute(
+        select(PosReturnEvent.created_at, PosReturnEvent.payload)
+        .where(
+            PosReturnEvent.tenant_id == tenant_id,
+            PosReturnEvent.store_id == store_id,
+            PosReturnEvent.action.in_(REPORTABLE_RETURN_ACTIONS),
+            PosReturnEvent.created_at >= start_utc,
+            PosReturnEvent.created_at <= end_utc,
+        )
+    ).all()
+    cost_by_line_id = cost_diag.get("cost_by_line_id", {})
+    qty_by_line_id = cost_diag.get("qty_by_line_id", {})
+    for created_at, payload in return_events:
+        local_date = _ensure_utc(created_at).astimezone(tz).date()
+        event_payload = payload or {}
+        for item in event_payload.get("returned_lines", []) or []:
+            line_id = str(item.get("line_id") or item.get("sale_line_id") or "")
+            qty = int(item.get("qty") or 0)
+            if not line_id or qty <= 0:
+                continue
+            line_cost = Decimal(str(cost_by_line_id.get(line_id, Decimal("0.00"))))
+            if line_cost <= 0:
+                continue
+            sold_qty = max(int(qty_by_line_id.get(line_id, 0)), 1)
+            unit_cost = (line_cost / Decimal(sold_qty)).quantize(Decimal("0.01"))
+            cogs_reversed_by_date[local_date] += (unit_cost * Decimal(qty)).quantize(Decimal("0.01"))
+
+    cost_diag.pop("cost_by_line_id", None)
+    cost_diag.pop("qty_by_line_id", None)
+    return sales_by_date, orders_by_date, refunds_by_date, cogs_gross_by_date, cogs_reversed_by_date, cost_diag
 
 
 def eligible_sales_count_by_store(

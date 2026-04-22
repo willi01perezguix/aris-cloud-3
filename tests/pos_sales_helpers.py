@@ -54,6 +54,7 @@ def create_stock_item(
     status: str,
     location_is_vendible: bool = True,
     sale_price: float | None = None,
+    cost_price: float | None = None,
 ):
     if store_id is None:
         tenant_store = db_session.query(Store).filter(Store.tenant_id == tenant_id).order_by(Store.created_at.asc()).first()
@@ -78,6 +79,7 @@ def create_stock_item(
         image_source="catalog",
         image_updated_at=datetime.utcnow(),
         sale_price=sale_price,
+        cost_price=cost_price,
     )
     db_session.add(stock)
     db_session.commit()

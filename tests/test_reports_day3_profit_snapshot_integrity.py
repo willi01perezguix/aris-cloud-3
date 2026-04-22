@@ -27,6 +27,7 @@ def test_reports_profit_uses_sale_line_snapshot(client, db_session):
         location_code="LOC-1",
         pool="P1",
         status="PENDING",
+        cost_price=5.0,
     )
     open_cash_session(db_session, tenant_id=str(tenant.id), store_id=str(store.id), cashier_user_id=str(user.id))
 
@@ -57,4 +58,5 @@ def test_reports_profit_uses_sale_line_snapshot(client, db_session):
     assert response.status_code == 200
     totals = response.json()["totals"]
     assert Decimal(totals["gross_sales"]) == Decimal("15.00")
-    assert Decimal(totals["net_profit"]) == Decimal("15.00")
+    assert Decimal(totals["net_cogs"]) == Decimal("5.00")
+    assert Decimal(totals["net_profit"]) == Decimal("10.00")

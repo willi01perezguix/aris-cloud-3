@@ -11,7 +11,14 @@ def test_exports_create_handles_legacy_daily_rows_without_liability_fields(clien
 
     monkeypatch.setattr(
         "app.aris3.services.exports.daily_sales_refunds",
-        lambda *args, **kwargs: ({date(2026, 4, 1): Decimal("10.00")}, {date(2026, 4, 1): 1}, {date(2026, 4, 1): Decimal("0.00")}),
+        lambda *args, **kwargs: (
+            {date(2026, 4, 1): Decimal("10.00")},
+            {date(2026, 4, 1): 1},
+            {date(2026, 4, 1): Decimal("0.00")},
+            {date(2026, 4, 1): Decimal("0.00")},
+            {date(2026, 4, 1): Decimal("0.00")},
+            {"missing_cost_lines": 0, "missing_cost_total_qty": 0, "cost_source_summary": {}},
+        ),
     )
     monkeypatch.setattr(
         "app.aris3.services.exports.build_daily_report_rows",

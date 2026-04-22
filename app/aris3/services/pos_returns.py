@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.models import PosReturnEvent, PosSale, StockItem
 from app.aris3.repos.pos_sales import PosSaleRepository
+from app.aris3.services.sale_statuses import is_finalized_sale_status
 from app.aris3.services.stock_rules import sale_epc_filters, sale_sku_filters
 from app.aris3.schemas.pos_returns import (
     ReturnActionRequest,
@@ -79,7 +80,7 @@ def _completed_returned_quantities(events: list[PosReturnEvent]) -> dict[str, in
 
 
 def _validate_sale_eligibility_for_return(sale: PosSale) -> None:
-    if str(sale.status).upper() != "PAID":
+    if not is_finalized_sale_status(sale.status):
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale is not finalized"})
     if sale.checked_out_at is None:
         raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale checkout timestamp is required"})

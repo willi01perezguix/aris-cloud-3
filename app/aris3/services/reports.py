@@ -163,7 +163,7 @@ def paid_sales_query(
     cashier_id: str | None,
     payment_method: str | None,
 ) -> Select:
-    query = select(PosSale.id, PosSale.checked_out_at).where(
+    query = select(PosSale.id, PosSale.checked_out_at, PosSale.total_due).where(
         PosSale.tenant_id == tenant_id,
         PosSale.store_id == store_id,
         PosSale.status == "PAID",
@@ -466,7 +466,10 @@ def daily_sales_refunds(
         checked_out_at = _ensure_utc(row.checked_out_at)
         local_date = checked_out_at.astimezone(tz).date()
         orders_by_date[local_date] += 1
-        sales_by_date[local_date] += sale_totals.get(str(row.id), Decimal("0.00"))
+        line_total = sale_totals.get(str(row.id))
+        if line_total is None:
+            line_total = Decimal(str(row.total_due or 0.0))
+        sales_by_date[local_date] += line_total
 
     refund_rows = db.execute(
         refund_events_query(

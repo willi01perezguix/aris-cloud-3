@@ -27,6 +27,7 @@ from app.aris3.services.reports import (
     build_daily_report_rows,
     build_report_totals,
     daily_sales_refunds,
+    eligible_sales_count_by_store,
     resolve_date_range,
     resolve_timezone,
     validate_date_range,
@@ -45,13 +46,31 @@ def _resolve_store_id(token_data, store_id: str | None) -> str:
     raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
 
 
-def _build_meta(request: Request, store_id: str, timezone_name: str, date_range, filters: ReportFilters, query_ms: float) -> ReportMeta:
+def _build_meta(
+    request: Request,
+    *,
+    requested_store_id: str | None,
+    resolved_store_id: str,
+    token_store_id: str | None,
+    timezone_name: str,
+    date_range,
+    filters: ReportFilters,
+    query_ms: float,
+    eligible_sales_count_by_store: dict[str, int],
+) -> ReportMeta:
     trace_id = getattr(request.state, "trace_id", None)
     return ReportMeta(
-        store_id=store_id,
+        store_id=resolved_store_id,
+        requested_store_id=requested_store_id,
+        resolved_store_id=resolved_store_id,
+        token_store_id=token_store_id,
+        all_stores=False,
         timezone=timezone_name,
         from_datetime=date_range.start_local,
         to_datetime=date_range.end_local,
+        from_datetime_utc=date_range.start_utc,
+        to_datetime_utc=date_range.end_utc,
+        eligible_sales_count_by_store=eligible_sales_count_by_store,
         trace_id=trace_id,
         query_ms=query_ms,
         filters=filters,
@@ -138,8 +157,27 @@ def report_overview(
     )
     rows = [ReportDailyRow(**row) for row in rows_data]
     totals = ReportTotals(**build_report_totals(rows_data))
+    sales_count_by_store = eligible_sales_count_by_store(
+        db,
+        tenant_id=str(store.tenant_id),
+        store_id=resolved_store_id,
+        start_utc=date_range.start_utc,
+        end_utc=date_range.end_utc,
+        cashier_id=cashier,
+        payment_method=payment_method,
+    )
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
+    meta = _build_meta(
+        request,
+        requested_store_id=store_id,
+        resolved_store_id=resolved_store_id,
+        token_store_id=token_data.store_id,
+        timezone_name=str(tz),
+        date_range=date_range,
+        filters=filters,
+        query_ms=query_ms,
+        eligible_sales_count_by_store=sales_count_by_store,
+    )
     logger.info(
         "reports_overview",
         extra={
@@ -149,6 +187,13 @@ def report_overview(
             "endpoint": "/aris3/reports/overview",
             "latency_ms": query_ms,
             "row_count": len(rows),
+            "requested_store_id": store_id,
+            "resolved_store_id": resolved_store_id,
+            "token_store_id": token_data.store_id,
+            "all_stores": False,
+            "from_utc": date_range.start_utc.isoformat(),
+            "to_utc": date_range.end_utc.isoformat(),
+            "eligible_sales_count_by_store": sales_count_by_store,
         },
     )
     return ReportOverviewResponse(meta=meta, totals=totals)
@@ -232,8 +277,27 @@ def report_daily(
     )
     rows = [ReportDailyRow(**row) for row in rows_data]
     totals = ReportTotals(**build_report_totals(rows_data))
+    sales_count_by_store = eligible_sales_count_by_store(
+        db,
+        tenant_id=str(store.tenant_id),
+        store_id=resolved_store_id,
+        start_utc=date_range.start_utc,
+        end_utc=date_range.end_utc,
+        cashier_id=cashier,
+        payment_method=payment_method,
+    )
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
+    meta = _build_meta(
+        request,
+        requested_store_id=store_id,
+        resolved_store_id=resolved_store_id,
+        token_store_id=token_data.store_id,
+        timezone_name=str(tz),
+        date_range=date_range,
+        filters=filters,
+        query_ms=query_ms,
+        eligible_sales_count_by_store=sales_count_by_store,
+    )
     logger.info(
         "reports_daily",
         extra={
@@ -243,6 +307,13 @@ def report_daily(
             "endpoint": "/aris3/reports/daily",
             "latency_ms": query_ms,
             "row_count": len(rows),
+            "requested_store_id": store_id,
+            "resolved_store_id": resolved_store_id,
+            "token_store_id": token_data.store_id,
+            "all_stores": False,
+            "from_utc": date_range.start_utc.isoformat(),
+            "to_utc": date_range.end_utc.isoformat(),
+            "eligible_sales_count_by_store": sales_count_by_store,
         },
     )
     return ReportDailyResponse(meta=meta, totals=totals, rows=rows)
@@ -335,8 +406,27 @@ def report_calendar(
         for row in daily_rows
     ]
     totals = ReportTotals(**build_report_totals(daily_rows_data))
+    sales_count_by_store = eligible_sales_count_by_store(
+        db,
+        tenant_id=str(store.tenant_id),
+        store_id=resolved_store_id,
+        start_utc=date_range.start_utc,
+        end_utc=date_range.end_utc,
+        cashier_id=cashier,
+        payment_method=payment_method,
+    )
     query_ms = (time.perf_counter() - start_time) * 1000
-    meta = _build_meta(request, resolved_store_id, str(tz), date_range, filters, query_ms)
+    meta = _build_meta(
+        request,
+        requested_store_id=store_id,
+        resolved_store_id=resolved_store_id,
+        token_store_id=token_data.store_id,
+        timezone_name=str(tz),
+        date_range=date_range,
+        filters=filters,
+        query_ms=query_ms,
+        eligible_sales_count_by_store=sales_count_by_store,
+    )
     logger.info(
         "reports_calendar",
         extra={
@@ -346,6 +436,13 @@ def report_calendar(
             "endpoint": "/aris3/reports/calendar",
             "latency_ms": query_ms,
             "row_count": len(calendar_rows),
+            "requested_store_id": store_id,
+            "resolved_store_id": resolved_store_id,
+            "token_store_id": token_data.store_id,
+            "all_stores": False,
+            "from_utc": date_range.start_utc.isoformat(),
+            "to_utc": date_range.end_utc.isoformat(),
+            "eligible_sales_count_by_store": sales_count_by_store,
         },
     )
     return ReportCalendarResponse(meta=meta, totals=totals, rows=calendar_rows)

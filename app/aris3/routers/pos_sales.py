@@ -136,7 +136,8 @@ def _resolve_tenant_id(token_data, tenant_id: str | None) -> str:
 def _resolve_store_id(token_data, requested_store_id: str | None) -> str:
     locked_store = token_data.store_id
     broad_roles = {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}
-    if locked_store and token_data.role.upper() not in broad_roles:
+    role = token_data.role.upper()
+    if locked_store and role not in broad_roles:
         if requested_store_id and requested_store_id != locked_store:
             raise AppError(ErrorCatalog.STORE_SCOPE_MISMATCH)
         return locked_store
@@ -144,6 +145,11 @@ def _resolve_store_id(token_data, requested_store_id: str | None) -> str:
         return requested_store_id
     if locked_store:
         return locked_store
+    if role in broad_roles:
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "store_id is required for broad-store users"},
+        )
     raise AppError(ErrorCatalog.STORE_SCOPE_REQUIRED)
 
 
@@ -193,7 +199,10 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
             filters.append(StockItem.pool == snapshot.pool)
         stock = db.execute(select(StockItem).where(*filters)).scalars().first()
         if not stock:
-            raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "epc not available for sale", "epc": epc})
+            raise AppError(
+                ErrorCatalog.VALIDATION_ERROR,
+                details={"message": "replacement item not available in this store", "epc": epc},
+            )
 
         expected_price = _authoritative_price(stock, fallback_price)
         if _legacy_unit_price(line) is not None and fallback_price != expected_price and stock.sale_price is not None:
@@ -244,7 +253,10 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
                     location_is_vendible=True,
                 ),
             )
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "insufficient stock for sku", "sku": sku})
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "replacement item not available in this store", "sku": sku},
+        )
 
     stock = db.execute(select(StockItem).where(*filters).order_by(StockItem.created_at)).scalars().first()
     if not stock:
@@ -265,7 +277,10 @@ def _build_sale_line_from_stock(db, *, tenant_id: str, line: PosSaleLineCreate, 
                     location_is_vendible=True,
                 ),
             )
-        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sku not available for sale", "sku": sku})
+        raise AppError(
+            ErrorCatalog.VALIDATION_ERROR,
+            details={"message": "replacement item not available in this store", "sku": sku},
+        )
 
     expected_price = _authoritative_price(stock, fallback_price)
     # Transitional backward compatibility: accept legacy unit_price as fallback when catalog/stock has no sale_price.
@@ -868,6 +883,7 @@ def _sale_summary_row(repo: PosSaleRepository, sale: PosSale) -> SaleSummaryRow:
     },
 )
 def list_sales(
+    store_id: str | None = Query(default=None),
     receipt_number: str | None = Query(default=None),
     status: str | None = Query(default=None),
     checked_out_from: date | None = Query(default=None, description="Inclusive calendar date (store business date) to start filtering sales by checkout date."),
@@ -883,14 +899,13 @@ def list_sales(
     db=Depends(get_db),
 ):
     scoped_tenant_id = _resolve_tenant_id(token_data, token_data.tenant_id)
-    store_id = None
-    if token_data.store_id and token_data.role.upper() not in {role.upper() for role in DEFAULT_BROAD_STORE_ROLES}:
-        store_id = token_data.store_id
+    resolved_store_id = _resolve_store_id(token_data, store_id)
+    enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
     repo = PosSaleRepository(db)
     rows, total = repo.list_sales(
         PosSaleQueryFilters(
             tenant_id=scoped_tenant_id,
-            store_id=store_id,
+            store_id=resolved_store_id,
             receipt_number=receipt_number,
             status=status,
             from_date=_parse_filter_date(checked_out_from),
@@ -1229,6 +1244,7 @@ def update_sale(
 )
 def get_sale(
     sale_id: str,
+    store_id: str | None = Query(default=None),
     token_data=Depends(get_current_token_data),
     _user=Depends(require_active_user),
     _permission=Depends(require_permission("POS_SALE_VIEW")),
@@ -1240,7 +1256,21 @@ def get_sale(
     scoped_tenant_id = _resolve_tenant_id(token_data, str(sale.tenant_id))
     if str(sale.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
-    enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, store_id)
+    enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
+    if str(sale.store_id) != resolved_store_id:
+        raise AppError(
+            ErrorCatalog.STORE_SCOPE_MISMATCH,
+            details={
+                "message": "sale belongs to another store",
+                "sale_id": str(sale.id),
+                "sale_store_id": str(sale.store_id),
+                "resolved_store_id": resolved_store_id,
+                "requested_store_id": store_id,
+                "token_store_id": token_data.store_id,
+                "route": "GET /aris3/pos/sales/{sale_id}",
+            },
+        )
     repo = PosSaleRepository(db)
     return _sale_response(repo, sale)
 
@@ -1317,7 +1347,22 @@ def sale_action(
         raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
     if str(sale.tenant_id) != scoped_tenant_id:
         raise AppError(ErrorCatalog.CROSS_TENANT_ACCESS_DENIED)
-    enforce_store_scope(token_data, str(sale.store_id), db, allow_superadmin=True)
+    resolved_store_id = _resolve_store_id(token_data, None)
+    enforce_store_scope(token_data, resolved_store_id, db, allow_superadmin=True)
+    if str(sale.store_id) != resolved_store_id:
+        raise AppError(
+            ErrorCatalog.STORE_SCOPE_MISMATCH,
+            details={
+                "message": "sale belongs to another store",
+                "sale_id": str(sale.id),
+                "sale_store_id": str(sale.store_id),
+                "resolved_store_id": resolved_store_id,
+                "requested_store_id": None,
+                "token_store_id": token_data.store_id,
+                "route": "POST /aris3/pos/sales/{sale_id}/actions",
+                "action": str(payload.action).upper(),
+            },
+        )
 
     action = str(payload.action).upper()
     effective_store_id = str(sale.store_id)

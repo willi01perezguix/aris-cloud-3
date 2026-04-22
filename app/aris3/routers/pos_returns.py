@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Query
 
+from app.aris3.core.deps import get_current_token_data, require_active_user, require_permission
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
 from app.aris3.db.session import get_db
 from app.aris3.schemas.errors import ApiErrorResponse, ApiValidationErrorResponse
@@ -50,6 +51,7 @@ RETURN_ERROR_EXAMPLES = {
     }
 })
 def list_returns(
+    store_id: str | None = Query(default=None),
     return_number: str | None = Query(default=None),
     sale_id: str | None = Query(default=None),
     receipt_number: str | None = Query(default=None),
@@ -58,11 +60,21 @@ def list_returns(
     business_date_to: date | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_SALE_VIEW")),
     db=Depends(get_db),
 ):
     _ = (return_number, status, business_date_from, business_date_to)
     service = PosReturnsService(db)
-    return service.list_returns(sale_id=sale_id, receipt_number=receipt_number, page=page, page_size=page_size)
+    return service.list_returns(
+        sale_id=sale_id,
+        receipt_number=receipt_number,
+        page=page,
+        page_size=page_size,
+        token_data=token_data,
+        requested_store_id=store_id,
+    )
 
 
 @router.get('/aris3/pos/returns/eligibility', response_model=ReturnEligibilityResponse, responses=POS_STANDARD_ERROR_RESPONSES, openapi_extra={
@@ -73,9 +85,22 @@ def list_returns(
         "422": {"content": {"application/json": {"example": {"code": "VALIDATION_ERROR", "message": "Validation error", "details": {"errors": [{"field": "sale_id", "message": "sale_id or receipt_number is required", "type": "value_error"}]}, "trace_id": "trace-returns-eligibility-422"}}}},
     }
 })
-def get_eligibility(sale_id: str | None = None, receipt_number: str | None = None, db=Depends(get_db)):
+def get_eligibility(
+    sale_id: str | None = None,
+    receipt_number: str | None = None,
+    store_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_SALE_VIEW")),
+    db=Depends(get_db),
+):
     service = PosReturnsService(db)
-    return service.get_eligibility(sale_id=sale_id, receipt_number=receipt_number)
+    return service.get_eligibility(
+        sale_id=sale_id,
+        receipt_number=receipt_number,
+        token_data=token_data,
+        requested_store_id=store_id,
+    )
 
 
 @router.post(
@@ -107,9 +132,15 @@ def get_eligibility(sale_id: str | None = None, receipt_number: str | None = Non
         },
     },
 )
-def quote_return(request: ReturnQuoteRequest, db=Depends(get_db)):
+def quote_return(
+    request: ReturnQuoteRequest,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_SALE_MANAGE")),
+    db=Depends(get_db),
+):
     service = PosReturnsService(db)
-    return service.compute_quote(request)
+    return service.compute_quote(request, token_data=token_data)
 
 
 @router.get('/aris3/pos/returns/{return_id}', response_model=ReturnDetail, responses={k: v for k, v in POS_STANDARD_ERROR_RESPONSES.items() if k != 409}, openapi_extra={
@@ -119,9 +150,16 @@ def quote_return(request: ReturnQuoteRequest, db=Depends(get_db)):
         "404": {"content": {"application/json": {"example": RETURN_ERROR_EXAMPLES["404"]}}},
     }
 })
-def get_return(return_id: str, db=Depends(get_db)):
+def get_return(
+    return_id: str,
+    store_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_SALE_VIEW")),
+    db=Depends(get_db),
+):
     service = PosReturnsService(db)
-    return service.get_return(return_id)
+    return service.get_return(return_id, token_data=token_data, requested_store_id=store_id)
 
 
 @router.post(
@@ -159,9 +197,15 @@ def get_return(return_id: str, db=Depends(get_db)):
         },
     },
 )
-def create_return(request: ReturnQuoteRequest, db=Depends(get_db)):
+def create_return(
+    request: ReturnQuoteRequest,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_SALE_MANAGE")),
+    db=Depends(get_db),
+):
     service = PosReturnsService(db)
-    return service.create_draft(request)
+    return service.create_draft(request, token_data=token_data)
 
 
 @router.post(
@@ -177,6 +221,14 @@ def create_return(request: ReturnQuoteRequest, db=Depends(get_db)):
         },
     },
 )
-def action_return(return_id: str, request: ReturnActionRequest, db=Depends(get_db)):
+def action_return(
+    return_id: str,
+    request: ReturnActionRequest,
+    store_id: str | None = None,
+    token_data=Depends(get_current_token_data),
+    _user=Depends(require_active_user),
+    _permission=Depends(require_permission("POS_SALE_MANAGE")),
+    db=Depends(get_db),
+):
     service = PosReturnsService(db)
-    return service.apply_action(return_id, request)
+    return service.apply_action(return_id, request, token_data=token_data, requested_store_id=store_id)

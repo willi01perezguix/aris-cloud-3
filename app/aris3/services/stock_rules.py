@@ -7,6 +7,7 @@ from app.aris3.db.models import StockItem
 
 
 OperationalMode = Literal["EPC", "SKU", "NONE"]
+TRANSFER_SKU_ALLOWED_STATUSES = frozenset({"PENDING", "RFID"})
 
 
 @dataclass(frozen=True)
@@ -87,7 +88,7 @@ def transfer_sku_filters(*, tenant_id: str, origin_store_id: str, sku: str, loca
         StockItem.tenant_id == tenant_id,
         StockItem.store_id == origin_store_id,
         StockItem.epc.is_(None),
-        StockItem.status != "SOLD",
+        StockItem.status.in_(TRANSFER_SKU_ALLOWED_STATUSES),
         StockItem.sku == sku,
     ]
     if location_code is not None:

@@ -31,12 +31,13 @@ from app.aris3.schemas.transfers import (
 from app.aris3.services.access_control import AccessControlService
 from app.aris3.services.audit import AuditEventPayload, AuditService
 from app.aris3.services.idempotency import IdempotencyService, extract_idempotency_key
-from app.aris3.services.stock_rules import transfer_sku_filters
+from app.aris3.services.stock_rules import TRANSFER_SKU_ALLOWED_STATUSES, transfer_sku_filters
 
 
 router = APIRouter()
 _IN_TRANSIT_CODE = "IN_TRANSIT"
 _DEFAULT_RECEIVE_POOL = "SALE"
+_TRANSFER_SKU_ACCEPTED_STATUSES = tuple(sorted(TRANSFER_SKU_ALLOWED_STATUSES))
 _BROAD_ACCESS_ROLES = {"SUPERADMIN", "PLATFORM_ADMIN", "ADMIN"}
 _ACTIVE_TRANSFER_STATUSES = {"DRAFT", "DISPATCHED", "PARTIAL_RECEIVED"}
 _IDEMPOTENCY_KEY_HEADER_PARAMETER = {
@@ -475,7 +476,6 @@ def _normalize_transfer_line(db, *, tenant_id: str, origin_store_id: str, line: 
         )
         snapshot = _stock_snapshot_from_item(sku_rows[0])
         snapshot["epc"] = None
-        snapshot["status"] = "PENDING"
         return {"line_type": line.line_type, "qty": line.qty, "snapshot": snapshot}
 
     stock_row = _validate_transferable_epc_stock(
@@ -677,10 +677,10 @@ def _validate_transfer_snapshot(line: TransferLineCreate) -> None:
                 ErrorCatalog.VALIDATION_ERROR,
                 details={"message": "sku is required for SKU lines"},
             )
-        if snapshot.status and snapshot.status not in {"PENDING", "RFID"}:
+        if snapshot.status and snapshot.status not in TRANSFER_SKU_ALLOWED_STATUSES:
             raise AppError(
                 ErrorCatalog.VALIDATION_ERROR,
-                details={"message": "SKU lines require PENDING or RFID status"},
+                details={"message": "SKU lines require PENDING or RFID status", "accepted_statuses": _TRANSFER_SKU_ACCEPTED_STATUSES},
             )
     if not snapshot.location_code or not snapshot.pool:
         raise AppError(
@@ -1631,7 +1631,7 @@ def transfer_actions(
                             StockItem.var2_value == line.var2_value,
                             StockItem.location_code == _IN_TRANSIT_CODE,
                             StockItem.pool == _IN_TRANSIT_CODE,
-                            StockItem.status == "PENDING",
+                            StockItem.status.in_(TRANSFER_SKU_ALLOWED_STATUSES),
                         )
                         .with_for_update()
                         .order_by(StockItem.created_at.asc())
@@ -1643,7 +1643,19 @@ def transfer_actions(
                 if len(rows) < receive_line.qty:
                     raise AppError(
                         ErrorCatalog.VALIDATION_ERROR,
-                        details={"message": "insufficient in-transit sku stock", "line_id": receive_line.line_id},
+                        details={
+                            "message": "insufficient in-transit sku stock",
+                            "line_id": receive_line.line_id,
+                            "sku": line.sku,
+                            "description": line.description,
+                            "var1_value": line.var1_value,
+                            "var2_value": line.var2_value,
+                            "expected_location_code": _IN_TRANSIT_CODE,
+                            "expected_pool": _IN_TRANSIT_CODE,
+                            "accepted_statuses": list(_TRANSFER_SKU_ACCEPTED_STATUSES),
+                            "requested_qty": receive_line.qty,
+                            "matched_count": len(rows),
+                        },
                     )
                 for row in rows:
                     row.location_code = target_location_code
@@ -1980,7 +1992,7 @@ def transfer_actions(
                                 StockItem.epc.is_(None),
                                 StockItem.location_code == _IN_TRANSIT_CODE,
                                 StockItem.pool == _IN_TRANSIT_CODE,
-                                StockItem.status == line.status,
+                                StockItem.status.in_(TRANSFER_SKU_ALLOWED_STATUSES),
                             )
                             .with_for_update()
                             .order_by(StockItem.created_at.asc())
@@ -2094,7 +2106,7 @@ def transfer_actions(
                                 StockItem.var2_value == line.var2_value,
                                 StockItem.location_code == _IN_TRANSIT_CODE,
                                 StockItem.pool == _IN_TRANSIT_CODE,
-                                StockItem.status == "PENDING",
+                                StockItem.status.in_(TRANSFER_SKU_ALLOWED_STATUSES),
                             )
                             .with_for_update()
                             .order_by(StockItem.created_at.asc())

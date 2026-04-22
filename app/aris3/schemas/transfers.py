@@ -52,7 +52,7 @@ class TransferLineSnapshot(BaseModel):
 
 class TransferLineCreate(BaseModel):
     line_type: Literal["EPC", "SKU"] = Field(
-        description="Transfer line type. Use EPC for RFID-tagged items and SKU for quantity-based pending stock."
+        description="Transfer line type. Use EPC for RFID-tagged items and SKU for quantity-based stock (PENDING or RFID without EPC)."
     )
     qty: int = 1
     snapshot: TransferLineSnapshot
@@ -77,7 +77,7 @@ class TransferCreateRequest(BaseModel):
     tenant_id: str | None = Field(default=None, json_schema_extra={"deprecated": True})
     origin_store_id: str
     destination_store_id: str
-    lines: list[TransferLineCreate] = Field(description="Transfer lines. Supports EPC/RFID and SKU/PENDING lines.")
+    lines: list[TransferLineCreate] = Field(description="Transfer lines. Supports EPC/RFID and SKU/no-EPC lines with PENDING or RFID status.")
 
     model_config = {
         "extra": "forbid",
@@ -105,7 +105,7 @@ class TransferUpdateRequest(BaseModel):
     destination_store_id: str | None = None
     lines: list[TransferLineCreate] | None = Field(
         default=None,
-        description="Replacement transfer lines for draft update. Supports EPC/RFID and SKU/PENDING lines.",
+        description="Replacement transfer lines for draft update. Supports EPC/RFID and SKU/no-EPC lines with PENDING or RFID status.",
     )
 
     model_config = {

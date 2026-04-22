@@ -1018,6 +1018,7 @@ def create_sale(
                 var1_snapshot=snapshot.var1_value,
                 var2_snapshot=snapshot.var2_value,
                 sale_price_snapshot=_legacy_unit_price(line) or Decimal("0.00"),
+                cost_price_snapshot=None,
                 epc_at_sale=snapshot.epc,
                 location_code=snapshot.location_code,
                 pool=snapshot.pool,
@@ -1165,6 +1166,7 @@ def update_sale(
                     var1_snapshot=snapshot.var1_value,
                     var2_snapshot=snapshot.var2_value,
                     sale_price_snapshot=_legacy_unit_price(line) or Decimal("0.00"),
+                    cost_price_snapshot=None,
                     epc_at_sale=snapshot.epc,
                     location_code=snapshot.location_code,
                     pool=snapshot.pool,
@@ -1837,6 +1839,14 @@ def sale_action(
                     var1_value=snapshot.var1_value,
                     var2_value=snapshot.var2_value,
                     epc=snapshot.epc,
+                    item_uid=getattr(snapshot, "item_uid", None),
+                    sku_snapshot=snapshot.sku,
+                    description_snapshot=snapshot.description,
+                    var1_snapshot=snapshot.var1_value,
+                    var2_snapshot=snapshot.var2_value,
+                    sale_price_snapshot=_legacy_unit_price(line) or Decimal("0.00"),
+                    cost_price_snapshot=None,
+                    epc_at_sale=snapshot.epc,
                     location_code=snapshot.location_code,
                     pool=snapshot.pool,
                     status=snapshot.status,
@@ -2193,6 +2203,8 @@ def sale_action(
             line.var2_snapshot = line.var2_snapshot or stock_row.var2_value
             if line.sale_price_snapshot is None:
                 line.sale_price_snapshot = stock_row.sale_price
+            if line.cost_price_snapshot is None:
+                line.cost_price_snapshot = stock_row.cost_price
             stock_row.status = "SOLD"
             stock_row.item_status = "SOLD"
             stock_row.epc_status = "AVAILABLE"
@@ -2215,6 +2227,8 @@ def sale_action(
             stock_row.location_is_vendible = False
             stock_row.updated_at = now
         elif line.line_type == "SKU":
+            stock_cost_total = Decimal("0.00")
+            stock_cost_count = 0
             stock_rows = (
                 db.execute(
                     select(StockItem)
@@ -2240,10 +2254,15 @@ def sale_action(
                     details={"message": "insufficient stock for SKU line", "sku": line.sku},
                 )
             for stock_row in stock_rows:
+                if stock_row.cost_price is not None:
+                    stock_cost_total += Decimal(str(stock_row.cost_price))
+                    stock_cost_count += 1
                 stock_row.status = "SOLD"
                 stock_row.item_status = "SOLD"
                 stock_row.location_is_vendible = False
                 stock_row.updated_at = now
+            if line.cost_price_snapshot is None and stock_cost_count > 0:
+                line.cost_price_snapshot = (stock_cost_total / Decimal(stock_cost_count)).quantize(Decimal("0.01"))
 
     sale.status = "PAID"
     sale.total_due = float(totals["total_due"])

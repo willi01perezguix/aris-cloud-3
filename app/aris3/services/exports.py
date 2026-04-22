@@ -80,7 +80,7 @@ def build_report_dataset(
     tz = resolve_timezone(filters.timezone)
     date_range = resolve_date_range(filters.from_value, filters.to_value, tz)
     validate_date_range(date_range, max_days=max_days)
-    sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
+    sales_by_date, orders_by_date, refunds_by_date, cogs_gross_by_date, cogs_reversed_by_date, _cost_diag = daily_sales_refunds(
         db,
         tenant_id=tenant_id,
         store_id=store_id,
@@ -94,6 +94,8 @@ def build_report_dataset(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
+        cogs_gross_by_date,
+        cogs_reversed_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )

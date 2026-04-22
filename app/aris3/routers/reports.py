@@ -129,7 +129,7 @@ def report_overview(
         payment_method=payment_method,
     )
     start_time = time.perf_counter()
-    sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
+    sales_by_date, orders_by_date, refunds_by_date, cogs_gross_by_date, cogs_reversed_by_date, cost_diag = daily_sales_refunds(
         db,
         tenant_id=str(store.tenant_id),
         store_id=resolved_store_id,
@@ -143,6 +143,8 @@ def report_overview(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
+        cogs_gross_by_date,
+        cogs_reversed_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
@@ -194,6 +196,13 @@ def report_overview(
             "from_utc": date_range.start_utc.isoformat(),
             "to_utc": date_range.end_utc.isoformat(),
             "eligible_sales_count_by_store": sales_count_by_store,
+            "gross_sales": str(totals.gross_sales),
+            "net_sales": str(totals.net_sales),
+            "cogs": str(totals.net_cogs),
+            "profit": str(totals.net_profit),
+            "missing_cost_lines": cost_diag.get("missing_cost_lines", 0),
+            "missing_cost_total_qty": cost_diag.get("missing_cost_total_qty", 0),
+            "cost_source_summary": cost_diag.get("cost_source_summary", {}),
         },
     )
     return ReportOverviewResponse(meta=meta, totals=totals)
@@ -249,7 +258,7 @@ def report_daily(
         payment_method=payment_method,
     )
     start_time = time.perf_counter()
-    sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
+    sales_by_date, orders_by_date, refunds_by_date, cogs_gross_by_date, cogs_reversed_by_date, _cost_diag = daily_sales_refunds(
         db,
         tenant_id=str(store.tenant_id),
         store_id=resolved_store_id,
@@ -263,6 +272,8 @@ def report_daily(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
+        cogs_gross_by_date,
+        cogs_reversed_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )
@@ -369,7 +380,7 @@ def report_calendar(
         payment_method=payment_method,
     )
     start_time = time.perf_counter()
-    sales_by_date, orders_by_date, refunds_by_date = daily_sales_refunds(
+    sales_by_date, orders_by_date, refunds_by_date, cogs_gross_by_date, cogs_reversed_by_date, _cost_diag = daily_sales_refunds(
         db,
         tenant_id=str(store.tenant_id),
         store_id=resolved_store_id,
@@ -383,6 +394,8 @@ def report_calendar(
         sales_by_date,
         orders_by_date,
         refunds_by_date,
+        cogs_gross_by_date,
+        cogs_reversed_by_date,
         start_date=date_range.start_date,
         end_date=date_range.end_date,
     )

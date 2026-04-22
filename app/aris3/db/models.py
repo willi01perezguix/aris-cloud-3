@@ -639,6 +639,7 @@ class PosSaleLine(Base):
     var1_snapshot: Mapped[str | None] = mapped_column(String(100), nullable=True)
     var2_snapshot: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sale_price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    cost_price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     epc_at_sale: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     pool: Mapped[str | None] = mapped_column(String(100), nullable=True)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 from uuid import uuid4
@@ -9,8 +9,9 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from app.aris3.core.error_catalog import AppError, ErrorCatalog
-from app.aris3.db.models import PosReturnEvent, PosSale
+from app.aris3.db.models import PosReturnEvent, PosSale, StockItem
 from app.aris3.repos.pos_sales import PosSaleRepository
+from app.aris3.services.stock_rules import sale_epc_filters, sale_sku_filters
 from app.aris3.schemas.pos_returns import (
     ReturnActionRequest,
     ReturnDetail,
@@ -29,6 +30,7 @@ TRACKED_SALE_ACTIONS = {"REFUND_ITEMS", "EXCHANGE_ITEMS"}
 DRAFT_ACTION = "RETURN_DRAFT"
 VOID_ACTION = "RETURN_VOID"
 COMPLETE_ACTION = "RETURN_COMPLETE"
+RETURN_WINDOW_DAYS = 7
 
 
 def _normalize_uuid(value) -> str:
@@ -76,7 +78,21 @@ def _completed_returned_quantities(events: list[PosReturnEvent]) -> dict[str, in
     return refunded
 
 
-def _quote_from_sale(repo: PosSaleRepository, sale_id: str, request: ReturnQuoteRequest) -> ReturnQuoteResponse:
+def _validate_sale_eligibility_for_return(sale: PosSale) -> None:
+    if str(sale.status).upper() != "PAID":
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale is not finalized"})
+    if sale.checked_out_at is None:
+        raise AppError(ErrorCatalog.VALIDATION_ERROR, details={"message": "sale checkout timestamp is required"})
+    if datetime.utcnow() > (sale.checked_out_at + timedelta(days=RETURN_WINDOW_DAYS)):
+        raise AppError(
+            ErrorCatalog.BUSINESS_CONFLICT,
+            details={"message": "exchange window expired", "max_days": RETURN_WINDOW_DAYS},
+        )
+
+
+def _quote_from_sale(repo: PosSaleRepository, sale: PosSale, request: ReturnQuoteRequest) -> ReturnQuoteResponse:
+    _validate_sale_eligibility_for_return(sale)
+    sale_id = _normalize_uuid(sale.id)
     lines = repo.get_lines(sale_id)
     line_lookup = {_normalize_uuid(line.id): line for line in lines}
     return_events = repo.get_return_events(sale_id)
@@ -116,7 +132,63 @@ def _quote_from_sale(repo: PosSaleRepository, sale_id: str, request: ReturnQuote
     exchange_total = Decimal("0.00")
     for exchange_line in request.exchange_lines or []:
         qty = int(exchange_line.qty or 1)
-        unit_price = Decimal(str(exchange_line.unit_price or Decimal("0.00"))).quantize(Decimal("0.01"))
+        if exchange_line.line_type == "EPC":
+            stock = (
+                repo.db.execute(
+                    select(StockItem).where(
+                        *sale_epc_filters(
+                            tenant_id=_normalize_uuid(sale.tenant_id),
+                            store_id=request.store_id,
+                            epc=str(exchange_line.epc),
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if stock is None:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "replacement item not available", "epc": exchange_line.epc},
+                )
+            unit_price = Decimal(str(stock.sale_price or Decimal("0.00"))).quantize(Decimal("0.01"))
+        else:
+            available_count = int(
+                repo.db.execute(
+                    select(func.count()).select_from(StockItem).where(
+                        *sale_sku_filters(
+                            tenant_id=_normalize_uuid(sale.tenant_id),
+                            store_id=request.store_id,
+                            sku=str(exchange_line.sku),
+                        )
+                    )
+                ).scalar_one()
+                or 0
+            )
+            if available_count < qty:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "quantity exceeds available", "sku": exchange_line.sku, "available_qty": available_count},
+                )
+            stock = (
+                repo.db.execute(
+                    select(StockItem).where(
+                        *sale_sku_filters(
+                            tenant_id=_normalize_uuid(sale.tenant_id),
+                            store_id=request.store_id,
+                            sku=str(exchange_line.sku),
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if stock is None:
+                raise AppError(
+                    ErrorCatalog.VALIDATION_ERROR,
+                    details={"message": "replacement item not available", "sku": exchange_line.sku},
+                )
+            unit_price = Decimal(str(stock.sale_price or Decimal("0.00"))).quantize(Decimal("0.01"))
         line_total = (unit_price * Decimal(qty)).quantize(Decimal("0.01"))
         exchange_total += line_total
         exchange_preview.append(
@@ -151,7 +223,10 @@ class PosReturnsService:
         self.repo = PosSaleRepository(db)
 
     def compute_quote(self, request: ReturnQuoteRequest) -> ReturnQuoteResponse:
-        return _quote_from_sale(self.repo, request.sale_id, request)
+        sale = self.repo.get_by_id(request.sale_id)
+        if sale is None:
+            raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
+        return _quote_from_sale(self.repo, sale, request)
 
     def get_eligibility(self, *, sale_id: str | None, receipt_number: str | None) -> ReturnEligibilityResponse:
         if not sale_id and not receipt_number:
@@ -164,6 +239,7 @@ class PosReturnsService:
             sale = self.db.execute(select(PosSale).where(PosSale.receipt_number == receipt_number).limit(1)).scalars().first()
         if sale is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
+        _validate_sale_eligibility_for_return(sale)
 
         lines = self.repo.get_lines(_normalize_uuid(sale.id))
         return_events = self.repo.get_return_events(_normalize_uuid(sale.id))
@@ -191,11 +267,12 @@ class PosReturnsService:
         )
 
     def create_draft(self, request: ReturnQuoteRequest) -> ReturnDetail:
-        quote = self.compute_quote(request)
-        now = datetime.utcnow()
         sale = self.repo.get_by_id(request.sale_id)
         if sale is None:
             raise AppError(ErrorCatalog.RESOURCE_NOT_FOUND, details={"message": "sale not found"})
+        _validate_sale_eligibility_for_return(sale)
+        quote = _quote_from_sale(self.repo, sale, request)
+        now = datetime.utcnow()
         event = PosReturnEvent(
             tenant_id=sale.tenant_id,
             store_id=request.store_id,

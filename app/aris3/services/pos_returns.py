@@ -136,9 +136,8 @@ def _quote_from_sale(repo: PosSaleRepository, sale: PosSale, request: ReturnQuot
             )
         unit_price = Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
         line_total = (unit_price * Decimal(item.qty)).quantize(Decimal("0.01"))
-        if item.resolution == "REFUND":
-            refund_total += line_total
-        else:
+        refund_total += line_total
+        if item.resolution == "EXCHANGE":
             exchange_candidates += 1
         normalized_lines.append(
             {

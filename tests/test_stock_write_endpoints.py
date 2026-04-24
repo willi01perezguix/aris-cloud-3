@@ -604,6 +604,62 @@ def test_migrate_failure_when_pending_zero(client, db_session):
     assert response.json()["code"] == ErrorCatalog.VALIDATION_ERROR.code
 
 
+def test_migrate_ignores_data_epc_and_non_identity_fields(client, db_session):
+    run_seed(db_session)
+    tenant, user = _create_tenant_user(db_session, suffix="migrate-ignore-epc")
+    db_session.add(
+        StockItem(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            store_id=user.store_id,
+            sku="SKU-1",
+            description="Blue Jacket",
+            var1_value="Blue",
+            var2_value="L",
+            epc=None,
+            location_code="LOC-1",
+            pool="P1",
+            status="PENDING",
+            location_is_vendible=True,
+            image_url="https://existing.example/image.png",
+        )
+    )
+    db_session.commit()
+
+    token = _login(client, user.username, "Pass1234!")
+    payload = {
+        "transaction_id": "txn-migrate-ignore-epc-1",
+        "epc": "A" * 24,
+        "data": {
+            "sku": "SKU-1",
+            "description": "...different-description...",
+            "var1_value": "Blue",
+            "var2_value": "L",
+            "epc": "A" * 24,
+            "location_code": "LOC-1",
+            "pool": "P1",
+            "store_id": str(user.store_id),
+            "status": "PENDING",
+            "location_is_vendible": True,
+            "image_asset_id": None,
+            "image_url": None,
+            "image_thumb_url": None,
+            "image_source": None,
+            "image_updated_at": None,
+        },
+    }
+
+    response = client.post(
+        "/aris3/stock/migrate-sku-to-epc",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "migrate-ignore-epc-1"},
+        json=payload,
+    )
+    assert response.status_code == 200
+    row = db_session.query(StockItem).filter(StockItem.tenant_id == tenant.id).one()
+    assert row.status == "RFID"
+    assert row.epc == "A" * 24
+
+
 def test_tenant_boundary_enforcement(client, db_session):
     run_seed(db_session)
     tenant_a, user_a = _create_tenant_user(db_session, suffix="tenant-a")

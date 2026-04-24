@@ -360,6 +360,31 @@ def _build_stock_match_filter(scoped_tenant_id: str, data):
     )
 
 
+def _build_pending_migration_filters(scoped_tenant_id: str, data):
+    filters = [
+        StockItem.tenant_id == scoped_tenant_id,
+        StockItem.status == "PENDING",
+        StockItem.epc.is_(None),
+    ]
+    if data.sku is not None:
+        filters.append(StockItem.sku == data.sku)
+    if data.var1_value is not None:
+        filters.append(StockItem.var1_value == data.var1_value)
+    if data.var2_value is not None:
+        filters.append(StockItem.var2_value == data.var2_value)
+    if data.location_code is not None:
+        filters.append(StockItem.location_code == data.location_code)
+    if data.pool is not None:
+        filters.append(StockItem.pool == data.pool)
+    if data.store_id is None:
+        filters.append(StockItem.store_id.is_(None))
+    else:
+        filters.append(StockItem.store_id == data.store_id)
+    if data.location_is_vendible is not None:
+        filters.append(StockItem.location_is_vendible == data.location_is_vendible)
+    return tuple(filters)
+
+
 @router.get("/aris3/stock", response_model=StockQueryResponse)
 def list_stock(
     request: Request,
@@ -889,26 +914,7 @@ def migrate_stock_sku_to_epc(
         db.execute(
             select(StockItem)
             .where(
-                StockItem.tenant_id == scoped_tenant_id,
-                StockItem.status == "PENDING",
-                StockItem.sku == payload.data.sku,
-                StockItem.description == payload.data.description,
-                StockItem.var1_value == payload.data.var1_value,
-                StockItem.var2_value == payload.data.var2_value,
-                (StockItem.epc.is_(None) if payload.data.epc is None else StockItem.epc == payload.data.epc),
-                StockItem.location_code == payload.data.location_code,
-                StockItem.pool == payload.data.pool,
-                (
-                    StockItem.store_id.is_(None)
-                    if payload.data.store_id is None
-                    else StockItem.store_id == payload.data.store_id
-                ),
-                StockItem.location_is_vendible == payload.data.location_is_vendible,
-                StockItem.image_asset_id == _image_asset_uuid(payload.data.image_asset_id),
-                StockItem.image_url == payload.data.image_url,
-                StockItem.image_thumb_url == payload.data.image_thumb_url,
-                StockItem.image_source == payload.data.image_source,
-                StockItem.image_updated_at == _normalize_utc_datetime(payload.data.image_updated_at),
+                *_build_pending_migration_filters(scoped_tenant_id, payload.data),
             )
             .with_for_update()
             .order_by(StockItem.created_at.asc())
